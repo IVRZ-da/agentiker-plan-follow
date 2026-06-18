@@ -1,8 +1,9 @@
 name: plan_follow
-version: 0.1.0
-description: "agentiker-plan-follow-plugin — Hermes Plugin for structured plan creation, execution enforcement, and cross-session persistence via Honcho. Provides 6 tools (plan_create, plan_current, plan_complete, plan_verify, plan_status, plan_update) and a pre_llm_call hook for task injection."
+version: 1.1.0
+description: "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit, Disk-Recovery, TTL-Cache, Plan-Validierung, Fälligkeitsdaten und Archivierung. Bietet 17 Tools (plan_create/current/complete/verify/status/update/list/abort/delete/select/review/review_profiles/validate/duedate/archive/restore + validate/duedate), 2 Hooks (pre_llm_call + post_tool_call), 6 Templates (deploy/bugfix/feature/refactoring/research/analysis) und 217 Tests."
 author: "Johannes Lettner"
 license: MIT
 repo: https://git.ivory.green/johannes/agentiker-plan-follow-plugin
 hooks:
   - pre_llm_call
+  - post_tool_call
