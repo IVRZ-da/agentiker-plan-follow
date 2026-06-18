@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.1.0 (2026-06-18)
+## [0.1.4] — 2026-06-18
+
+### Version Reset
+- **Version corrected: v1.1.0 → v0.1.4** — granular 0.1.x semantic versioning
+- BRANCHING.md — branch naming convention + 0.1.x versioning policy
+- Branch protection on main (no direct pushes, 1 approval required)
 
 ### New Features
 - **plan_archive / plan_restore** — Archive plans as soft delete. `plan_archive(plan_id)` moves to `~/.hermes/plans/archived/`, `plan_restore(plan_id)` brings it back. `plan_list(include_archived=true)` shows archived plans.
