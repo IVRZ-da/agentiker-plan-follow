@@ -337,7 +337,65 @@ class TestHealthCheck:
         assert "Firecrawl: Tool" not in str(result.get("issues", []))
 
 
+# ─── Tests: Tool Handler Dispatch (simuliert Hermes-Aufruf) ─────────────────
+
+class TestToolHandlerDispatch:
+    """Test that tool handlers work with the Hermes dispatch pattern (args dict, not kwargs)."""
+
+    def test_plan_create_handler_dispatch(self, sample_tasks, reset_plans_dir):
+        from plan_follow.plan_tools import plan_create_tool
+        result = json.loads(plan_create_tool({
+            "goal": "Test dispatch", "tasks": sample_tasks,
+        }))
+        assert result["status"] == "created"
+
+    def test_plan_current_handler_dispatch(self, sample_tasks):
+        from plan_follow.plan_tools import plan_current_tool, plan_create_tool
+        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+        result = json.loads(plan_current_tool({}))
+        assert result["task_id"] == "p1"
+
+    def test_plan_complete_handler_dispatch(self, sample_tasks):
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
+        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        assert result["status"] == "completed"
+
+    def test_plan_verify_handler_dispatch(self, sample_tasks):
+        from plan_follow.plan_tools import plan_verify_tool, plan_create_tool
+        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+        result = json.loads(plan_verify_tool({}))
+        assert result["status"] in ("clean", "drift_detected")
+
+    def test_plan_status_handler_dispatch(self, sample_tasks):
+        from plan_follow.plan_tools import plan_status_tool, plan_create_tool
+        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+        result = json.loads(plan_status_tool({}))
+        assert len(result["tasks"]) == 3
+
+    def test_plan_update_handler_dispatch(self, sample_tasks):
+        from plan_follow.plan_tools import plan_update_tool, plan_create_tool
+        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+        result = json.loads(plan_update_tool({
+            "task_id": "p1", "changes": {"files": ["new.ts"]},
+        }))
+        assert result["status"] == "updated"
+
+    def test_all_handlers_accept_args_dict(self):
+        """Verify every handler has (args, **kwargs) signature."""
+        import inspect
+        from plan_follow import plan_tools
+        for name in ["plan_create_tool", "plan_current_tool", "plan_complete_tool",
+                      "plan_verify_tool", "plan_status_tool", "plan_update_tool"]:
+            handler = getattr(plan_tools, name)
+            sig = inspect.signature(handler)
+            params = list(sig.parameters.keys())
+            assert params[0] in ("args", "kwargs"), \
+                f"{name}: erster Parameter muss 'args' oder '**kwargs' sein, ist: {params[0]}"
+
+
 # ─── Tests: Edge Cases ────────────────────────────────────────────────────────
+
 
 class TestEdgeCases:
     def test_single_task_plan(self):

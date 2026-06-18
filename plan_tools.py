@@ -12,8 +12,11 @@ from . import plan_core
 logger = logging.getLogger("plan_follow")
 
 
-def plan_create_tool(goal: str, tasks: list, repo: str = "") -> str:
+def plan_create_tool(args: dict, **kwargs) -> str:
     """Create a new structured plan with enforceable tasks."""
+    goal = args.get("goal", "")
+    tasks = args.get("tasks", [])
+    repo = args.get("repo", "")
     if not goal:
         return json.dumps({"error": "goal ist erforderlich"})
     if not tasks:
@@ -32,7 +35,7 @@ def plan_create_tool(goal: str, tasks: list, repo: str = "") -> str:
     }, ensure_ascii=False)
 
 
-def plan_current_tool() -> str:
+def plan_current_tool(args: dict, **kwargs) -> str:
     """Show the current task. Only ONE task is visible at a time."""
     current = plan_core.get_current_task()
     if not current:
@@ -40,8 +43,9 @@ def plan_current_tool() -> str:
     return json.dumps(current, ensure_ascii=False)
 
 
-def plan_complete_tool(task_id: str) -> str:
+def plan_complete_tool(args: dict, **kwargs) -> str:
     """Complete the current task, verify it, advance to next."""
+    task_id = args.get("task_id", "")
     if not task_id:
         return json.dumps({"error": "task_id ist erforderlich"})
 
@@ -68,7 +72,7 @@ def plan_complete_tool(task_id: str) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
-def plan_verify_tool() -> str:
+def plan_verify_tool(args: dict, **kwargs) -> str:
     """Check for drift: unplanned changes compared to the current plan."""
     current = plan_core.get_current_task()
     if not current:
@@ -92,7 +96,7 @@ def plan_verify_tool() -> str:
     }, ensure_ascii=False)
 
 
-def plan_status_tool() -> str:
+def plan_status_tool(args: dict, **kwargs) -> str:
     """Show all tasks with their status."""
     status = plan_core.get_plan_status()
     if not status:
@@ -100,8 +104,10 @@ def plan_status_tool() -> str:
     return json.dumps(status, ensure_ascii=False)
 
 
-def plan_update_tool(task_id: str, changes: dict) -> str:
+def plan_update_tool(args: dict, **kwargs) -> str:
     """Update a task's properties (files, verify, depends_on, name)."""
+    task_id = args.get("task_id", "")
+    changes = args.get("changes", {})
     if not task_id:
         return json.dumps({"error": "task_id ist erforderlich"})
     if not changes:
