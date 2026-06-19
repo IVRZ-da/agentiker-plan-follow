@@ -5,16 +5,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: python-test
     steps:
       - uses: actions/checkout@v4
         with:
           path: plan_follow
-      - name: Setup Python
-        working-directory: plan_follow
-        run: |
-          curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --break-system-packages -q
-          pip3 install pytest -q --break-system-packages
       - name: Run tests
         working-directory: plan_follow
         run: |
