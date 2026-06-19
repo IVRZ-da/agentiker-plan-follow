@@ -236,6 +236,51 @@ def plan_review_profiles_tool(args: dict, **kwargs) -> str:
         for name, p in PROFILES.items()
     ]
     return json.dumps(profiles, ensure_ascii=False)
+def plan_auto_review_tool(args: dict, **kwargs) -> str:
+    """Prepare a complete review in one call — files, coverage, prompt.
+
+    Bundles the entire review preparation:
+    1. Reads task files
+    2. Measures test coverage (if profile has coverage checks)
+    3. Builds the delegate_task prompt
+    4. Returns everything ready for use
+
+    Parameters:
+    - task_id (str, required): The task ID to review
+    - profile (str, optional): Review profile (auto|none|unit-test|api-route|ui-component|security|full). Default: auto
+    - depth (str, optional): Review depth (quick|normal|deep). Default: normal
+
+    Returns:
+    - status: 'ready' → run delegate_task with the prompt
+    - status: 'coverage_failed' → coverage too low, write more tests first
+    - status: 'skipped' → no review needed
+    - status: 'error' → something went wrong
+    """
+    task_id = args.get("task_id", "")
+    profile = args.get("profile", "auto")
+    depth = args.get("depth", "normal")
+
+    if not task_id:
+        return json.dumps({"error": "task_id is required"})
+
+    current = plan_core.get_current_task()
+    if not current:
+        return json.dumps({"error": "No active plan."})
+
+    if current["task_id"] != task_id:
+        return json.dumps({
+            "error": f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}"
+        })
+
+    # Get full plan for coverage path resolution
+    plan = plan_core._get_active_plan()
+
+    # Use auto_review() from plan_review
+    from .plan_review import auto_review
+    result = auto_review(current, plan, profile, depth)
+
+    return json.dumps(result, ensure_ascii=False)
+
 
 
 def plan_list_tool(args: dict, **kwargs) -> str:

@@ -33,6 +33,8 @@ PROFILES: dict[str, dict[str, Any]] = {
             "edge_cases_covered",
             "no_debug_prints",
             "test_names_descriptive",
+            "test_coverage_90",
+            "test_coverage_measured",
         ],
     },
     "api-route": {
@@ -90,6 +92,8 @@ PROFILES: dict[str, dict[str, Any]] = {
             "input_sanitization",
             "csrf_protection",
             "no_eval",
+            "test_coverage_90",
+            "test_coverage_measured",
         ],
     },
 }
@@ -138,6 +142,8 @@ def get_check_description(check_name: str) -> str:
         "form_validation": "Form-Validierung (onSubmit + onChange, keine Lücke)",
         "mobile_responsive": "Mobile-Responsive (Tailwind Breakpoints)",
         "no_vanilla_dom": "Keine Vanilla-JS DOM-Manipulation (useRef statt getElementById)",
+        "test_coverage_90": "Test-Coverage ist ≥ 90% (gemessen via pytest --cov)",
+        "test_coverage_measured": "Coverage-Messung wurde erfolgreich durchgeführt (kein Fehler im Messprozess)",
         "no_secrets_in_code": "Keine Secrets/Keys im Code (nur env-vars)",
         "input_sanitization": "Input-Sanitization (XSS, HTML Injection)",
         "csrf_protection": "CSRF-Schutz (bei Server Actions: CSRF-Token)",
