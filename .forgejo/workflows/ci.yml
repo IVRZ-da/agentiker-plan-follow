@@ -11,14 +11,11 @@ jobs:
         with:
           path: plan_follow
       - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-      - name: Install dependencies
         working-directory: plan_follow
         run: |
-          pip install pytest
+          curl -sS https://bootstrap.pypa.io/get-pip.py | python3 - --break-system-packages -q
+          pip3 install pytest -q --break-system-packages
       - name: Run tests
         working-directory: plan_follow
         run: |
-          python -m pytest tests/ -v --tb=short
+          python3 -m pytest tests/ -v --tb=short
