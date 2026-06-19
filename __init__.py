@@ -11,6 +11,7 @@ from hermes_cli.plugins import PluginContext
 
 from . import plan_core
 from . import plan_tools
+from . import plan_todo
 
 logger = logging.getLogger("plan_follow")
 
@@ -62,12 +63,34 @@ TOOL_DESCRIPTIONS = {
         "Show all tasks with their current status (pending/in_progress/completed/blocked). "
         "Returns a progress overview with counts and blocked-by reasons."
     ),
+    "plan_todo": (
+        "Manage your task list for the active plan. "
+        "Replaces the built-in `todo` tool.\n"
+        "Read mode (no parameters):\n"
+        "- Returns ALL tasks of the active plan as a compact todo list.\n"
+        "- Output: {todos: [...], summary: {total, pending, in_progress, completed, cancelled}}\n"
+        "Write mode (todos + merge=true):\n"
+        "- Set status to 'completed' → completes the task via plan_complete\n"
+        "- Other status changes are ignored (plan manages status internally)\n"
+    ),
     "plan_update": (
         "Update a task's properties without aborting the plan. "
         "Parameters:\n"
         "- task_id (str, required): The task ID to update\n"
         "- changes (dict, required): Fields to update (files, verify, depends_on, name, review_profile)\n"
         "Use this for 'living document' scenario when new information surfaces."
+    ),
+    "plan_auto_review": (
+        "Prepare a complete review in one call — reads files, measures test coverage, "
+        "and builds the delegate_task prompt. "
+        "Parameters:\n"
+        "- task_id (str, required): The task ID to review\n"
+        "- profile (str, optional): Review profile (auto|none|unit-test|api-route|ui-component|security|full). Default: auto\n"
+        "- depth (str, optional): Review depth (quick|normal|deep). Default: normal\n"
+        "Returns:\n"
+        "- status 'ready' → run delegate_task with the 'prompt' field\n"
+        "- status 'coverage_failed' → coverage too low, write more tests first\n"
+        "- status 'skipped' → no review needed"
     ),
     "plan_review": (
         "Review a task's files using an independent reviewer subagent. "
@@ -145,8 +168,10 @@ PLAN_TOOLS = [
     ("plan_complete", plan_tools.plan_complete_tool),
     ("plan_verify", plan_tools.plan_verify_tool),
     ("plan_status", plan_tools.plan_status_tool),
+    ("plan_todo", plan_todo.plan_todo_tool),
     ("plan_update", plan_tools.plan_update_tool),
     ("plan_review", plan_tools.plan_review_tool),
+    ("plan_auto_review", plan_tools.plan_auto_review_tool),
     ("plan_review_profiles", plan_tools.plan_review_profiles_tool),
     ("plan_list", plan_tools.plan_list_tool),
     ("plan_abort", plan_tools.plan_abort_tool),
@@ -231,6 +256,32 @@ PER_TOOL_SCHEMAS = {
         "type": "object",
         "properties": {},
     },
+    "plan_todo": {
+        "type": "object",
+        "properties": {
+            "todos": {
+                "type": "array",
+                "description": "Task items to write. Omit to read current list.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "Task identifier"},
+                        "content": {"type": "string", "description": "Task description"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "in_progress", "completed", "cancelled"],
+                            "description": "New status (completed → plan_complete)",
+                        },
+                    },
+                },
+            },
+            "merge": {
+                "type": "boolean",
+                "description": "true: update existing items. false: read mode (default).",
+                "default": False,
+            },
+        },
+    },
     "plan_update": {
         "type": "object",
         "properties": {
@@ -251,6 +302,25 @@ PER_TOOL_SCHEMAS = {
             },
         },
         "required": ["task_id", "changes"],
+    },
+    "plan_auto_review": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "Task ID zum Reviewen"},
+            "profile": {
+                "type": "string",
+                "enum": VALID_REVIEW_PROFILES_WITH_AUTO,
+                "description": "Review-Profil (auto = aus Task, sonst override)",
+                "default": "auto",
+            },
+            "depth": {
+                "type": "string",
+                "enum": ["quick", "normal", "deep"],
+                "description": "Review-Tiefe (default: normal)",
+                "default": "normal",
+            },
+        },
+        "required": ["task_id"],
     },
     "plan_review": {
         "type": "object",
@@ -340,7 +410,7 @@ def _register_tools(ctx: PluginContext) -> None:
             handler=handler,
             description=TOOL_DESCRIPTIONS.get(name, ""),
         )
-    logger.info("plan_follow: 16 tools registered (plan_create/current/complete/verify/status/update/review/review_profiles/list/abort/delete/select/validate/duedate/archive/restore)")
+    logger.info("plan_follow: 18 tools registered (plan_create/current/complete/verify/status/todo/update/review/auto_review/review_profiles/list/abort/delete/select/validate/duedate/archive/restore)")
 
 
 def _register_hooks(ctx: PluginContext) -> None:
@@ -359,15 +429,24 @@ def _register_skill(ctx: PluginContext) -> None:
         ctx.register_skill(
             name="plan-follow",
             path=skill_path,
-            description="Plan-Follow: task enforcement via plan_create/current/complete/verify/status/update tools",
+            description="Plan-Follow: task enforcement via plan_create/current/complete/verify/status/todo/update tools",
         )
 
 
 def _inject_steering_hints() -> None:
-    """Add usage hints to existing tool descriptions (like code_intel does)."""
+    """Add usage hints to existing tool descriptions (like code_intel does).
+    Also deregisters the built-in `todo` tool since plan_todo replaces it.
+    """
     from tools.registry import registry
+
+    # Deregister built-in todo tool — plan_todo ersetzt es
+    try:
+        registry.deregister("todo")
+        logger.info("plan_follow: built-in 'todo' tool deregistered (replaced by plan_todo)")
+    except Exception as e:
+        logger.warning("plan_follow: could not deregister 'todo': %s", e)
+
     hints = [
-        ("todo", "\n\nFor plan-aware task tracking with dependency enforcement, use plan_create + plan_current instead of todo alone. todo is for simple lists, plan_follow tools enforce task order and scope."),
         ("plan_create", "\n\nAfter creating a plan, call plan_current() to see the first task. Complete tasks in order: plan_complete(task_id) when done, then plan_current() shows the next one."),
     ]
     for tool_name, hint_text in hints:

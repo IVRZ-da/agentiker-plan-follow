@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0] — 2026-06-19
+
+### Added
+- **plan_auto_review()** — Automated review preparation in one call. Reads task.files, measures test coverage via pytest --cov, builds complete delegate_task prompt. Returns status: `ready`, `coverage_failed`, or `skipped`.
+- **Coverage-Enforcement** — Coverage gate blocks review when < 90%. Saves GPU time by preventing delegate_task calls when tests are insufficient.
+- **plan_coverage.py** — New module for coverage measurement. Supports per-project coverage paths with automatic project root detection (task.coverage_path → plan.repo → file-based derivation → CWD).
+- **plan_todo.py** — New todo tool replacing built-in `todo`. Generates plan-aware todo lists from plan_follow tasks. Compatible output format (`{todos, summary}`).
+- **Coverage profiles** — `unit-test` and `full` review profiles now include `test_coverage_90` and `test_coverage_measured` checks.
+- **Coverage_path field** — Tasks can specify custom coverage measurement paths via `coverage_path` in task config.
+
+### Changed
+- **313 tests (was 217)** — +96 new tests for plan_auto_review, coverage measurement, todo replacement.
+- **Coverage 78% (was 70%)** — Targeted coverage boost across plan_core (83→88%), plan_hooks (68→83%), plan_todo (19→72%), plan_templates (25→43%), plan_coverage (neu 62%).
+- **plugin.yaml** — Description updated to reflect 18 tools, 7 templates, 313 tests.
+- **review_profiles.py** — `unit-test` and `full` profiles enhanced with coverage checks.
+
+### Tool Count
+- **18 tools** (was 17): Added `plan_auto_review`.
+
 ## [0.1.4] — 2026-06-18
 
 ### Version Reset
