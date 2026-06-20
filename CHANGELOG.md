@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.1] — 2026-06-20
+
+### Fixed
+
+- **plan_roadmap**: Parameter-Name-Inkonsistenz behoben. Der Handler akzeptiert jetzt `action=` (konsistent mit `plan_lock`/`plan_notify`) zusätzlich zum deprecated `cmd=`. Davor wurde `action=` stumm ignoriert → `status`-Default. (4ba06c8)
+- **PER_TOOL_SCHEMAS + TOOL_DESCRIPTIONS**: Schema auf `action` als primären Parameter umgestellt, `cmd` als deprecated Alias belassen.
+
+### Tests
+- **test_roadmap.py**: 6 neue Tests für `action=`-Parameter (test_action_list_works_like_cmd, test_action_create_works_like_cmd, test_action_show_works_like_cmd, test_action_set_works_like_cmd, test_action_defaults_to_status, test_cmd_takes_precedence_over_action). 61 Tests total.
+
 ## [1.2.0] — 2026-06-20
 
 ### Added

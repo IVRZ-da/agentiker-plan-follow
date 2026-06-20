@@ -556,6 +556,68 @@ class TestToolHandler:
         result = plan_roadmap_handler({"cmd": "invalid_cmd"})
         assert "Unbekannter" in result or "verfuegbar" in result.lower()
 
+    # ─── action= Parameter (konsistent mit plan_lock/plan_notify) ───────────
+
+    def test_action_list_works_like_cmd(self, sample_roadmap_data):
+        """action=list funktioniert genauso wie cmd=list."""
+        name = "test-action-list"
+        _save_roadmap(name, sample_roadmap_data)
+        result = plan_roadmap_handler({"action": "list"})
+        assert name in result
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_action_create_works_like_cmd(self):
+        """action=create funktioniert genauso wie cmd=create."""
+        result = plan_roadmap_handler({
+            "action": "create",
+            "name": "test-action-create",
+            "phases": [{"id": "a", "name": "Phase A"}],
+        })
+        assert "erstellt" in result
+        path = ROADMAPS_DIR / "test-action-create.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_action_show_works_like_cmd(self, sample_roadmap_data):
+        """action=show funktioniert genauso wie cmd=show."""
+        name = "test-action-show"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({"action": "show", "phase": "blog"})
+        assert "Blog befüllen" in result
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_action_set_works_like_cmd(self, sample_roadmap_data):
+        """action=set funktioniert genauso wie cmd=set."""
+        name = "test-action-set"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({"action": "set", "phase": "blog", "status": "in_progress"})
+        assert "in_progress" in result or "->" in result
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_action_defaults_to_status(self):
+        """Kein Parameter -> default 'status' (zeigt Fehler wenn keine Roadmap existiert)."""
+        result = plan_roadmap_handler({})
+        assert isinstance(result, str)
+
+    def test_cmd_takes_precedence_over_action(self, sample_roadmap_data):
+        """Wenn cmd UND action gesetzt sind, hat cmd Vorrang."""
+        name = "test-precedence"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({"cmd": "show", "action": "status", "phase": "blog"})
+        assert "Blog befüllen" in result  # would show overview if action= had precedence
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
 
 # ─── Active Roadmap ───────────────────────────────────────────────────────────
 

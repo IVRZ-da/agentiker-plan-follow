@@ -275,8 +275,12 @@ def _phase_to_plan_tasks(phase: dict) -> list[dict]:
 # ─── Main Tool Handler ────────────────────────────────────────────────────────
 
 def plan_roadmap_handler(args: dict, **kwargs: Any) -> str:
-    """Handle plan_roadmap tool calls."""
-    cmd = args.get("cmd", "status")
+    """Handle plan_roadmap tool calls.
+    
+    Accepts both ``cmd`` (legacy) and ``action`` (consistent with plan_lock/plan_notify).
+    If neither is specified, defaults to "status".
+    """
+    cmd = args.get("cmd") or args.get("action") or "status"
 
     # Commands that work without an active roadmap
     if cmd == "list":
