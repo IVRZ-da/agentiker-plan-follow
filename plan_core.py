@@ -22,6 +22,7 @@ Plan format (stored in ~/.hermes/plans/<plan_id>.json):
 
 import json
 import os
+import uuid
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,36 @@ PLANS_DIR = Path.home() / ".hermes" / "plans"
 HONCHO_URL = "http://127.0.0.1:8001"
 HONCHO_WORKSPACE = "plan-follow"
 HONCHO_PEER = "plan-follow-agent"
+
+# ─── Centralized Session ID ────────────────────────────────────────────────────
+
+_SESSION_ID: Optional[str] = None
+
+
+def get_session_id() -> str:
+    """Get the current Hermes session ID, with fallback.
+
+    Uses HERMES_SESSION_ID first (set by Hermes runtime), then SESSION_ID,
+    then a once-generated UUID as last resort. Cached in _SESSION_ID after
+    first call so all callers within a plan_session lifecycle agree on the
+    same ID.
+    """
+    global _SESSION_ID
+    if _SESSION_ID is not None:
+        return _SESSION_ID
+    sid = os.environ.get("HERMES_SESSION_ID") or os.environ.get("SESSION_ID") or ""
+    if not sid:
+        sid = str(uuid.uuid4())
+    # Setze die Umgebungsvariable, damit Subprozesse die selbe Session-ID sehen
+    os.environ.setdefault("HERMES_SESSION_ID", sid)
+    _SESSION_ID = sid
+    return _SESSION_ID
+
+
+def reset_session_id() -> None:
+    """Reset the cached session ID (for testing)."""
+    global _SESSION_ID
+    _SESSION_ID = None
 
 
 # ─── In-Memory Cache ─────────────────────────────────────────────────────────
@@ -508,11 +539,9 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
 
     # Cross-Session: Session registrieren
     try:
-        import os, socket
         from .coord_state import register_session
-        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
         register_session(
-            session_id,
+            get_session_id(),
             plan_id=plan_id,
             goal=goal[:80],
             cwd=os.getcwd(),
@@ -650,6 +679,8 @@ def complete_task(task_id: str) -> dict:
     # Mark as completed
     task["status"] = "completed"
     _save_plan_state_to_honcho(plan["plan_id"], task_id, "completed")
+    # Release locks for completed task
+    _auto_unlock_task_files(task)
 
     # Handle parallel groups
     groups = plan.get("parallel_groups")
@@ -663,10 +694,8 @@ def complete_task(task_id: str) -> dict:
 
     # Cross-Session: Session-Update bei Task-Abschluss
     try:
-        import os, socket
         from .coord_state import update_session
-        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
-        update_session(session_id, plan_id=plan["plan_id"])
+        update_session(get_session_id(), plan_id=plan["plan_id"])
     except Exception:
         pass  # Best-effort
 
@@ -676,6 +705,35 @@ def complete_task(task_id: str) -> dict:
         "next_task": plan.get("current_task"),
     }
     return result
+
+
+def _auto_lock_task_files(task: dict) -> None:
+    """Auto-acquire locks for all files in a task on activation.
+
+    Best-effort: if coord_state isn't available, silently skip.
+    """
+    files = task.get("files", [])
+    if not files:
+        return
+    try:
+        from .coord_state import acquire_lock
+        for f in files:
+            acquire_lock(f, get_session_id())
+    except Exception:
+        pass  # Best-effort
+
+
+def _auto_unlock_task_files(task: dict) -> None:
+    """Auto-release locks for all files in a completed task."""
+    files = task.get("files", [])
+    if not files:
+        return
+    try:
+        from .coord_state import release_lock
+        for f in files:
+            release_lock(f, get_session_id())
+    except Exception:
+        pass  # Best-effort
 
 
 def _advance_parallel_group(plan: dict, task_id: str, groups: dict) -> None:
@@ -728,6 +786,7 @@ def _advance_parallel_group(plan: dict, task_id: str, groups: dict) -> None:
             if t:
                 t["status"] = "in_progress"
                 _save_plan_state_to_honcho(plan["plan_id"], tid, "in_progress")
+                _auto_lock_task_files(t)
         # Set current_task to first task in new group
         plan["current_task"] = next_group["tasks"][0] if next_group["tasks"] else None
     else:
@@ -760,6 +819,7 @@ def _advance_linear(plan: dict) -> None:
         plan["current_task"] = next_task
         plan["tasks"][next_task]["status"] = "in_progress"
         _save_plan_state_to_honcho(plan["plan_id"], next_task, "in_progress")
+        _auto_lock_task_files(plan["tasks"][next_task])
     else:
         plan["current_task"] = None
         _save_plan_state_to_honcho(plan["plan_id"], "active", "false")
@@ -816,6 +876,12 @@ def set_active_plan(plan_id: str) -> bool:
     global _active_plan, _active_plan_id
     _active_plan = plan
     _active_plan_id = plan_id
+    # Auto-lock current task's files when activating a plan
+    current_task_id = plan.get("current_task")
+    if current_task_id:
+        current_task = plan["tasks"].get(current_task_id)
+        if current_task:
+            _auto_lock_task_files(current_task)
     return True
 
 
@@ -887,6 +953,7 @@ def abort_plan(task_id: str = "") -> dict:
         if not task:
             return {"status": "error", "message": f"Task '{task_id}' not found."}
         task["status"] = "aborted"
+        _auto_unlock_task_files(task)
         if plan.get("current_task") == task_id:
             plan["current_task"] = None
         msg = f"Task '{task_id}' aborted."
@@ -894,6 +961,7 @@ def abort_plan(task_id: str = "") -> dict:
         for tid, t in plan["tasks"].items():
             if t["status"] == "in_progress":
                 t["status"] = "aborted"
+                _auto_unlock_task_files(t)
         plan["current_task"] = None
         msg = "Whole plan aborted."
 
@@ -901,10 +969,8 @@ def abort_plan(task_id: str = "") -> dict:
 
     # Cross-Session: Deregistrierung bei Abbruch
     try:
-        import os, socket
         from .coord_state import unregister_session
-        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
-        unregister_session(session_id)
+        unregister_session(get_session_id())
     except Exception:
         pass  # Best-effort
 
@@ -933,10 +999,8 @@ def delete_plan(plan_id: str) -> dict:
 
     # Cross-Session: Deregistrierung bei Löschung
     try:
-        import os, socket
         from .coord_state import unregister_session
-        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
-        unregister_session(session_id)
+        unregister_session(get_session_id())
     except Exception:
         pass  # Best-effort
 

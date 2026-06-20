@@ -494,3 +494,159 @@ class TestEdgeCases:
         plan_notify_tool({"action": "check"}, **{})
         plan_history_tool({"plan_id": "smoke"}, **{})
         plan_git_init_tool({}, **{})
+        
+
+# ─── Auto-Lock/Unlock Tests ────────────────────────────────────────────────────
+
+
+class TestAutoLocks:
+    """Tests for auto-lock/unlock on task activation/completion."""
+
+    def test_auto_lock_task_files(self):
+        """_auto_lock_task_files should acquire locks for all task files."""
+        from plan_follow.plan_core import _auto_lock_task_files
+
+        task = {"files": ["src/foo.py", "src/bar.ts"]}
+        _auto_lock_task_files(task)
+
+        locks = get_locks()
+        assert "src/foo.py" in locks
+        assert "src/bar.ts" in locks
+
+    def test_auto_lock_empty_files(self):
+        """_auto_lock_task_files with empty files should not crash."""
+        from plan_follow.plan_core import _auto_lock_task_files
+        _auto_lock_task_files({"files": []})  # Should not raise
+
+    def test_auto_lock_no_files_key(self):
+        """_auto_lock_task_files without 'files' key should not crash."""
+        from plan_follow.plan_core import _auto_lock_task_files
+        _auto_lock_task_files({})  # Should not raise
+
+    def test_auto_unlock_task_files(self):
+        """_auto_unlock_task_files should release locks."""
+        from plan_follow.plan_core import _auto_lock_task_files, _auto_unlock_task_files
+
+        task = {"files": ["src/release.ts"]}
+        _auto_lock_task_files(task)
+        assert "src/release.ts" in get_locks()
+
+        _auto_unlock_task_files(task)
+        assert "src/release.ts" not in get_locks()
+
+    def test_auto_lock_then_unlock_reacquire(self):
+        """After unlock, another lock should succeed."""
+        from plan_follow.plan_core import _auto_lock_task_files, _auto_unlock_task_files
+
+        task = {"files": ["src/shared.ts"]}
+        _auto_lock_task_files(task)
+        _auto_unlock_task_files(task)
+
+        # Another session should be able to lock now
+        result = acquire_lock("src/shared.ts", "other-session")
+        assert result["status"] == "acquired"
+
+
+# ─── Session-ID Tests ──────────────────────────────────────────────────────────
+
+
+class TestSessionId:
+    """Tests for centralized get_session_id()."""
+
+    def test_get_session_id_cached(self):
+        """get_session_id should return same value within a session."""
+        from plan_follow.plan_core import get_session_id, reset_session_id
+        reset_session_id()
+        sid1 = get_session_id()
+        sid2 = get_session_id()
+        assert sid1 == sid2
+
+    def test_get_session_id_set_env(self):
+        """get_session_id should use HERMES_SESSION_ID env var when set."""
+        from plan_follow.plan_core import get_session_id, reset_session_id
+        reset_session_id()
+        expected = "my-custom-session-42"
+        os.environ["HERMES_SESSION_ID"] = expected
+        try:
+            reset_session_id()
+            sid = get_session_id()
+            assert sid == expected
+        finally:
+            os.environ.pop("HERMES_SESSION_ID", None)
+
+    def test_get_session_id_fallback_uuid(self):
+        """Without env var, get_session_id should return a UUID (not hostname)."""
+        from plan_follow.plan_core import get_session_id, reset_session_id
+
+        # Remove env vars to force UUID fallback
+        orig_h = os.environ.pop("HERMES_SESSION_ID", None)
+        orig_s = os.environ.pop("SESSION_ID", None)
+        try:
+            reset_session_id()
+            sid = get_session_id()
+            # Should look like a UUID: 8-4-4-4-12 hex pattern
+            import re
+            assert re.match(r"^[a-f0-9-]{36}$", sid), f"Expected UUID, got: {sid}"
+        finally:
+            if orig_h:
+                os.environ["HERMES_SESSION_ID"] = orig_h
+            if orig_s:
+                os.environ["SESSION_ID"] = orig_s
+
+    def test_notification_with_real_session(self):
+        """Notifications with real session IDs should work end-to-end."""
+        from plan_follow.plan_core import get_session_id, reset_session_id
+        reset_session_id()
+
+        sid = "test-real-session"
+        send_notification("alice", sid, "Hi from Alice")
+        notifs = get_notifications(sid, mark_read=False)
+        assert len(notifs) == 1
+        assert notifs[0]["message"] == "Hi from Alice"
+
+
+# ─── Cleanup Stale Tests ────────────────────────────────────────────────────────
+
+
+class TestCleanupStale:
+    """Tests for automatic stale session/lock cleanup."""
+
+    def test_cleanup_stale_sessions_removes_old(self):
+        """cleanup_stale_sessions should remove sessions older than max_age."""
+        register_session("old-session")
+        # Manually set last_seen far in the past
+        import json
+        from datetime import datetime, timezone
+        old_time = (datetime.now(timezone.utc).isoformat())
+        sessions = get_sessions()
+        sessions["old-session"]["last_seen"] = "2020-01-01T00:00:00"
+        from plan_follow.coord_state import _atomic_write
+        _atomic_write(SESSIONS_FILE, sessions)
+
+        removed = cleanup_stale_sessions(max_age_minutes=1)
+        assert removed >= 1
+        assert "old-session" not in get_sessions()
+
+    def test_cleanup_stale_sessions_keeps_fresh(self):
+        """cleanup_stale_sessions should NOT remove fresh sessions."""
+        register_session("fresh-session")
+        removed = cleanup_stale_sessions(max_age_minutes=60)
+        assert removed == 0
+        assert "fresh-session" in get_sessions()
+        unregister_session("fresh-session")
+
+    def test_cleanup_stale_locks_removes_old(self):
+        """cleanup_stale_locks should remove locks older than max_age."""
+        acquire_lock("/old-file.ts", "old")
+        # Manually set since far in the past
+        import json
+        from datetime import datetime, timezone
+        from plan_follow.coord_state import _atomic_write
+        locks = get_locks()
+        assert "/old-file.ts" in locks
+        locks["/old-file.ts"]["since"] = "2020-01-01T00:00:00"
+        _atomic_write(LOCKS_FILE, locks)
+
+        removed = cleanup_stale_locks(max_age_minutes=1)
+        assert removed >= 1
+        assert "/old-file.ts" not in get_locks()

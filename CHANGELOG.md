@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.3.0] — 2026-06-20
+
+### Added
+- **Zentrale Session-ID** — `get_session_id()` in plan_core.py ersetzt 4 duplizierte `import os, socket` Blöcke. Nutzt `HERMES_SESSION_ID` Umgebungsvariable, Fallback auf UUID (statt Hostname). Setzt `os.environ.setdefault()` für Subprozess-Konsistenz.
+- **Auto-Locks bei Task-Aktivierung** — `_auto_lock_task_files()` wird automatisch aufgerufen bei: Task-Start in `_advance_linear()`, Gruppen-Aktivierung in `_advance_parallel_group()`, Plan-Laden in `set_active_plan()`.
+- **Auto-Unlock bei Task-Abschluss** — `_auto_unlock_task_files()` gibt Locks frei bei `complete_task()` und `abort_plan()`.
+- **Lock-Enforcement im Hook** — `on_post_tool_call` prüft ob die editierte Datei von einer anderen Session gelockt ist und zeigt eine 🔒 Drift-Warning im Banner.
+- **cleanup_stale Automatisierung** — `cleanup_stale_sessions(60)` und `cleanup_stale_locks(120)` laufen im pre_llm_call Hook (60s TTL-Cache).
+- **Tests** — 12 neue Tests (68 total in test_coord_state.py): Auto-Locks (5), Session-ID (4), Cleanup Stale (3).
+
+### Fixed
+- **Notification-Bug** — `"current"` als Session-ID in get_notifications() durch echte `get_session_id()` ersetzt. Notifications kommen jetzt an.
+- **Dummy-Session-IDs** — `"plan-follow-default"` in plan_lock_tool/plan_notify_tool durch `get_session_id()` ersetzt.
+- **Session-Kollision** — Fallback `socket.gethostname()` durch `uuid.uuid4()` ersetzt → mehrere Sessions ohne HERMES_SESSION_ID haben garantiert unterschiedliche IDs.
+
+### Changed
+- **Plugin-Version** — 1.2.0 → 1.3.0
+- **plan_core.py** — `get_session_id()` + `reset_session_id()` + `_auto_lock_task_files()` + `_auto_unlock_task_files()`
+- **plan_hooks.py** — Lock-Enforcement in post_tool_call + cleanup_stale in pre_llm_call
+- **plan_tools.py** — plan_lock_tool/plan_notify_tool verwenden echte Session-ID statt Default
+
 ## [1.2.1] — 2026-06-20
 
 ### Fixed
