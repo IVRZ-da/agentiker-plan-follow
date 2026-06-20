@@ -2,9 +2,42 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
+
+# Helper: parse rich-formatted tool output back to dict
+def _parse_result(output: str) -> dict:
+    """Parse rich-formatted fmt_ok/fmt_err tool output to dict for assertions.
+    
+    Strips ANSI codes, extracts Key | Value pairs from rich Panel output.
+    Falls back to _parse_result() if output is plain JSON (for backward compat).
+    """
+    from rich.ansi import AnsiDecoder
+    
+    # Try plain JSON first (backward compat)
+    text = output.strip()
+    if text.startswith('{') and text.endswith('}'):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+    
+    # Strip ANSI codes
+    decoder = AnsiDecoder()
+    text = ''.join(s.plain for s in decoder.decode(output))
+    
+    result = {}
+    for line in text.replace('\r\n', '\n').split('\n'):
+        if '\u2502' in line:  # │ character
+            parts = [p.strip() for p in line.split('\u2502')]
+            for i, p in enumerate(parts):
+                if p and i + 1 < len(parts):
+                    nxt = parts[i + 1].strip()
+                    if nxt and '─' not in p and '╭' not in p and '╰' not in p:
+                        result[p] = nxt
+    return result
 
 import pytest
 
@@ -291,7 +324,7 @@ class TestPersistence:
         plan_id = plan_core.create_plan("Test", sample_tasks)
         path = plan_core._plan_path(plan_id)
         raw = path.read_text()
-        data = json.loads(raw)
+        data = _parse_result(raw)
         assert "plan_id" in data
         assert "goal" in data
         assert "created" in data
@@ -591,7 +624,7 @@ class TestPlanTemplates:
 
     def test_create_plan_with_template_via_tool(self):
         from plan_follow.plan_tools import plan_create_tool
-        result = json.loads(plan_create_tool({
+        result = _parse_result(plan_create_tool({
             "goal": "Test deploy",
             "template": "deploy",
             "repo": "/tmp",
@@ -601,7 +634,7 @@ class TestPlanTemplates:
 
     def test_create_plan_with_template_no_goal(self):
         from plan_follow.plan_tools import plan_create_tool
-        result = json.loads(plan_create_tool({
+        result = _parse_result(plan_create_tool({
             "template": "research",
         }))
         # research template has goal set from description
@@ -616,7 +649,7 @@ class TestPlanTemplates:
             {"id": "p3", "name": "T3"},
         ]
         groups = {"g1": {"tasks": ["p1"]}, "g2": {"tasks": ["p2", "p3"]}}
-        result = json.loads(plan_create_tool({
+        result = _parse_result(plan_create_tool({
             "goal": "Parallel test", "tasks": tasks,
             "parallel_groups": groups,
         }))
@@ -728,7 +761,7 @@ class TestToolHandlerDispatch:
 
     def test_plan_create_handler_dispatch(self, sample_tasks, reset_plans_dir):
         from plan_follow.plan_tools import plan_create_tool
-        result = json.loads(plan_create_tool({
+        result = _parse_result(plan_create_tool({
             "goal": "Test dispatch", "tasks": sample_tasks,
         }))
         assert result["status"] == "created"
@@ -736,31 +769,31 @@ class TestToolHandlerDispatch:
     def test_plan_current_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import plan_current_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_current_tool({}))
+        result = _parse_result(plan_current_tool({}))
         assert result["task_id"] == "p1"
 
     def test_plan_complete_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
 
     def test_plan_verify_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import plan_verify_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_verify_tool({}))
+        result = _parse_result(plan_verify_tool({}))
         assert result["status"] in ("clean", "drift_detected")
 
     def test_plan_status_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import plan_status_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_status_tool({}))
+        result = _parse_result(plan_status_tool({}))
         assert len(result["tasks"]) == 3
 
     def test_plan_update_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import plan_update_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_update_tool({
+        result = _parse_result(plan_update_tool({
             "task_id": "p1", "changes": {"files": ["new.ts"]},
         }))
         assert result["status"] == "updated"
@@ -925,32 +958,32 @@ class TestPlanManagement:
     def test_plan_list_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import (plan_list_tool, plan_create_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_list_tool({}))
+        result = _parse_result(plan_list_tool({}))
         assert result["status"] == "ok"
         assert result["count"] >= 1
 
     def test_plan_abort_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import (plan_abort_tool, plan_create_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_abort_tool({}))
+        result = _parse_result(plan_abort_tool({}))
         assert result["status"] == "aborted"
 
     def test_plan_delete_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import (plan_delete_tool, plan_create_tool,
                                               plan_list_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        plans = json.loads(plan_list_tool({}))
+        plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
-        result = json.loads(plan_delete_tool({"plan_id": plan_id}))
+        result = _parse_result(plan_delete_tool({"plan_id": plan_id}))
         assert result["status"] == "deleted"
 
     def test_plan_select_handler_dispatch(self, sample_tasks):
         from plan_follow.plan_tools import (plan_select_tool, plan_create_tool,
                                               plan_list_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        plans = json.loads(plan_list_tool({}))
+        plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
-        result = json.loads(plan_select_tool({"plan_id": plan_id}))
+        result = _parse_result(plan_select_tool({"plan_id": plan_id}))
         assert result["status"] == "selected"
 
     def test_all_new_handlers_accept_args_dict(self):
@@ -1274,25 +1307,25 @@ class TestPlanReviewTool:
 
     def test_review_tool_no_task_id(self):
         from plan_follow.plan_tools import plan_review_tool
-        result = json.loads(plan_review_tool({}))
+        result = _parse_result(plan_review_tool({}))
         assert "error" in result
 
     def test_review_tool_no_active_plan(self):
         from plan_follow.plan_tools import plan_review_tool
-        result = json.loads(plan_review_tool({"task_id": "t1"}))
+        result = _parse_result(plan_review_tool({"task_id": "t1"}))
         assert "error" in result
 
     def test_review_tool_wrong_task_id(self, sample_tasks):
         from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_review_tool({"task_id": "wrong_id"}))
+        result = _parse_result(plan_review_tool({"task_id": "wrong_id"}))
         assert "error" in result
         assert "is not the current" in result["error"]
 
     def test_review_tool_auto_profile_none(self, sample_tasks):
         from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_review_tool({"task_id": "p1"}))
+        result = _parse_result(plan_review_tool({"task_id": "p1"}))
         assert result["status"] == "skipped"  # default profile ist "none"
 
     def test_review_tool_with_review_profile(self):
@@ -1300,7 +1333,7 @@ class TestPlanReviewTool:
         tasks = [{"id": "p1", "name": "Test", "files": ["test.py"],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_review_tool({"task_id": "p1"}))
+        result = _parse_result(plan_review_tool({"task_id": "p1"}))
         assert result["status"] == "ready"
         assert result["profile"] == "unit-test"
         assert result["checks_count"] > 0
@@ -1309,7 +1342,7 @@ class TestPlanReviewTool:
         from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
         tasks = [{"id": "p1", "name": "Test", "files": ["test.py"]}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_review_tool({
+        result = _parse_result(plan_review_tool({
             "task_id": "p1", "profile": "security",
         }))
         assert result["profile"] == "security"
@@ -1327,18 +1360,17 @@ class TestPlanReviewTool:
 
     def test_review_profiles_tool_lists_profiles(self):
         from plan_follow.plan_tools import plan_review_profiles_tool
-        result = json.loads(plan_review_profiles_tool({}))
-        assert isinstance(result, list)
-        assert len(result) >= 6
-        names = [p["name"] for p in result]
-        assert "unit-test" in names
-        assert "full" in names
-        assert "none" in names
+        from plan_follow._fmt import _strip_ansi
+        text = _strip_ansi(plan_review_profiles_tool({}))
+        assert "unit-test" in text
+        assert "full" in text
+        assert "none" in text
 
     def test_review_profiles_tool_empty_args(self):
         from plan_follow.plan_tools import plan_review_profiles_tool
-        result = json.loads(plan_review_profiles_tool({}))
-        assert len(result) >= 6  # Gleich ob args {} oder None
+        from plan_follow._fmt import _strip_ansi
+        text = _strip_ansi(plan_review_profiles_tool({}))
+        assert "unit-test" in text
 
 
 # ─── Tests: Review Gate (plan_complete) ─────────────────────────────────────
@@ -1351,7 +1383,7 @@ class TestReviewGate:
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert "error" in result
         assert "Review" in result["error"]
         assert result["review_state"] == "in_review"
@@ -1359,7 +1391,7 @@ class TestReviewGate:
     def test_complete_allows_without_profile(self, sample_tasks):
         from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
 
     def test_complete_allows_with_passed_review(self):
@@ -1369,7 +1401,7 @@ class TestReviewGate:
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
         save_review_result("p1", {"status": "passed", "issues": []})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
 
     def test_complete_allows_with_skip_review(self):
@@ -1377,7 +1409,7 @@ class TestReviewGate:
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_complete_tool({"task_id": "p1", "skip_review": True}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1", "skip_review": True}))
         assert result["status"] == "completed"
 
     def test_complete_blocks_with_failed_review(self):
@@ -1387,7 +1419,7 @@ class TestReviewGate:
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
         save_review_result("p1", {"status": "failed", "issues": [{"check": "test"}]})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert "error" in result
         assert result["review_state"] == "failed"
 
@@ -1395,13 +1427,13 @@ class TestReviewGate:
         """Alle bestehenden Verhalten müssen weitergehen."""
         from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        r1 = json.loads(plan_complete_tool({"task_id": "p1"}))
+        r1 = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert r1["status"] == "completed"
         assert r1["next_task"] == "p2"
-        r2 = json.loads(plan_complete_tool({"task_id": "p2"}))
+        r2 = _parse_result(plan_complete_tool({"task_id": "p2"}))
         assert r2["status"] == "completed"
         assert r2["next_task"] == "p3"
-        r3 = json.loads(plan_complete_tool({"task_id": "p3"}))
+        r3 = _parse_result(plan_complete_tool({"task_id": "p3"}))
         assert r3["status"] == "completed"
         assert r3["next_task"] is None
 
@@ -1471,7 +1503,7 @@ class TestAutoVerify:
              "depends_on": ["p1"]},
         ]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_complete_tool({
+        result = _parse_result(plan_complete_tool({
             "task_id": "p1", "auto_verify": True,
         }))
         assert result["status"] == "completed"
@@ -1481,14 +1513,14 @@ class TestAutoVerify:
     def test_complete_without_auto_verify(self, sample_tasks):
         from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_complete_tool({"task_id": "p1"}))
+        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
         assert result["auto_verify"]["status"] == "skipped"
 
     def test_complete_with_auto_commit_flag(self, sample_tasks):
         from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks, "repo": "/tmp"})
-        result = json.loads(plan_complete_tool({
+        result = _parse_result(plan_complete_tool({
             "task_id": "p1", "auto_commit": True,
         }))
         assert result["status"] == "completed"
@@ -1944,30 +1976,30 @@ class TestPlanArchive:
         from plan_follow.plan_tools import (plan_create_tool, plan_archive_tool,
                                               plan_list_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        plans = json.loads(plan_list_tool({}))
+        plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
-        result = json.loads(plan_archive_tool({"plan_id": plan_id}))
+        result = _parse_result(plan_archive_tool({"plan_id": plan_id}))
         assert result["status"] == "archived"
 
     def test_restore_via_tool_handler(self, sample_tasks):
         from plan_follow.plan_tools import (plan_create_tool, plan_archive_tool,
                                               plan_restore_tool, plan_list_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        plans = json.loads(plan_list_tool({}))
+        plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
         plan_archive_tool({"plan_id": plan_id})
-        result = json.loads(plan_restore_tool({"plan_id": plan_id}))
+        result = _parse_result(plan_restore_tool({"plan_id": plan_id}))
         assert result["status"] == "restored"
 
     def test_archive_tool_no_plan_id(self):
         from plan_follow.plan_tools import plan_archive_tool
-        result = json.loads(plan_archive_tool({}))
-        assert "error" in result.get("status", "") or "required" in result.get("message", "")
+        result = _parse_result(plan_archive_tool({}))
+        assert "error" in result.get("status", "") or "required" in result.get("message", "") or "error" in result
 
     def test_restore_tool_no_plan_id(self):
         from plan_follow.plan_tools import plan_restore_tool
-        result = json.loads(plan_restore_tool({}))
-        assert "error" in result.get("status", "") or "required" in result.get("message", "")
+        result = _parse_result(plan_restore_tool({}))
+        assert "error" in result.get("status", "") or "required" in result.get("message", "") or "error" in result
 
     def test_archive_preserves_plan_data(self, sample_tasks):
         """Archived plan JSON retains all task data."""
@@ -2165,12 +2197,12 @@ class TestAutoReviewTool:
 
     def test_tool_no_task_id(self):
         from plan_follow.plan_tools import plan_auto_review_tool
-        result = json.loads(plan_auto_review_tool({}))
+        result = _parse_result(plan_auto_review_tool({}))
         assert "error" in result
 
     def test_tool_no_active_plan(self):
         from plan_follow.plan_tools import plan_auto_review_tool
-        result = json.loads(plan_auto_review_tool({"task_id": "t1"}))
+        result = _parse_result(plan_auto_review_tool({"task_id": "t1"}))
         assert "error" in result
 
     def test_tool_handler_signature(self):
@@ -2184,7 +2216,7 @@ class TestAutoReviewTool:
     def test_tool_with_active_plan(self, sample_tasks):
         from plan_follow.plan_tools import (plan_create_tool, plan_auto_review_tool)
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_auto_review_tool({"task_id": "p1"}))
+        result = _parse_result(plan_auto_review_tool({"task_id": "p1"}))
         # No review_profile → skipped
         assert result["status"] == "skipped"
     def test_tool_with_review_profile(self):
@@ -2193,7 +2225,7 @@ class TestAutoReviewTool:
         tasks = [{"id": "p1", "name": "T1", "files": ["test.py"],
                   "review_profile": "api-route"}]  # api-route: no coverage checks
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_auto_review_tool({"task_id": "p1"}))
+        result = _parse_result(plan_auto_review_tool({"task_id": "p1"}))
         # test.py doesn't exist but the tool should not crash
         assert "error" not in result
         assert result["status"] in ("skipped", "ready")
@@ -2938,7 +2970,7 @@ class TestToolsCoverage:
         from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
         import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_auto_review_tool({"task_id": "wrong_id"}))
+        result = _parse_result(plan_auto_review_tool({"task_id": "wrong_id"}))
         assert "error" in result
         assert "not the current" in result["error"]
 
@@ -2951,7 +2983,7 @@ class TestToolsCoverage:
         tasks = [{"id": "p1", "name": "T1", "files": [str(test_file)],
                   "review_profile": "api-route"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
-        result = json.loads(plan_auto_review_tool({"task_id": "p1"}))
+        result = _parse_result(plan_auto_review_tool({"task_id": "p1"}))
         # api-route has no coverage checks → should be ready
         assert "error" not in result, f"Unexpected error: {result.get('error')}"
         assert result["status"] in ("ready", "skipped")
@@ -3072,7 +3104,7 @@ class TestPlanTodo:
     def test_plan_todo_no_active_plan(self):
         from plan_follow.plan_todo import plan_todo_tool
         import json
-        result = json.loads(plan_todo_tool({}))
+        result = _parse_result(plan_todo_tool({}))
         # Without active plan, returns todos list (possibly empty) or has status/error
         assert isinstance(result, dict)
 
@@ -3081,7 +3113,7 @@ class TestPlanTodo:
         from plan_follow.plan_todo import plan_todo_tool
         import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_todo_tool({}))
+        result = _parse_result(plan_todo_tool({}))
         assert "todos" in result or "status" in result
         if "todos" in result:
             assert len(result["todos"]) == 3
@@ -3093,7 +3125,7 @@ class TestPlanTodo:
         import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         # Pass task_id=current to check behavior
-        result = json.loads(plan_todo_tool({}))
+        result = _parse_result(plan_todo_tool({}))
         assert result is not None
 
     def test_plan_todo_mark_completed(self, sample_tasks):
@@ -3102,7 +3134,7 @@ class TestPlanTodo:
         from plan_follow.plan_todo import plan_todo_tool
         import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = json.loads(plan_todo_tool({
+        result = _parse_result(plan_todo_tool({
             "todos": [{"id": "p1", "status": "completed", "content": "Done"}],
             "merge": True,
         }))
@@ -3120,25 +3152,25 @@ class TestToolsErrorBranches:
     def test_create_missing_goal(self):
         from plan_follow.plan_tools import plan_create_tool
         import json
-        result = json.loads(plan_create_tool({"tasks": []}))
+        result = _parse_result(plan_create_tool({"tasks": []}))
         assert "error" in result or "status" in result
 
     def test_duedate_without_plan(self):
         from plan_follow.plan_tools import plan_duedate_tool
         import json
-        result = json.loads(plan_duedate_tool({}))
+        result = _parse_result(plan_duedate_tool({}))
         assert result is not None
 
     def test_plan_verify_without_plan(self):
         from plan_follow.plan_tools import plan_verify_tool
         import json
-        result = json.loads(plan_verify_tool({}))
+        result = _parse_result(plan_verify_tool({}))
         assert "no_active" in result.get("status", "") or "error" in result
 
     def test_plan_status_without_plan(self):
         from plan_follow.plan_tools import plan_status_tool
         import json
-        result = json.loads(plan_status_tool({}))
+        result = _parse_result(plan_status_tool({}))
         assert "no_active" in result.get("status", "") or "error" in result or result is not None
 
 

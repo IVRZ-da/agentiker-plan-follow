@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.2.0] — 2026-06-20
+
+### Added
+- **Cross-Session Koordination** — 3 neue Tools + Shared State File-Layer:
+  - `plan_session()` — Aktive Sessions, Locks und Notifications anzeigen
+  - `plan_lock(action, path)` — File-basiertes Locking (atomic writes)
+  - `plan_notify(action, to, message)` — Session-Benachrichtigungen
+- **coord_state.py** — Neues Modul für Shared State unter `~/.hermes/shared/` (sessions.json, locks.json, notifications.json)
+- **Cross-Session-Banner** — im pre_llm_call Hook: 👥 Session-Count, 🔒 Lock-Warnungen, 📬 Pending Notifications
+- **Auto-Lifecycle** — register_session() bei plan_create(), update bei complete(), unregister bei abort/delete
+- **Optionale Git-Versionierung** — 2 neue Tools (NUR wenn .git existiert):
+  - `plan_history(plan_id)` — git log für Plan-JSON
+  - `plan_git_init()` — Git-Repo in ~/.hermes/plans/ initialisieren
+- **_git_commit_if_active()** — Automatischer Git-Commit in _save_plan() bei create/complete
+- **Honcho global** — sessionStrategy: global in honcho.json
+- **Tests** — 56 neue Tests für coord_state (Sessions, Locks, Notifications, Tools, Git, Edge Cases)
+- **24 Tools total** (vorher 19)
+
+### Changed
+- **Plugin-Version** — 0.3.0 → 1.2.0 (Major-Sprung durch Cross-Session + Git)
+- **__init__.py** — 5 neue TOOL_DESCRIPTIONS + PER_TOOL_SCHEMAS
+- **plan_hooks.py** — Cross-Session-Banner zwischen Deadline und Review
+- **plan_core.py** — coord_state-Integration in create_plan/complete_task/abort_plan/delete_plan
+
+### Architecture
+- **Git = optional** — Alles funktioniert ohne Git. _git_commit_if_active() prüft .git-Existenz vor jedem Commit
+- **File-basiertes Locking statt Git-Branches** — Atomic Writes via tempfile+rename
+- **Kein `git init` im Plugin-Code** — nur plan_git_init() Tool erstellt eins
+
+## [0.3.0] — 2026-06-19
+
+### Changed
+- **Rich-Formatierte Ausgaben** — Alle Tool-Outputs (plan_create, plan_complete, plan_list, etc.) geben jetzt rich-formatierte ANSI-Panels statt raw JSON zurück. Das Terminal zeigt farbige, strukturierte Ausgaben.
+- **Hook-Banner** — Der pre_llm_call Banner verwendet jetzt rich `Panel(HEAVY)` statt handgemachter ASCII-Boxen. Farbige Border + rich-markup für bessere Lesbarkeit.
+- **`_fmt.py`** — Neues Modul mit einheitlichem Design-System für alle 5 Hermes Plugins. Stellt `fmt_ok`, `fmt_err`, `fmt_table`, `fmt_banner`, `fmt_tree` etc. bereit.
+- **plan_todo.py** — Nutzt jetzt `fmt_ok()` statt `json.dumps()` für Tool-Output.
+
+### Fixed
+- **Tests** — 45 Tests auf `_parse_result()` umgestellt, der rich-Output zurück in Dicts parst. 313 Tests grün.
+
 ## [0.2.0] — 2026-06-19
 
 ### Added

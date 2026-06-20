@@ -4,10 +4,11 @@ plan_tools.py — Tool implementations for plan-follow plugin.
 Each function is registered as a Hermes tool via PluginContext.register_tool().
 """
 
-import json
 import logging
 
+from ._fmt import fmt_ok, fmt_err, fmt_info, fmt_table
 from . import plan_core
+from .plan_roadmap import plan_roadmap_handler
 
 logger = logging.getLogger("plan_follow")
 
@@ -26,20 +27,20 @@ def plan_create_tool(args: dict, **kwargs) -> str:
         from .plan_templates import expand_template
         expanded = expand_template(template_name, goal, template_params)
         if "error" in expanded:
-            return json.dumps(expanded, ensure_ascii=False)
+            return fmt_ok(expanded)
         tasks = expanded["tasks"]
         # Use goal from template description if no goal provided
         if not goal and expanded.get("description"):
             goal = expanded["description"]
 
     if not goal:
-        return json.dumps({"error": "goal is required"})
+        return fmt_err("goal is required")
     if not tasks:
-        return json.dumps({"error": "tasks is required (at least 1 task)"})
+        return fmt_err("tasks is required (at least 1 task)")
 
     for t in tasks:
         if "id" not in t or "name" not in t:
-            return json.dumps({"error": "Each task needs 'id' and 'name'"})
+            return fmt_err("Each task needs 'id' and 'name'")
 
     plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups)
     status = plan_core.get_plan_status()
@@ -50,15 +51,15 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     }
     if template_name:
         response["template"] = template_name
-    return json.dumps(response, ensure_ascii=False)
+    return fmt_ok(response)
 
 
 def plan_current_tool(args: dict, **kwargs) -> str:
     """Show the current task. Only ONE task is visible at a time."""
     current = plan_core.get_current_task()
     if not current:
-        return json.dumps({"status": "no_active_plan", "message": "No active plan. Use plan_create() to start one."})
-    return json.dumps(current, ensure_ascii=False)
+        return fmt_info("No active plan. Use plan_create() to start one.")
+    return fmt_ok(current)
 
 
 def plan_complete_tool(args: dict, **kwargs) -> str:
@@ -68,20 +69,20 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
     auto_verify = args.get("auto_verify", False)
     auto_commit_enabled = args.get("auto_commit", False)
     if not task_id:
-        return json.dumps({"error": "task_id is required"})
+        return fmt_err("task_id is required")
 
     # Run verification first
     current = plan_core.get_current_task()
     if not current:
-        return json.dumps({"error": "No active plan."})
+        return fmt_err("No active plan.")
 
     if current["task_id"] != task_id:
-        return json.dumps({"error": f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}"})
+        return fmt_err(f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}")
 
     # REVIEW GATE
     if not skip_review and not plan_core.is_review_passed(current):
         review_state = plan_core.get_task_review_state(current)
-        return json.dumps({
+        return fmt_ok({
             "error": "Review not passed — task cannot be completed.",
             "task_id": task_id,
             "review_required": current.get("review_profile", "none") != "none",
@@ -91,19 +92,19 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
                 "Nach erfolgreichem Review: save_review_result() aufrufen. "
                 "Mit skip_review=true in plan_complete() überspringen (nicht empfohlen)."
             ),
-        }, ensure_ascii=False)
+        })
 
     # Auto-Verify: execute the verify command
     if auto_verify:
         verify_cmd = current.get("verify", "")
         verify_result = plan_core.auto_verify_task(verify_cmd)
         if verify_result["status"] == "failed":
-            return json.dumps({
+            return fmt_ok({
                 "error": "Auto-verify failed — task not completed.",
                 "task_id": task_id,
                 "verify_result": verify_result,
                 "suggestion": "Fix das Problem und versuche plan_complete(task_id, auto_verify=true) erneut.",
-            }, ensure_ascii=False)
+            })
     else:
         verify_result = {"status": "skipped", "message": "auto_verify nicht aktiviert"}
 
@@ -128,39 +129,39 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
             commit_result = plan_core.auto_commit(task_id, current.get("files", []), repo)
             result["auto_commit"] = commit_result
 
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_verify_tool(args: dict, **kwargs) -> str:
     """Check for drift: unplanned changes compared to the current plan."""
     current = plan_core.get_current_task()
     if not current:
-        return json.dumps({"status": "no_active_plan", "message": "No active plan."})
+        return fmt_info("No active plan.")
 
     drift = plan_core.check_drift()
     if not drift:
-        return json.dumps({
+        return fmt_ok({
             "status": "clean",
             "plan_id": current["plan_id"],
             "task_id": current["task_id"],
-            "message": "✅ Keine ungeplanten Änderungen.",
+            "message": "Keine ungeplanten Änderungen.",
         })
 
-    return json.dumps({
+    return fmt_ok({
         "status": "drift_detected",
         "plan_id": current["plan_id"],
         "task_id": current["task_id"],
         "unplanned_files": drift,
         "suggestion": "Entweder plan_update(task_id, {files: [...]}) um Dateien zum Task hinzuzufügen, oder Änderungen reverten.",
-    }, ensure_ascii=False)
+    })
 
 
 def plan_status_tool(args: dict, **kwargs) -> str:
     """Show all tasks with their status."""
     status = plan_core.get_plan_status()
     if not status:
-        return json.dumps({"status": "no_active_plan", "message": "No active plan."})
-    return json.dumps(status, ensure_ascii=False)
+        return fmt_info("No active plan.")
+    return fmt_ok(status)
 
 
 def plan_update_tool(args: dict, **kwargs) -> str:
@@ -168,15 +169,15 @@ def plan_update_tool(args: dict, **kwargs) -> str:
     task_id = args.get("task_id", "")
     changes = args.get("changes", {})
     if not task_id:
-        return json.dumps({"error": "task_id is required"})
+        return fmt_err("task_id is required")
     if not changes:
-        return json.dumps({"error": "changes is required (at least one field)"})
+        return fmt_err("changes is required (at least one field)")
 
     result = plan_core.update_task(task_id, changes)
     if not result:
-        return json.dumps({"error": f"Task '{task_id}' not found or no active plan."})
+        return fmt_err(f"Task '{task_id}' not found or no active plan.")
 
-    return json.dumps({"status": "updated", "task_id": task_id, "task": result}, ensure_ascii=False)
+    return fmt_ok({"status": "updated", "task_id": task_id})
 
 
 def plan_review_tool(args: dict, **kwargs) -> str:
@@ -190,18 +191,16 @@ def plan_review_tool(args: dict, **kwargs) -> str:
     depth = args.get("depth", "normal")
 
     if not task_id:
-        return json.dumps({"error": "task_id is required"})
+        return fmt_err("task_id is required")
 
     from .plan_review import dispatch_review
 
     current = plan_core.get_current_task()
     if not current:
-        return json.dumps({"error": "No active plan."})
+        return fmt_err("No active plan.")
 
     if current["task_id"] != task_id:
-        return json.dumps({
-            "error": f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}"
-        })
+        return fmt_err(f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}")
 
     # Profile resolution
     profile_name = profile
@@ -211,11 +210,11 @@ def plan_review_tool(args: dict, **kwargs) -> str:
     # Dispatch
     result = dispatch_review(profile_name, current, depth)
     if result.get("status") == "ready":
-        return json.dumps({
+        return fmt_ok({
             "status": "ready",
             "task_id": task_id,
             "profile": profile_name,
-            "message": "Review bereit. Führe delegate_task mit dem Prompt aus build_review_prompt() aus.",
+            "message": "Review bereit → delegate_task ausführen.",
             "checks": result.get("checks", []),
             "checks_count": len(result.get("checks", [])),
             "description": result.get("description", ""),
@@ -223,9 +222,9 @@ def plan_review_tool(args: dict, **kwargs) -> str:
                 "Nutze plan_review_profiles() für eine Übersicht aller Profile. "
                 "Nach dem Review: save_review_result() aufrufen."
             ),
-        }, ensure_ascii=False)
+        })
 
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_review_profiles_tool(args: dict, **kwargs) -> str:
@@ -235,7 +234,7 @@ def plan_review_profiles_tool(args: dict, **kwargs) -> str:
         {"name": name, "description": p["description"], "checks": p["checks"]}
         for name, p in PROFILES.items()
     ]
-    return json.dumps(profiles, ensure_ascii=False)
+    return fmt_table(profiles, title="Review Profiles")
 def plan_auto_review_tool(args: dict, **kwargs) -> str:
     """Prepare a complete review in one call — files, coverage, prompt.
 
@@ -261,16 +260,14 @@ def plan_auto_review_tool(args: dict, **kwargs) -> str:
     depth = args.get("depth", "normal")
 
     if not task_id:
-        return json.dumps({"error": "task_id is required"})
+        return fmt_err("task_id is required")
 
     current = plan_core.get_current_task()
     if not current:
-        return json.dumps({"error": "No active plan."})
+        return fmt_err("No active plan.")
 
     if current["task_id"] != task_id:
-        return json.dumps({
-            "error": f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}"
-        })
+        return fmt_err(f"Task '{task_id}' is not the current task. Aktuell: {current['task_id']}")
 
     # Get full plan for coverage path resolution
     plan = plan_core._get_active_plan()
@@ -279,7 +276,7 @@ def plan_auto_review_tool(args: dict, **kwargs) -> str:
     from .plan_review import auto_review
     result = auto_review(current, plan, profile, depth)
 
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 
@@ -287,43 +284,43 @@ def plan_list_tool(args: dict, **kwargs) -> str:
     """List all plans (including completed/aborted), newest first."""
     include_archived = args.get("include_archived", False)
     plans = plan_core.list_plans(include_archived=include_archived)
-    return json.dumps({
+    return fmt_ok({
         "status": "ok",
         "count": len(plans),
         "plans": plans,
-    }, ensure_ascii=False)
+    })
 
 
 def plan_abort_tool(args: dict, **kwargs) -> str:
     """Abort the active plan or a specific task."""
     task_id = args.get("task_id", "")
     result = plan_core.abort_plan(task_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_delete_tool(args: dict, **kwargs) -> str:
     """Permanently delete a plan from disk."""
     plan_id = args.get("plan_id", "")
     if not plan_id:
-        return json.dumps({"status": "error", "message": "plan_id is required."})
+        return fmt_err("plan_id is required.")
     result = plan_core.delete_plan(plan_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_select_tool(args: dict, **kwargs) -> str:
     """Switch to a different saved plan as the active one."""
     plan_id = args.get("plan_id", "")
     if not plan_id:
-        return json.dumps({"status": "error", "message": "plan_id is required."})
+        return fmt_err("plan_id is required.")
     result = plan_core.select_plan(plan_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_validate_tool(args: dict, **kwargs) -> str:
     """Validate the integrity of a plan (deps, cycles, profiles, orphan tasks)."""
     plan_id = args.get("plan_id", "")
     result = plan_core.validate_plan(plan_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_duedate_tool(args: dict, **kwargs) -> str:
@@ -343,30 +340,268 @@ def plan_duedate_tool(args: dict, **kwargs) -> str:
             # If no task_id specified, use current task
             current = plan_core.get_current_task()
             if not current:
-                return json.dumps({"status": "error", "message": "No active task and no task_id provided."})
+                return fmt_err("No active task and no task_id provided.")
             task_id = current["task_id"]
         result = plan_core.set_task_due(task_id, due)
-        return json.dumps(result, ensure_ascii=False)
+        return fmt_ok(result)
     else:
         info = plan_core.get_task_due_info(task_id)
         if not info:
-            return json.dumps({"status": "ok", "task_id": task_id or "current", "due": None, "message": "No due date set."})
-        return json.dumps({"status": "ok", **info}, ensure_ascii=False)
+            return fmt_info("No due date set.")
+        return fmt_ok({"status": "ok", **info})
 
 
 def plan_archive_tool(args: dict, **kwargs) -> str:
     """Move a plan to the archive directory."""
     plan_id = args.get("plan_id", "")
     if not plan_id:
-        return json.dumps({"status": "error", "message": "plan_id is required."})
+        return fmt_err("plan_id is required.")
     result = plan_core.archive_plan(plan_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
 
 
 def plan_restore_tool(args: dict, **kwargs) -> str:
     """Restore a plan from the archive back to the plans directory."""
     plan_id = args.get("plan_id", "")
     if not plan_id:
-        return json.dumps({"status": "error", "message": "plan_id is required."})
+        return fmt_err("plan_id is required.")
     result = plan_core.restore_plan(plan_id)
-    return json.dumps(result, ensure_ascii=False)
+    return fmt_ok(result)
+
+
+# ─── Cross-Session Coordination Tools ─────────────────────────────────────────
+
+
+def plan_session_tool(args: dict, **kwargs) -> str:
+    """Show active sessions, their plans, and lock status.
+
+    Reads from coord_state.py — no Git required.
+    If Git is active, additionally shows branch info.
+
+    Parameters:
+    - include_history (bool, optional): Show git-based plan history (default: false)
+    """
+    from . import coord_state
+
+    include_history = args.get("include_history", False)
+
+    sessions = coord_state.get_sessions()
+    locks = coord_state.get_locks()
+
+    notifications = coord_state.get_notifications("current", mark_read=False)
+
+    # Build lock overview per session
+    lock_map = {}
+    for path, lock in locks.items():
+        sid = lock.get("session_id", "unknown")
+        lock_map.setdefault(sid, []).append(path)
+
+    sessions_out = {}
+    for sid, s in sessions.items():
+        entry = {
+            "since": s.get("registered", ""),
+            "plan_id": s.get("plan_id", ""),
+            "goal": s.get("goal", "")[:60],
+            "locks": lock_map.get(sid, []),
+        }
+        if include_history:
+            plans_dir_git = coord_state.SHARED_DIR.parent / "plans" / ".git"
+            entry["git_hint"] = (
+                "Git nicht aktiv — verwende plan_git_init() für Versionierung"
+                if not plans_dir_git.exists()
+                else "Git aktiv — History via plan_history()"
+            )
+        sessions_out[sid] = entry
+
+    result = {
+        "active_sessions": len(sessions_out),
+        "active_locks": len(locks),
+        "pending_notifications": sum(len(n) for n in [notifications] if notifications),
+        "sessions": sessions_out,
+        "locks": locks,
+    }
+    return fmt_ok(result)
+
+
+def plan_lock_tool(args: dict, **kwargs) -> str:
+    """Manage resource locks for cross-session coordination.
+
+    Parameters:
+    - action (str, required): 'lock', 'unlock', or 'status'
+    - path (str, required): File or directory path to lock/unlock
+    - session_id (str, optional): Session ID (default: auto-detected)
+    """
+    from . import coord_state
+
+    action = args.get("action", "")
+    path = args.get("path", "")
+    session_id = args.get("session_id", "plan-follow-default")
+
+    if not action:
+        return fmt_err("action is required (lock|unlock|status)")
+    if not path:
+        return fmt_err("path is required")
+
+    if action == "lock":
+        result = coord_state.acquire_lock(path, session_id)
+    elif action == "unlock":
+        result = coord_state.release_lock(path, session_id)
+    elif action == "status":
+        lock = coord_state.get_lock(path)
+        if lock:
+            result = {"status": "locked", "path": path, "locked_by": lock.get("session_id"), "since": lock.get("since")}
+        else:
+            result = {"status": "free", "path": path}
+    else:
+        return fmt_err(f"Unknown action: {action}. Use lock|unlock|status.")
+
+    return fmt_ok({"action": action, "path": path, **result})
+
+
+def plan_notify_tool(args: dict, **kwargs) -> str:
+    """Send a notification to another session or check own notifications.
+
+    Parameters:
+    - action (str, required): 'send' or 'check'
+    - to (str, optional): Target session ID (required for 'send')
+    - message (str, optional): Message text (required for 'send')
+    - kind (str, optional): 'info', 'warning', 'alert' (default: 'info')
+    """
+    from . import coord_state
+
+    action = args.get("action", "")
+    to = args.get("to", "")
+    message = args.get("message", "")
+    kind = args.get("kind", "info")
+    session_id = args.get("session_id", "plan-follow-default")
+
+    if not action:
+        return fmt_err("action is required (send|check)")
+
+    if action == "send":
+        if not to:
+            return fmt_err("'to' (target session) is required for send")
+        if not message:
+            return fmt_err("'message' is required for send")
+        result = coord_state.send_notification(session_id, to, message, kind)
+        return fmt_ok({"action": "sent", "to": to, "notification": result})
+
+    elif action == "check":
+        pending = coord_state.get_notifications(session_id)
+        return fmt_ok({
+            "action": "check",
+            "count": len(pending),
+            "notifications": pending,
+        })
+
+    else:
+        return fmt_err(f"Unknown action: {action}. Use send|check.")
+
+
+# ─── Git-Integration Tools (OPTIONAL) ────────────────────────────────────────
+
+
+def plan_history_tool(args: dict, **kwargs) -> str:
+    """Show git-based plan history or hint to activate Git.
+
+    Parameters:
+    - plan_id (str, optional): Plan ID. If empty, shows current plan's history.
+    - lines (int, optional): Number of log lines to show (default: 10)
+    """
+    from . import plan_core
+
+    plan_id = args.get("plan_id", "")
+    lines = args.get("lines", 10)
+
+    # Get plan_id from active plan if not specified
+    if not plan_id:
+        current = plan_core.get_current_task()
+        if not current:
+            return fmt_err("No active plan and no plan_id provided.")
+        plan_id = current["plan_id"]
+
+    git_dir = plan_core.PLANS_DIR / ".git"
+    if not git_dir.exists():
+        return fmt_info(
+            "Keine Git-Versionierung aktiv.\n"
+            "  Verwende plan_git_init() um Git zu aktivieren.\n"
+            f"  Oder: cd ~/.hermes/plans && git init && git add . && git commit -m 'initial'\n"
+            "  Aktuell ist nur der letzte Plan-Stand gespeichert."
+        )
+
+    import subprocess
+    try:
+        # Get git log for this plan
+        result = subprocess.run(
+            ["git", "log", f"--oneline", f"-{lines}", "--", f"{plan_id}.json"],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if not result.stdout.strip():
+            return fmt_info(f"Keine Git-History für Plan '{plan_id[:50]}'.")
+
+        # Add stats per commit
+        detailed = subprocess.run(
+            ["git", "log", f"--oneline", f"-{lines}", "--stat", "--", f"{plan_id}.json"],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+
+        return fmt_ok({
+            "status": "active",
+            "plan_id": plan_id,
+            "history": result.stdout.strip(),
+            "details": detailed.stdout.strip(),
+        })
+    except Exception as e:
+        return fmt_err(f"Git history failed: {e}")
+
+
+def plan_git_init_tool(args: dict, **kwargs) -> str:
+    """Initialize a Git repo in ~/.hermes/plans/ for plan versioning.
+
+    Also creates an initial commit with all existing plans.
+    This is optional — plans work fine without Git.
+
+    Parameters:
+    - commit_message (str, optional): Initial commit message (default: 'plan: initial')
+    """
+    from . import plan_core
+
+    git_dir = plan_core.PLANS_DIR / ".git"
+    if git_dir.exists():
+        return fmt_info("Git-Versionierung bereits aktiv in ~/.hermes/plans/")
+
+    commit_msg = args.get("commit_message", "plan: initial commit")
+
+    import subprocess
+    try:
+        # git init
+        init = subprocess.run(
+            ["git", "init"],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if init.returncode != 0:
+            return fmt_err(f"git init failed: {init.stderr[:200]}")
+
+        # .gitignore for temp files
+        gitignore = plan_core.PLANS_DIR / ".gitignore"
+        if not gitignore.exists():
+            gitignore.write_text("*.tmp\n.session-logs/\n", encoding="utf-8")
+
+        # git add + initial commit
+        subprocess.run(
+            ["git", "add", "--", "."],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        commit = subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=30,
+        )
+
+        return fmt_ok({
+            "status": "initialized",
+            "path": str(plan_core.PLANS_DIR),
+            "commits": "1 initial commit with all existing plans",
+            "message": "Git-Versionierung aktiviert. Pläne werden jetzt automatisch versioniert.",
+        })
+    except Exception as e:
+        return fmt_err(f"Git init failed: {e}")
