@@ -145,6 +145,14 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
             # ─── 3b. Cross-Session Info ─────────────────────────────────────
             try:
                 from . import coord_state
+
+                # Silent cleanup: stale sessions/locks (TTL-geschützt via _cached_or_fresh)
+                _cached_or_fresh("cleanup_stale", lambda: (
+                    coord_state.cleanup_stale_sessions(60),
+                    coord_state.cleanup_stale_locks(120),
+                    "ok"
+                ))
+
                 sessions = coord_state.get_sessions()
                 locks = coord_state.get_locks()
 
@@ -176,7 +184,8 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                             lines.append(f"║    • {lpath[:45]} ({lock_info.get('session_id','?')[:15]})    ║")
 
                 # Check pending notifications
-                notifs = coord_state.get_notifications("current", mark_read=False)
+                from . import plan_core as _plan_core
+                notifs = coord_state.get_notifications(_plan_core.get_session_id(), mark_read=False)
                 if notifs:
                     lines.append("║                                       ║")
                     lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
@@ -280,6 +289,24 @@ def on_post_tool_call(**kwargs: Any) -> None:
                         f"Tool '{tool_name}' operated on '{file_path}', "
                         f"which is outside task.files: {allowed}"
                     )
+
+            # ─── Lock Enforcement ───────────────────────────────────────────
+            # Check if file is locked by another session
+            if file_path:
+                try:
+                    from . import coord_state
+                    lock_info = coord_state.get_lock(file_path)
+                    if lock_info:
+                        locker_sid = lock_info.get("session_id", "unknown")
+                        my_sid = __import__("os").environ.get("HERMES_SESSION_ID", "")
+                        if locker_sid and my_sid and locker_sid != my_sid:
+                            since = lock_info.get("since", "?")
+                            record_drift_warning(
+                                f"🔒 '{file_path}' ist von Session '{locker_sid[:20]}' "
+                                f"gelockt seit {since[:19]}. Konflikt vermeiden!"
+                            )
+                except Exception:
+                    pass  # Best-effort
 
     # Append to session log file
     try:

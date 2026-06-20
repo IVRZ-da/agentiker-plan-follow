@@ -388,7 +388,7 @@ def plan_session_tool(args: dict, **kwargs) -> str:
     sessions = coord_state.get_sessions()
     locks = coord_state.get_locks()
 
-    notifications = coord_state.get_notifications("current", mark_read=False)
+    notifications = coord_state.get_notifications(plan_core.get_session_id(), mark_read=False)
 
     # Build lock overview per session
     lock_map = {}
@@ -435,7 +435,7 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
 
     action = args.get("action", "")
     path = args.get("path", "")
-    session_id = args.get("session_id", "plan-follow-default")
+    session_id = args.get("session_id") or plan_core.get_session_id()
 
     if not action:
         return fmt_err("action is required (lock|unlock|status)")
@@ -473,7 +473,7 @@ def plan_notify_tool(args: dict, **kwargs) -> str:
     to = args.get("to", "")
     message = args.get("message", "")
     kind = args.get("kind", "info")
-    session_id = args.get("session_id", "plan-follow-default")
+    session_id = args.get("session_id") or plan_core.get_session_id()
 
     if not action:
         return fmt_err("action is required (send|check)")
