@@ -44,8 +44,7 @@ except ImportError:
 def clean_shared_state():
     """Clean shared state files before each test."""
     for f in [SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE]:
-        if f.exists():
-            f.unlink()
+        f.unlink(missing_ok=True)
     yield
 
 
