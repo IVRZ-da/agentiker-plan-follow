@@ -22,6 +22,16 @@ LOCKS_FILE = SHARED_DIR / "locks.json"
 _SHARED_DIR_INIT = False
 
 
+def set_shared_dir(path: Path) -> None:
+    """Set a custom shared directory (for testing). Updates all file paths."""
+    global SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE, _SHARED_DIR_INIT
+    SHARED_DIR = path
+    SESSIONS_FILE = path / "sessions.json"
+    LOCKS_FILE = path / "locks.json"
+    NOTIFICATIONS_FILE = path / "notifications.json"
+    _SHARED_DIR_INIT = False
+
+
 def _ensure_shared_dir():
     """Einmalige Initialisierung des shared-Verzeichnisses."""
     global _SHARED_DIR_INIT
