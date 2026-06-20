@@ -160,6 +160,66 @@ TOOL_DESCRIPTIONS = {
         "- plan_id (str, required): The plan ID to restore.\n"
         "Use plan_list(include_archived=true) to find archived plans."
     ),
+    "plan_roadmap": (
+        "Manage roadmaps — strategic phase overviews. "
+        "Parameters:\n"
+        "- cmd (str, required): One of: status, show, to_plan, set, list, create\n"
+        "- name (str, optional): Roadmap name (without .yaml). Auto-selects most recent if omitted.\n"
+        "- phase (str, optional): Phase ID for show/to_plan/set commands.\n"
+        "- status (str, optional): New status for 'set' command (pending|in_progress|completed|blocked).\n"
+        "- goal (str, optional): Goal for 'create' command.\n"
+        "- phases (array, optional): Phase list for 'create' command.\n"
+        "Subcommands:\n"
+        "  status  → Show roadmap overview with all phases\n"
+        "  show    → Show detail of a single phase (requires phase=)\n"
+        "  to_plan → Convert phase to plan_create tasks (requires phase=)\n"
+        "  set     → Update phase status (requires phase= + status=)\n"
+        "  list    → List all available roadmaps\n"
+        "  create  → Create a new roadmap (requires name= + phases=)\n"
+        "Example: plan_roadmap(cmd='status') → zeigt Phasen-Übersicht"
+    ),
+    "plan_session": (
+        "Show active sessions with their plans, locks, and pending notifications. "
+        "Parameters:\n"
+        "- include_history (bool, optional): Show git-based plan history (default: false)\n"
+        "Returns session IDs, plan IDs, goals, lock counts, and notification count. "
+        "No Git required for basic session overview."
+    ),
+    "plan_lock": (
+        "Manage resource locks for cross-session coordination. "
+        "Parameters:\n"
+        "- action (str, required): 'lock', 'unlock', or 'status'\n"
+        "- path (str, required): File or directory path to lock/unlock\n"
+        "- session_id (str, optional): Session ID (default: auto-detected)\n"
+        "Prevents two sessions from editing the same file simultaneously. "
+        "File-based, no Git required."
+    ),
+    "plan_notify": (
+        "Send a notification to another session or check own notifications. "
+        "Parameters:\n"
+        "- action (str, required): 'send' or 'check'\n"
+        "- to (str, optional): Target session ID (required for 'send')\n"
+        "- message (str, optional): Message text (required for 'send')\n"
+        "- kind (str, optional): 'info', 'warning', 'alert' (default: 'info')\n"
+        "- session_id (str, optional): Session ID (optional)\n"
+        "Notifications appear in the target session's Hook-Banner. "
+        "No Git required."
+    ),
+    "plan_history": (
+        "Show git-based plan version history. "
+        "Parameters:\n"
+        "- plan_id (str, optional): Plan ID. Defaults to current plan.\n"
+        "- lines (int, optional): Number of log entries (default: 10)\n"
+        "If Git is not active, shows a hint how to enable it. "
+        "This is optional — plans work fine without Git."
+    ),
+    "plan_git_init": (
+        "Initialize a Git repository in ~/.hermes/plans/ for plan versioning. "
+        "Parameters:\n"
+        "- commit_message (str, optional): Initial commit message\n"
+        "Creates .gitignore, adds all existing plans, and makes an initial commit. "
+        "Only needs to be called once. Plans work fine without Git."
+    ),
 }
 
 PLAN_TOOLS = [
@@ -181,6 +241,12 @@ PLAN_TOOLS = [
     ("plan_duedate", plan_tools.plan_duedate_tool),
     ("plan_archive", plan_tools.plan_archive_tool),
     ("plan_restore", plan_tools.plan_restore_tool),
+    ("plan_roadmap", plan_tools.plan_roadmap_handler),
+    ("plan_session", plan_tools.plan_session_tool),
+    ("plan_lock", plan_tools.plan_lock_tool),
+    ("plan_notify", plan_tools.plan_notify_tool),
+    ("plan_history", plan_tools.plan_history_tool),
+    ("plan_git_init", plan_tools.plan_git_init_tool),
 ]
 
 # Per-tool schemas for each individual tool
@@ -396,6 +462,86 @@ PER_TOOL_SCHEMAS = {
         },
         "required": ["plan_id"],
     },
+    "plan_roadmap": {
+        "type": "object",
+        "properties": {
+            "cmd": {
+                "type": "string",
+                "enum": ["status", "show", "to_plan", "set", "list", "create"],
+                "description": "Subcommand: status (Übersicht), show (Phase), to_plan (→ plan_create), set (Status ändern), list (alle Roadmaps), create (neu)",
+            },
+            "name": {"type": "string", "description": "Roadmap-Name (ohne .yaml). Auto-select bei Weglassung."},
+            "phase": {"type": "string", "description": "Phase-ID für show/to_plan/set"},
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "blocked"],
+                "description": "Neuer Status für 'set'",
+            },
+            "goal": {"type": "string", "description": "Roadmap-Ziel für 'create'"},
+            "phases": {
+                "type": "array",
+                "description": "Phasen-Liste für 'create'",
+                "items": {"type": "object"},
+            },
+        },
+        "required": ["cmd"],
+    },
+    "plan_session": {
+        "type": "object",
+        "properties": {
+            "include_history": {
+                "type": "boolean",
+                "description": "Git-basierte Plan-History anzeigen (default: false)",
+                "default": False,
+            },
+        },
+    },
+    "plan_lock": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["lock", "unlock", "status"],
+                "description": "Aktion: lock (sperren), unlock (freigeben), status (prüfen)",
+            },
+            "path": {"type": "string", "description": "Datei- oder Verzeichnispfad"},
+            "session_id": {"type": "string", "description": "Session-ID (optional, auto-detect)"},
+        },
+        "required": ["action", "path"],
+    },
+    "plan_notify": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["send", "check"],
+                "description": "Aktion: send (Nachricht senden), check (eigene Nachrichten prüfen)",
+            },
+            "to": {"type": "string", "description": "Ziel-Session-ID (erforderlich für send)"},
+            "message": {"type": "string", "description": "Nachrichtentext (erforderlich für send)"},
+            "kind": {
+                "type": "string",
+                "enum": ["info", "warning", "alert"],
+                "description": "Nachrichtentyp (default: info)",
+                "default": "info",
+            },
+            "session_id": {"type": "string", "description": "Session-ID (optional)"},
+        },
+        "required": ["action"],
+    },
+    "plan_history": {
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "Plan-ID (optional — default: aktueller Plan)"},
+            "lines": {"type": "integer", "description": "Anzahl Log-Einträge (default: 10)", "default": 10},
+        },
+    },
+    "plan_git_init": {
+        "type": "object",
+        "properties": {
+            "commit_message": {"type": "string", "description": "Initiale Commit-Nachricht (optional)"},
+        },
+    },
 }
 
 
@@ -410,7 +556,7 @@ def _register_tools(ctx: PluginContext) -> None:
             handler=handler,
             description=TOOL_DESCRIPTIONS.get(name, ""),
         )
-    logger.info("plan_follow: 18 tools registered (plan_create/current/complete/verify/status/todo/update/review/auto_review/review_profiles/list/abort/delete/select/validate/duedate/archive/restore)")
+    logger.info("plan_follow: 24 tools registered (plan_create/current/complete/verify/status/todo/update/review/auto_review/review_profiles/list/abort/delete/select/validate/duedate/archive/restore/roadmap/session/lock/notify/history/git_init)")
 
 
 def _register_hooks(ctx: PluginContext) -> None:

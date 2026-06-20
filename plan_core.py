@@ -191,6 +191,54 @@ def _save_plan(plan: dict) -> None:
     _active_plan_id = plan["plan_id"]
     _update_plans_index(plan)
 
+    # Optional: Git-Commit wenn PLANS_DIR ein Git-Repo ist
+    # Nur bei create_plan oder complete_task (nicht bei jedem update)
+    _git_commit_if_active(plan)
+
+
+def _git_commit_if_active(plan: dict) -> None:
+    """Git-Commit des Plan-JSONs wenn PLANS_DIR/.git existiert.
+    
+    Nur bei relevanten Events (create/complete) — nicht bei jedem update.
+    Fehlertolerant: Git-Fehler blockieren nicht das Speichern.
+    """
+    git_dir = PLANS_DIR / ".git"
+    if not git_dir.exists():
+        return  # Optional — kein Git-Repo, stille Skip
+
+    plan_id = plan.get("plan_id", "unknown")
+    current_task = plan.get("current_task", "none")
+    done = sum(1 for t in plan.get("tasks", {}).values() if t.get("status") == "completed")
+    total = len(plan.get("tasks", {}))
+    
+    msg = f"plan: {plan_id[:50]} — task {current_task} ({done}/{total})"
+    
+    import subprocess
+    try:
+        # Add only this plan's JSON file
+        add = subprocess.run(
+            ["git", "add", "--", f"{plan_id}.json"],
+            cwd=PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if add.returncode != 0:
+            return  # Git add failed — silent skip
+        
+        # Check if there's anything to commit
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--stat"],
+            cwd=PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if not diff.stdout.strip():
+            return  # No changes — silent skip
+        
+        # Commit
+        subprocess.run(
+            ["git", "commit", "-m", msg],
+            cwd=PLANS_DIR, capture_output=True, text=True, timeout=30,
+        )
+    except Exception:
+        pass  # Silent skip — Git-Fehler blockieren nicht
+
 
 def _load_plan(plan_id: str) -> Optional[dict]:
     path = _plan_path(plan_id)
@@ -451,6 +499,20 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
     reset_tool_metrics()
     _save_plan(plan)
 
+    # Cross-Session: Session registrieren
+    try:
+        import os, socket
+        from .coord_state import register_session
+        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
+        register_session(
+            session_id,
+            plan_id=plan_id,
+            goal=goal[:80],
+            cwd=os.getcwd(),
+        )
+    except Exception:
+        pass  # Best-effort
+
     # Honcho persistence (save plan state for cross-session recovery)
     _save_plan_state_to_honcho(plan_id, "active", "true")
 
@@ -591,6 +653,15 @@ def complete_task(task_id: str) -> dict:
         _advance_linear(plan)
 
     _save_plan(plan)
+
+    # Cross-Session: Session-Update bei Task-Abschluss
+    try:
+        import os, socket
+        from .coord_state import update_session
+        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
+        update_session(session_id, plan_id=plan["plan_id"])
+    except Exception:
+        pass  # Best-effort
 
     result = {
         "status": "completed",
@@ -820,6 +891,16 @@ def abort_plan(task_id: str = "") -> dict:
         msg = "Whole plan aborted."
 
     _save_plan(plan)
+
+    # Cross-Session: Deregistrierung bei Abbruch
+    try:
+        import os, socket
+        from .coord_state import unregister_session
+        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
+        unregister_session(session_id)
+    except Exception:
+        pass  # Best-effort
+
     return {"status": "aborted", "plan_id": plan["plan_id"], "message": msg}
 
 
@@ -842,6 +923,16 @@ def delete_plan(plan_id: str) -> dict:
         _active_plan_id = None
 
     path.unlink()
+
+    # Cross-Session: Deregistrierung bei Löschung
+    try:
+        import os, socket
+        from .coord_state import unregister_session
+        session_id = os.environ.get("HERMES_SESSION_ID", os.environ.get("SESSION_ID", socket.gethostname()))
+        unregister_session(session_id)
+    except Exception:
+        pass  # Best-effort
+
     return {"status": "deleted", "plan_id": plan_id, "message": f"Plan '{plan_id}' deleted."}
 
 
@@ -1418,3 +1509,188 @@ def restore_plan(plan_id: str) -> dict:
         "status": "restored", "plan_id": plan_id,
         "message": f"Plan '{plan_id}' restored from archive.",
     }
+
+
+# ─── Roadmap Data Model ──────────────────────────────────────────────────────
+
+ROADMAPS_DIR = Path.home() / ".hermes" / "roadmaps"
+ROADMAPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _roadmap_path(name: str) -> Path:
+    """Get the filesystem path for a roadmap YAML file.
+
+    Args:
+        name: Roadmap name (with or without .yaml extension).
+    """
+    if name.endswith(".yaml"):
+        name = name[:-5]
+    return ROADMAPS_DIR / f"{name}.yaml"
+
+
+def _list_roadmaps() -> list[dict]:
+    """List all available roadmap files.
+
+    Returns:
+        List of dicts with 'name' and 'path' keys, sorted by modification time (newest first).
+    """
+    roadmaps = []
+    for f in sorted(ROADMAPS_DIR.glob("*.yaml"), key=lambda p: p.stat().st_mtime, reverse=True):
+        roadmaps.append({
+            "name": f.stem,
+            "path": str(f),
+            "modified": f.stat().st_mtime,
+        })
+    return roadmaps
+
+
+def _load_roadmap(name: str) -> Optional[dict]:
+    """Load a roadmap from a YAML file.
+
+    Args:
+        name: Roadmap name (with or without .yaml).
+
+    Returns:
+        Parsed roadmap dict, or None if file not found or invalid.
+    """
+    path = _roadmap_path(name)
+    if not path.exists():
+        return None
+    try:
+        content = path.read_text(encoding="utf-8")
+
+        # Try JSON first
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            pass
+
+        # Try python yaml if available
+        try:
+            import yaml
+            return yaml.safe_load(content)
+        except ImportError:
+            pass
+
+        # Fallback: simple hand-rolled parser (same as plan_templates)
+        return _parse_roadmap_yaml_simple(content)
+    except Exception:
+        logger.warning(f"Roadmap '{name}' could not be loaded")
+        return None
+
+
+def _save_roadmap(name: str, data: dict) -> bool:
+    """Save a roadmap as YAML file.
+
+    Args:
+        name: Roadmap name (without .yaml).
+        data: Roadmark dict with 'name', 'goal', 'phases' etc.
+
+    Returns:
+        True on success, False on failure.
+    """
+    path = _roadmap_path(name)
+    try:
+        # Try to use yaml for prettier output
+        try:
+            import yaml
+            content = yaml.dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        except ImportError:
+            # Fallback to JSON
+            import json
+            content = json.dumps(data, indent=2, ensure_ascii=False)
+
+        path.write_text(content, encoding="utf-8")
+        logger.info(f"Roadmap '{name}' saved to {path}")
+        return True
+    except Exception as e:
+        logger.warning(f"Roadmap '{name}' could not be saved: {e}")
+        return False
+
+
+def _parse_roadmap_yaml_simple(content: str) -> Optional[dict]:
+    """Simple YAML parser for roadmap files.
+
+    Handles: top-level keys, list of phases with nested fields.
+    Uses indentation to distinguish top-level from phase-level keys.
+    """
+    try:
+        result = {}
+        current_phase = None
+        phases = []
+        in_phases = False
+
+        for line in content.split("\n"):
+            # Skip empty and comment lines
+            if not line.strip() or line.strip().startswith("#"):
+                continue
+
+            stripped = line.strip()
+            indent = len(line) - len(line.lstrip())
+
+            # If we're inside phases and this line has indentation, it's a phase field
+            if in_phases and indent > 0:
+                # Phase list item
+                if stripped.startswith("-"):
+                    if current_phase:
+                        phases.append(current_phase)
+                    current_phase = {}
+                    rest = stripped[1:].strip()
+                    if rest:
+                        for part in rest.split("  "):
+                            part = part.strip()
+                            if ":" in part:
+                                k, _, v = part.partition(":")
+                                k = k.strip()
+                                v = v.strip().strip('"').strip("'")
+                                if v.startswith("[") and v.endswith("]"):
+                                    v = [x.strip().strip('"').strip("'") for x in v[1:-1].split(",")]
+                                current_phase[k] = v
+                # Phase field (indented key: value)
+                elif ":" in stripped:
+                    k, _, v = stripped.partition(":")
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if v.startswith("[") and v.endswith("]"):
+                        v = [x.strip().strip('"').strip("'") for x in v[1:-1].split(",")]
+                    current_phase[k] = v
+                continue
+
+            # Phase task list item (indented - with no key: value)
+            if in_phases and indent > 0 and stripped.startswith("-"):
+                # Already handled above
+                continue
+
+            # Top-level key: value (no indentation)
+            if indent == 0 and ":" in stripped:
+                key, _, val = stripped.partition(":")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key == "phases":
+                    in_phases = True
+                elif key == "name":
+                    result["name"] = val
+                elif key == "goal":
+                    result["goal"] = val
+                elif key == "created":
+                    result["created"] = val
+                else:
+                    result[key] = val
+                continue
+
+            # If we hit a non-indented, non-empty line after phases, we're out of phases
+            if in_phases and indent == 0 and current_phase is not None:
+                # Could be a new top-level key after phases
+                pass
+
+        if current_phase:
+            phases.append(current_phase)
+        if phases:
+            result["phases"] = phases
+
+        if result:
+            return result
+    except Exception:
+        pass
+
+    return None
