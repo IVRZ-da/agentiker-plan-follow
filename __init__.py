@@ -163,12 +163,13 @@ TOOL_DESCRIPTIONS = {
     "plan_roadmap": (
         "Manage roadmaps — strategic phase overviews. "
         "Parameters:\n"
-        "- cmd (str, required): One of: status, show, to_plan, set, list, create\n"
+        "- action (str, required): One of: status, show, to_plan, set, list, create\n"
         "- name (str, optional): Roadmap name (without .yaml). Auto-selects most recent if omitted.\n"
         "- phase (str, optional): Phase ID for show/to_plan/set commands.\n"
         "- status (str, optional): New status for 'set' command (pending|in_progress|completed|blocked).\n"
         "- goal (str, optional): Goal for 'create' command.\n"
         "- phases (array, optional): Phase list for 'create' command.\n"
+        "Also accepts cmd= as alias for action= (deprecated).\n"
         "Subcommands:\n"
         "  status  → Show roadmap overview with all phases\n"
         "  show    → Show detail of a single phase (requires phase=)\n"
@@ -176,7 +177,7 @@ TOOL_DESCRIPTIONS = {
         "  set     → Update phase status (requires phase= + status=)\n"
         "  list    → List all available roadmaps\n"
         "  create  → Create a new roadmap (requires name= + phases=)\n"
-        "Example: plan_roadmap(cmd='status') → zeigt Phasen-Übersicht"
+        "Example: plan_roadmap(action='status') → zeigt Phasen-Übersicht"
     ),
     "plan_session": (
         "Show active sessions with their plans, locks, and pending notifications. "
@@ -465,10 +466,15 @@ PER_TOOL_SCHEMAS = {
     "plan_roadmap": {
         "type": "object",
         "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["status", "show", "to_plan", "set", "list", "create"],
+                "description": "Aktion: status (Übersicht), show (Phase), to_plan (→ plan_create), set (Status ändern), list (alle Roadmaps), create (neu)",
+            },
             "cmd": {
                 "type": "string",
                 "enum": ["status", "show", "to_plan", "set", "list", "create"],
-                "description": "Subcommand: status (Übersicht), show (Phase), to_plan (→ plan_create), set (Status ändern), list (alle Roadmaps), create (neu)",
+                "description": "Alias für 'action' (deprecated, nutze action= für Konsistenz mit plan_lock/plan_notify)",
             },
             "name": {"type": "string", "description": "Roadmap-Name (ohne .yaml). Auto-select bei Weglassung."},
             "phase": {"type": "string", "description": "Phase-ID für show/to_plan/set"},
@@ -484,7 +490,7 @@ PER_TOOL_SCHEMAS = {
                 "items": {"type": "object"},
             },
         },
-        "required": ["cmd"],
+        "required": [],  
     },
     "plan_session": {
         "type": "object",
