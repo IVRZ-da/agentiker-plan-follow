@@ -24,7 +24,8 @@ try:
         SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE,
     )
 except ImportError:
-    # Fallback für Direktausführung
+    # Silent fallback — expected when running tests directly
+    # (conftest.py handles module setup for pytest suite runs)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from coord_state import (
         register_session, unregister_session, update_session,
@@ -43,8 +44,7 @@ except ImportError:
 def clean_shared_state():
     """Clean shared state files before each test."""
     for f in [SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE]:
-        if f.exists():
-            f.unlink()
+        f.unlink(missing_ok=True)
     yield
 
 

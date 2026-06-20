@@ -12,7 +12,7 @@ import time
 from typing import Any, Optional
 
 from . import plan_core
-from .plan_roadmap import get_active_roadmap, PRIORITY_ICONS, STATUS_ICONS, _get_phase_progress
+from .plan_roadmap import get_active_roadmap, _get_phase_progress
 
 logger = logging.getLogger("plan_follow")
 
