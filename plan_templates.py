@@ -24,12 +24,36 @@ TEMPLATES_DIR = Path.home() / ".hermes" / "plans" / "templates"
 
 # ─── Built-in Templates ───────────────────────────────────────────────────────
 
+# Default parameter values per template (users can override via params={})
+TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
+    "deploy": {
+        "build_command": "npx medusa build",
+        "test_command": "npm test",
+        "service": "medusa-staging",
+        "verify_url": "http://localhost:9000/health",
+    },
+    "bugfix": {
+        "test_command": "npm test",
+        "lint_command": "npm run lint",
+    },
+    "feature": {
+        "typecheck_command": "tsc --noEmit",
+        "test_command": "npm test",
+        "lint_command": "npm run lint",
+    },
+    "refactoring": {
+        "test_coverage_command": "npm test -- --coverage",
+        "typecheck_command": "tsc --noEmit",
+        "lint_command": "npm run lint",
+    },
+}
+
 BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "deploy": {
         "description": "Deployment: Build → Test → Deploy → Verify",
         "tasks": [
-            {"id": "d1", "name": "Build check", "files": [], "verify": "npx medusa build", "depends_on": []},
-            {"id": "d2", "name": "Tests ausführen", "files": [], "verify": "npm test", "depends_on": ["d1"]},
+            {"id": "d1", "name": "Build check", "files": [], "verify": "{{build_command}}", "depends_on": []},
+            {"id": "d2", "name": "Tests ausführen", "files": [], "verify": "{{test_command}}", "depends_on": ["d1"]},
             {"id": "d3", "name": "Deploy to {{env}}", "files": [],
              "verify": "systemctl --user restart {{service}}", "depends_on": ["d2"]},
             {"id": "d4", "name": "Health-Check verify", "files": [],
@@ -42,11 +66,11 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "Bug-Fix mit TDD: RED → GREEN → REFACTOR",
         "tasks": [
             {"id": "b1", "name": "RED: Failenden Test schreiben", "files": ["*spec.ts"],
-             "verify": "npm test -- --grep 'new test'", "depends_on": []},
+             "verify": "{{test_command}} -- --grep 'new test'", "depends_on": []},
             {"id": "b2", "name": "GREEN: Fix implementieren", "files": ["src/"],
-             "verify": "npm test", "depends_on": ["b1"]},
+             "verify": "{{test_command}}", "depends_on": ["b1"]},
             {"id": "b3", "name": "REFACTOR: Code aufräumen", "files": ["src/"],
-             "verify": "npm run lint", "depends_on": ["b2"]},
+             "verify": "{{lint_command}}", "depends_on": ["b2"]},
         ],
         "review_profile": "unit-test",
     },
@@ -54,13 +78,13 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "Neues Feature: Spec → Implementierung → Tests → Docs",
         "tasks": [
             {"id": "f1", "name": "Spec schreiben / Types definieren", "files": ["src/"],
-             "verify": "tsc --noEmit", "depends_on": []},
+             "verify": "{{typecheck_command}}", "depends_on": []},
             {"id": "f2", "name": "Implementierung", "files": ["src/"],
-             "verify": "tsc --noEmit", "depends_on": ["f1"]},
+             "verify": "{{typecheck_command}}", "depends_on": ["f1"]},
             {"id": "f3", "name": "Tests schreiben", "files": ["*spec.ts"],
-             "verify": "npm test", "depends_on": ["f2"]},
+             "verify": "{{test_command}}", "depends_on": ["f2"]},
             {"id": "f4", "name": "Dokumentation", "files": ["README.md", "docs/"],
-             "verify": "npm run lint", "depends_on": ["f3"]},
+             "verify": "{{lint_command}}", "depends_on": ["f3"]},
         ],
         "review_profile": "unit-test",
     },
@@ -68,13 +92,13 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "description": "Refactoring: Coverage → Refactor → Verify → Docs",
         "tasks": [
             {"id": "r1", "name": "Coverage-Check vor Refactoring", "files": [],
-             "verify": "npm test -- --coverage", "depends_on": []},
+             "verify": "{{test_coverage_command}}", "depends_on": []},
             {"id": "r2", "name": "Refactoring durchführen", "files": ["src/"],
-             "verify": "tsc --noEmit", "depends_on": ["r1"]},
+             "verify": "{{typecheck_command}}", "depends_on": ["r1"]},
             {"id": "r3", "name": "Tests + Coverage nach Refactoring", "files": ["*spec.ts"],
-             "verify": "npm test -- --coverage", "depends_on": ["r2"]},
+             "verify": "{{test_coverage_command}}", "depends_on": ["r2"]},
             {"id": "r4", "name": "Dokumentation aktualisieren", "files": ["README.md", "docs/"],
-             "verify": "npm run lint", "depends_on": ["r3"]},
+             "verify": "{{lint_command}}", "depends_on": ["r3"]},
         ],
         "review_profile": "full",
     },
@@ -294,11 +318,16 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
     if template.get("repo_hint"):
         result["repo_hint"] = template["repo_hint"]
 
-    # Substitute {{param}} placeholders in task fields
+    # Merge default params with user-provided params (user wins)
+    merged_params = dict(TEMPLATE_DEFAULTS.get(name, {}))
     if params:
+        merged_params.update(params)
+
+    # Substitute {{param}} placeholders in task fields
+    if merged_params:
         for i, task in enumerate(result["tasks"]):
             for field in ("id", "name", "verify", "files", "depends_on", "review_profile"):
                 if field in task:
-                    result["tasks"][i][field] = _substitute_params(task[field], params)
+                    result["tasks"][i][field] = _substitute_params(task[field], merged_params)
 
     return result
