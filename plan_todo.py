@@ -13,7 +13,6 @@ Output-Format identisch zu built-in todo:
     {"todos": [...], "summary": {total, pending, in_progress, completed, cancelled}}
 """
 
-import json
 import logging
 import sys
 from pathlib import Path
@@ -21,17 +20,18 @@ from typing import Optional
 
 from ._fmt import fmt_ok
 
+logger = logging.getLogger("plan_follow")
+
 # Relative Import (Plugin-Kontext) oder absoluter Fallback (Standalone-Test)
 try:
     from . import plan_core
-except ImportError:
+except ImportError as e:
+    logger.warning("plan_todo: relative import failed, trying sys.path fallback: %s", e)
     # Fallback: sys.path vor Plugin-root setzen
     _plugin_root = Path(__file__).resolve().parent
     if str(_plugin_root) not in sys.path:
         sys.path.insert(0, str(_plugin_root))
     import plan_core
-
-logger = logging.getLogger("plan_follow")
 
 VALID_STATUSES = {"pending", "in_progress", "completed", "cancelled"}
 

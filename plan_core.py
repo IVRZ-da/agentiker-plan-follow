@@ -30,7 +30,7 @@ from typing import Optional
 logger = logging.getLogger("plan_follow")
 
 PLANS_DIR = Path.home() / ".hermes" / "plans"
-PLANS_DIR.mkdir(parents=True, exist_ok=True)
+# PLANS_DIR.mkdir() moved to _ensure_plans_dir() — lazy init on first write
 
 HONCHO_URL = "http://127.0.0.1:8001"
 HONCHO_WORKSPACE = "plan-follow"
@@ -179,11 +179,18 @@ def _recover_plan_from_disk() -> Optional[str]:
 
 # ─── JSON Persistence ─────────────────────────────────────────────────────────
 
+def _ensure_dirs() -> None:
+    """Lazy init: create data dirs on first write (not at module import)."""
+    PLANS_DIR.mkdir(parents=True, exist_ok=True)
+    ROADMAPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 def _plan_path(plan_id: str) -> Path:
     return PLANS_DIR / f"{plan_id}.json"
 
 
 def _save_plan(plan: dict) -> None:
+    _ensure_dirs()
     path = _plan_path(plan["plan_id"])
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
     global _active_plan, _active_plan_id
@@ -1514,7 +1521,7 @@ def restore_plan(plan_id: str) -> dict:
 # ─── Roadmap Data Model ──────────────────────────────────────────────────────
 
 ROADMAPS_DIR = Path.home() / ".hermes" / "roadmaps"
-ROADMAPS_DIR.mkdir(parents=True, exist_ok=True)
+# ROADMAPS_DIR.mkdir() moved to _ensure_dirs() — lazy init on first write
 
 
 def _roadmap_path(name: str) -> Path:
@@ -1522,7 +1529,12 @@ def _roadmap_path(name: str) -> Path:
 
     Args:
         name: Roadmap name (with or without .yaml extension).
+
+    Raises:
+        ValueError: If name contains path traversal (..) or is absolute.
     """
+    if ".." in name or name.startswith("/"):
+        raise ValueError(f"Invalid roadmap name: '{name}' (path traversal blocked)")
     if name.endswith(".yaml"):
         name = name[:-5]
     return ROADMAPS_DIR / f"{name}.yaml"
@@ -1589,6 +1601,7 @@ def _save_roadmap(name: str, data: dict) -> bool:
     Returns:
         True on success, False on failure.
     """
+    _ensure_dirs()
     path = _roadmap_path(name)
     try:
         # Try to use yaml for prettier output

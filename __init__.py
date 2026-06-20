@@ -5,9 +5,14 @@ and cross-session plan persistence via Honcho.
 Register via plugins.enabled: [agentiker_code_intel, plan_follow]
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from hermes_cli.plugins import PluginContext
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from hermes_cli.plugins import PluginContext
 
 from . import plan_core
 from . import plan_tools
