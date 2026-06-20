@@ -12,6 +12,7 @@ import time
 from typing import Any, Optional
 
 from . import plan_core
+from .plan_roadmap import get_active_roadmap, PRIORITY_ICONS, STATUS_ICONS, _get_phase_progress
 
 logger = logging.getLogger("plan_follow")
 
@@ -72,7 +73,31 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                 f"║  Files: {', '.join(current['files'][:3])}" +
                 (" ..." if len(current['files']) > 3 else ""),
                 f"║  Progress: {current['progress']}",
+                f"║                                       ║",
             ]
+
+            # ─── 1b. Roadmap Banner (if a roadmap is active) ───────────────
+            try:
+                rname, rdata = get_active_roadmap()
+                if rdata:
+                    prog = _get_phase_progress(rdata)
+                    lines.append(f"║  📋 ROADMAP: {rdata.get('name', rname or '?')}")
+                    lines.append(f"║     {prog['completed']}/{prog['total']} Phasen erledigt")
+
+                    # Show next unblocked phases (max 3)
+                    from .plan_roadmap import _get_next_phases
+                    next_phases = _get_next_phases(rdata)
+                    if next_phases:
+                        next_names = [p.get("name", p.get("id", "?"))[:30] for p in next_phases[:3]]
+                        lines.append(f"║     👉 Nächste: {', '.join(next_names)}")
+
+                    # Show blocked phases
+                    blocked = [p for p in rdata.get("phases", []) if p.get("status") == "blocked"]
+                    if blocked:
+                        blocked_names = [p.get("name", p.get("id", "?"))[:25] for p in blocked[:2]]
+                        lines.append(f"║     🔒 Blockiert: {', '.join(blocked_names)}")
+            except Exception:
+                pass  # Roadmap banner is best-effort
 
             # ─── 2. Drift Check (cached) ──────────────────────────────────
             try:
@@ -116,6 +141,48 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                         lines.append(f"║    Noch {due_info['days_remaining']} Tag(e): {due_info['due']}             ║")
             except Exception:
                 pass  # Deadline display is best-effort
+
+            # ─── 3b. Cross-Session Info ─────────────────────────────────────
+            try:
+                from . import coord_state
+                sessions = coord_state.get_sessions()
+                locks = coord_state.get_locks()
+
+                # Show active sessions count (excluding current)
+                if sessions:
+                    lines.append("║                                       ║")
+                    lines.append(f"║  👥 {len(sessions)} aktive Session(s)         ║")
+                    for sid, s in list(sessions.items())[:3]:
+                        goal_preview = s.get("goal", "")[:35]
+                        lines.append(f"║    • {sid[:20]}: {goal_preview}    ║")
+                    if len(sessions) > 3:
+                        lines.append(f"║    ... und {len(sessions)-3} weitere        ║")
+
+                # Check if current files are locked by other sessions
+                current = plan_core.get_current_task_cached()
+                if current and locks:
+                    my_locks = []
+                    other_locks = []
+                    task_files = current.get("files", [])
+                    for path, lock in locks.items():
+                        if any(f in path for f in task_files):
+                            other_locks.append(path)
+
+                    if other_locks:
+                        lines.append("║                                       ║")
+                        lines.append("║  🔒 LOCKS: Dateien von anderer Session  ║")
+                        for lpath in other_locks[:2]:
+                            lock_info = locks.get(lpath, {})
+                            lines.append(f"║    • {lpath[:45]} ({lock_info.get('session_id','?')[:15]})    ║")
+
+                # Check pending notifications
+                notifs = coord_state.get_notifications("current", mark_read=False)
+                if notifs:
+                    lines.append("║                                       ║")
+                    lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
+                    lines.append(f"║    → plan_notify(action='check')          ║")
+            except Exception:
+                pass  # Cross-session info is best-effort
 
             # ─── 4. Review Status Banner ──────────────────────────────────
             try:

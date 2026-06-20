@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from ._fmt import fmt_ok
+
 # Relative Import (Plugin-Kontext) oder absoluter Fallback (Standalone-Test)
 try:
     from . import plan_core
@@ -165,7 +167,7 @@ def plan_todo_tool(args: dict, **kwargs) -> str:
 
     summary = _build_summary(result_todos)
 
-    return json.dumps({
+    return fmt_ok({
         "todos": result_todos,
         "summary": summary,
-    }, ensure_ascii=False)
+    })

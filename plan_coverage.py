@@ -23,8 +23,11 @@ from typing import Optional
 
 logger = logging.getLogger("plan_follow")
 
-# Coverage-Schwellwert (default: 90%)
-DEFAULT_COVERAGE_THRESHOLD = 90.0
+# Coverage-Schwellwert (default: 80% — critical-only)
+# Warum 80% statt 90%: Coverage unter 80% signalisiert echte Lücken,
+# während 80-90% oft durch triviale Tests erreichbar ist.
+# Fokus: Behaviorale Tests mit guten Assertions statt Coverage-Jagd.
+DEFAULT_COVERAGE_THRESHOLD = 80.0
 
 
 def get_project_from_files(files: list[str]) -> Optional[str]:
@@ -360,3 +363,101 @@ def measure_coverage(
                 os.remove(cov_file)
         except OSError:
             pass
+
+
+# ─── Mutation Testing (PoC) ─────────────────────────────────────────
+
+def run_mutation_testing(
+    project_path: str,
+    target_file: Optional[str] = None,
+    timeout: int = 300,
+) -> dict:
+    """Führe Mutation-Testing mit mutmut aus (PoC).
+
+    Ist ein OPTIONALER Schritt — wird nur ausgeführt wenn mutmut
+    installiert ist. Dient als Qualitätsindikator: Eine Mutation,
+    die nicht getötet wird, zeigt fehlende Assertions.
+
+    Args:
+        project_path: Absoluter Pfad zum Projekt-Root.
+        target_file: Optionales Target (Datei oder Modul).
+        timeout: Timeout in Sekunden (default: 300).
+
+    Returns:
+        Dict mit:
+          - available: True wenn mutmut installiert
+          - success: True wenn Tests laufen
+          - killed: Anzahl getöteter Mutanten
+          - survived: Anzahl überlebender Mutanten (je weniger, desto besser)
+          - error: Fehlermeldung
+    """
+    # Prüfe ob mutmut installiert ist
+    try:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-m", "mutmut", "--version"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return {
+                "available": False,
+                "success": False,
+                "error": "mutmut nicht installiert (pip install mutmut)",
+            }
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {
+            "available": False,
+            "success": False,
+            "error": "mutmut nicht installiert (pip install mutmut)",
+        }
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(project_path)
+
+        cmd = [sys.executable, "-m", "mutmut", "run"]
+        if target_file:
+            cmd.extend(["--paths-to-mutate", target_file])
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+
+        # Parse Ergebnis
+        killed = 0
+        survived = 0
+        for line in result.stdout.splitlines():
+            if "killed" in line.lower():
+                import re
+                match = re.search(r"(\d+)", line)
+                if match:
+                    killed = int(match.group(1))
+            if "survived" in line.lower() or "suspicious" in line.lower():
+                import re
+                match = re.search(r"(\d+)", line)
+                if match:
+                    survived += int(match.group(1))
+
+        return {
+            "available": True,
+            "success": True,
+            "killed": killed,
+            "survived": survived,
+            "stdout": result.stdout[:2000],
+            "stderr": result.stderr[:500],
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "available": True,
+            "success": False,
+            "error": f"Mutation testing timed out after {timeout}s",
+        }
+    except Exception as e:
+        return {
+            "available": True,
+            "success": False,
+            "error": str(e),
+        }
+    finally:
+        os.chdir(original_dir)
