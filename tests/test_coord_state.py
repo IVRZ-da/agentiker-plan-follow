@@ -614,14 +614,11 @@ class TestCleanupStale:
     def test_cleanup_stale_sessions_removes_old(self):
         """cleanup_stale_sessions should remove sessions older than max_age."""
         register_session("old-session")
-        # Manually set last_seen far in the past
-        import json
-        from datetime import datetime, timezone
-        old_time = (datetime.now(timezone.utc).isoformat())
-        sessions = get_sessions()
+        # Manually set last_seen far in the past via coord_state module reference
+        import plan_follow.coord_state as _cs
+        sessions = _cs.get_sessions()
         sessions["old-session"]["last_seen"] = "2020-01-01T00:00:00"
-        from plan_follow.coord_state import _atomic_write
-        _atomic_write(SESSIONS_FILE, sessions)
+        _cs._atomic_write(_cs.SESSIONS_FILE, sessions)
 
         removed = cleanup_stale_sessions(max_age_minutes=1)
         assert removed >= 1
@@ -638,14 +635,12 @@ class TestCleanupStale:
     def test_cleanup_stale_locks_removes_old(self):
         """cleanup_stale_locks should remove locks older than max_age."""
         acquire_lock("/old-file.ts", "old")
-        # Manually set since far in the past
-        import json
-        from datetime import datetime, timezone
-        from plan_follow.coord_state import _atomic_write
-        locks = get_locks()
+        # Manually set since far in the past via coord_state module reference
+        import plan_follow.coord_state as _cs
+        locks = _cs.get_locks()
         assert "/old-file.ts" in locks
         locks["/old-file.ts"]["since"] = "2020-01-01T00:00:00"
-        _atomic_write(LOCKS_FILE, locks)
+        _cs._atomic_write(_cs.LOCKS_FILE, locks)
 
         removed = cleanup_stale_locks(max_age_minutes=1)
         assert removed >= 1

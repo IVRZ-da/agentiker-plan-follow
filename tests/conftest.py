@@ -36,6 +36,20 @@ if "tools" not in sys.modules:
 
 
 @pytest.fixture(autouse=True)
+def temp_shared_dir(tmp_path):
+    """Redirect coord_state's SHARED_DIR to a temp directory per worker.
+    
+    This prevents parallel xdist workers from corrupting each other's
+    shared state files (sessions.json, locks.json, notifications.json).
+    Uses set_shared_dir() which updates all file paths atomically.
+    """
+    from plan_follow import coord_state
+    temp_shared = tmp_path / "shared"
+    temp_shared.mkdir(exist_ok=True)
+    coord_state.set_shared_dir(temp_shared)
+
+
+@pytest.fixture(autouse=True)
 def mock_fmt():
     """Mock _fmt output functions to return JSON."""
     with patch("plan_follow.plan_tools.fmt_ok", side_effect=lambda d, **kw: json.dumps(d, ensure_ascii=False)):
