@@ -6,7 +6,7 @@ _tool_metrics, _drift_warnings or _SESSION_ID import STATE and use
 STATE.attr instead of module-level globals + 'global' declarations.
 
 Usage:
-    from plan_follow.tools.state import STATE
+    from . state import STATE
     STATE.active_plan = plan
     STATE.active_plan_id = plan_id
     STATE.tool_metrics[tool_name] = ...

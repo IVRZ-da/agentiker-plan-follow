@@ -11,8 +11,6 @@ Tests verify the full flow:
 import json
 from unittest.mock import patch
 
-
-
 # ─── Test helpers ──────────────────────────────────────────────────────────────
 
 def make_mock_plan(plan_id="test-plan", goal="Test", task_id="p1",
@@ -64,10 +62,7 @@ class TestPlanCreateAutoPeerReview:
 
                         result = plan_create_tool({
                             "goal": "Integration test",
-                            "tasks": [
-                                {"id": "p1", "name": "Task 1", "files": ["test.py"],
-                                 "verify": "test -f test.py && echo 'ok'"},
-                            ],
+                            "template": "fix",
                         })
 
                         parsed = json.loads(result) if isinstance(result, str) else {}
@@ -88,10 +83,7 @@ class TestPlanCreateAutoPeerReview:
 
             result = plan_create_tool({
                 "goal": "Peer review test",
-                "tasks": [
-                    {"id": "p1", "name": "Test", "files": ["test.py"],
-                     "verify": "test -f test.py && echo 'ok'"},
-                ],
+                "template": "fix",
             })
 
             mock_review.assert_called_once()
@@ -116,9 +108,7 @@ class TestPlanCreateAutoPeerReview:
 
                 result = plan_create_tool({
                     "goal": "Peer review with issues",
-                    "tasks": [
-                        {"id": "p1", "name": "Broken task"},
-                    ],
+                    "template": "fix",
                 })
                 parsed = json.loads(result) if isinstance(result, str) else {}
                 assert "peer_review" in parsed, \
@@ -174,7 +164,7 @@ class TestTTSPeerReviewChain:
 
     def test_full_chain(self):
         """The full integration chain should work end-to-end."""
-        from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
 
         mock_plan = make_mock_plan(task_id="p1")
 
@@ -184,12 +174,7 @@ class TestTTSPeerReviewChain:
 
             create_result = plan_create_tool({
                 "goal": "Chain test",
-                "tasks": [
-                    {"id": "p1", "name": "First task", "files": ["a.py"],
-                     "verify": "test -f a.py && echo 'ok'"},
-                    {"id": "p2", "name": "Second task", "files": ["b.py"],
-                     "verify": "test -f b.py && echo 'ok'", "depends_on": ["p1"]},
-                ],
+                "template": "fix",
             })
 
             assert create_result is not None, "plan_create should return a result"

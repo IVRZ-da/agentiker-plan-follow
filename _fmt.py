@@ -14,14 +14,14 @@ Verwendung in Tool-Handlern:
 import json
 from typing import Any, Optional
 
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.markdown import Markdown
-from rich.tree import Tree
 from rich import box as rich_box
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.table import Table
+from rich.tree import Tree
 
 # ─── Globale Console (erkennt Terminal-Breite automatisch) ──────
 _console = Console()

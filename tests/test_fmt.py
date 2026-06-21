@@ -8,8 +8,6 @@ from pathlib import Path
 
 # Ensure plugin is importable (same pattern as test_plan_follow.py)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-import json
-import pytest
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -22,13 +20,20 @@ def _plain(fn, *args, **kwargs) -> str:
 
 
 # Import all fmt_* functions at module level for test usage
-from plan_follow._fmt import (
-    fmt_ok, fmt_err, fmt_warn, fmt_info,
-    fmt_table, fmt_table_simple, fmt_tree,
-    fmt_banner, fmt_code, fmt_markdown,
-    fmt_rule, fmt_json,
+from plan_follow._fmt import (  # noqa: E402
+    fmt_banner,
+    fmt_code,
+    fmt_err,
+    fmt_info,
+    fmt_json,
+    fmt_markdown,
+    fmt_ok,
+    fmt_rule,
+    fmt_table,
+    fmt_table_simple,
+    fmt_tree,
+    fmt_warn,
 )
-
 
 # ─── fmt_ok ────────────────────────────────────────────────────────────────────
 
@@ -267,7 +272,7 @@ class TestFmtMarkdown:
 
     def test_fallback_on_parse_error(self):
         """Trigger the except branch in fmt_markdown."""
-        from plan_follow._fmt import fmt_markdown, _strip_ansi
+        from plan_follow._fmt import fmt_markdown
         # Very deeply nested or unusual markdown to trigger parser failure
         result = fmt_markdown("\x00broken\x00")
         assert isinstance(result, str)

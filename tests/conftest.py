@@ -38,7 +38,7 @@ if "tools" not in sys.modules:
 @pytest.fixture(autouse=True)
 def temp_shared_dir(tmp_path):
     """Redirect coord_state's SHARED_DIR to a temp directory per worker.
-    
+
     This prevents parallel xdist workers from corrupting each other's
     shared state files (sessions.json, locks.json, notifications.json).
     Uses set_shared_dir() which updates all file paths atomically.

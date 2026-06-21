@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
 from pathlib import Path
+from typing import Optional
 
 from .base import (
-    logger,
     _ensure_dirs,
+    logger,
 )
-from plan_follow.tools.resolver import resolve_roadmaps_dir
-
+from .resolver import resolve_roadmaps_dir
 
 # ─── Roadmap Data Model ──────────────────────────────────────────────────────
 

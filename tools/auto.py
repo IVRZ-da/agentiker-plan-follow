@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 from .base import (
-    logger,
     _get_active_plan,
+    logger,
 )
-
 
 # ─── Auto-Verify & Auto-Commit ─────────────────────────────────────────────────
 

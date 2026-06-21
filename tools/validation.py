@@ -1,15 +1,10 @@
 """validation.py — Plan validation for plan_follow tools/ subpackage."""
 
-from __future__ import annotations
-
-from typing import Any, Optional
 
 from .base import (
-    logger,
-    _load_plan,
     _get_active_plan,
+    _load_plan,
 )
-
 
 # ─── Plan Validation ──────────────────────────────────────────────────────────
 

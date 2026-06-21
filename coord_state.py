@@ -148,7 +148,7 @@ def cleanup_stale_sessions(max_age_minutes: int = 60) -> int:
 
 def acquire_lock(path: str, session_id: str) -> dict:
     """Acquire a lock on a file/path for a session.
-    
+
     Returns:
         {"status": "acquired" | "exists" | "error",
          "locked_by": session_id or current holder}
@@ -173,7 +173,7 @@ def acquire_lock(path: str, session_id: str) -> dict:
 
 def release_lock(path: str, session_id: str) -> dict:
     """Release a lock. Only the holder can release.
-    
+
     Returns:
         {"status": "released" | "not_locked" | "not_holder"}
     """
@@ -203,8 +203,8 @@ def cleanup_stale_locks(max_age_minutes: int = 120) -> int:
     locks = _atomic_read(LOCKS_FILE)
     now = datetime.now(timezone.utc)
     stale = []
-    for p, l in locks.items():
-        since = l.get("since", "")
+    for p, lock in locks.items():
+        since = lock.get("since", "")
         try:
             age = (now - datetime.fromisoformat(since)).total_seconds() / 60
             if age > max_age_minutes:
@@ -231,7 +231,7 @@ def send_notification(
     kind: str = "info",
 ) -> dict:
     """Send a notification to another session.
-    
+
     Returns the notification dict with id.
     """
     notifs = _atomic_read(NOTIFICATIONS_FILE)

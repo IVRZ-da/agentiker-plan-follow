@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.1 (2026-06-22)
+
+### Breaking — Template-Zwang
+
+- **`template` required in `plan_create()`** — manuelle Tasks werden nicht mehr akzeptiert. Ohne Template: Fehler.
+- **`tasks`-Parameter entfernt** aus `plan_create`-Schema — Tasks kommen nur noch aus Templates
+
+### Neue Features
+
+- **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch p0 (Peer Review) vor alle Template-Tasks. Erster Code-Task hängt von p0 ab.
+- **TDD in `feature` Template:** RED → GREEN → REFACTOR → Docs (vorher: Spec → Implement → Test → Docs)
+- **TDD in `fix` Template:** RED → GREEN (schreibt Test der den Bug zeigt, dann fixen)
+
+### Skills
+
+- **plan-follow.md:** v1.4.3 mit Template-Pflicht, p0, TDD dokumentiert
+
 ## 1.5.0 (2026-06-21)
 
 ### Major — Module-Split + Code-Qualität (9 Phasen)

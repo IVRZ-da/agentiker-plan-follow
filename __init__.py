@@ -29,17 +29,12 @@ VALID_REVIEW_PROFILES_WITH_AUTO = ["auto"] + VALID_REVIEW_PROFILES
 TOOL_DESCRIPTIONS = {
     "plan_create": (
         "Create a new structured plan with enforceable tasks. "
+        "TEMPLATE IS REQUIRED — manual tasks are not allowed. "
         "Parameters:\n"
         "- goal (str, required): The goal of the plan\n"
-        "- tasks (array, required): List of task objects, each with:\n"
-        "  - id (str): Task identifier (e.g. 'p1', 'phase-a')\n"
-        "  - name (str): Human-readable task name\n"
-        "  - files (array of str, optional): Files this task is allowed to change\n"
-        "  - verify (str, optional): Shell command to verify task completion\n"
-        "  - depends_on (array of str, optional): Task IDs that must be completed first\n"
-        "- repo (str, optional): Git repo path for drift detection\n"
-        "- template (str, optional): Template name (deploy|bugfix|feature|refactoring|research|analysis)\n"
+        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|fix)\n"
         "- params (dict, optional): Template parameter substitution for {{placeholders}}\n"
+        "- repo (str, optional): Git repo path for drift detection\n"
         "- parallel_groups (dict, optional): Parallel task groups. "
         "Keys are group IDs, values are {'tasks': ['id1', 'id2', ...]}. "
         "Groups run sequentially — all tasks in a group run in parallel. "
@@ -285,8 +280,8 @@ PER_TOOL_SCHEMAS = {
             },
             "template": {
                 "type": "string",
-                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis"],
-                "description": "Template-Name (optional). Erzeugt automatisch Tasks aus der Vorlage.",
+                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "fix"],
+                "description": "Template-Name (required — kein Template = kein Plan). Erzeugt automatisch Tasks aus der Vorlage.",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},
             "parallel_groups": {
@@ -306,7 +301,7 @@ PER_TOOL_SCHEMAS = {
                 "additionalProperties": {"type": "string"},
             },
         },
-        "required": ["goal", "tasks"],
+        "required": ["goal", "template"],
     },
     "plan_current": {
         "type": "object",

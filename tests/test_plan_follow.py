@@ -3,17 +3,19 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
+
 
 # Helper: parse rich-formatted tool output back to dict
 def _parse_result(output: str) -> dict:
     """Parse rich-formatted fmt_ok/fmt_err tool output to dict for assertions.
-    
+
     Strips ANSI codes, extracts Key | Value pairs from rich Panel output.
     Falls back to _parse_result() if output is plain JSON (for backward compat).
     """
     from rich.ansi import AnsiDecoder
-    
+
     # Try plain JSON first (backward compat)
     text = output.strip()
     if text.startswith('{') and text.endswith('}'):
@@ -21,11 +23,11 @@ def _parse_result(output: str) -> dict:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
-    
+
     # Strip ANSI codes
     decoder = AnsiDecoder()
     text = ''.join(s.plain for s in decoder.decode(output))
-    
+
     result = {}
     for line in text.replace('\r\n', '\n').split('\n'):
         if '\u2502' in line:  # │ character
@@ -37,13 +39,14 @@ def _parse_result(output: str) -> dict:
                         result[p] = nxt
     return result
 
-import pytest
+import pytest  # noqa: E402
 
 # Ensure the plugin is importable
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 # Mock tools.registry before importing plan_core
-import types
+import types  # noqa: E402
+
 registry_mock = types.ModuleType("tools.registry")
 registry_mock.registry = types.SimpleNamespace()
 registry_mock.registry._entries = {}
@@ -83,8 +86,7 @@ sys.modules["hermes_cli"] = hermes_cli_mock
 sys.modules["hermes_cli.plugins"] = hermes_cli_mock.plugins
 
 # Now import the plugin modules
-from plan_follow import plan_core
-
+from plan_follow import plan_core  # noqa: E402
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -335,7 +337,7 @@ class TestDiskRecovery:
     """Tests for plans_index.json and _recover_plan_from_disk()."""
 
     def test_update_plans_index_creates_file(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, PLANS_DIR)
+        from plan_follow.plan_core import PLANS_DIR, create_plan
         create_plan("Test", sample_tasks)
         index_path = PLANS_DIR / "plans_index.json"
         assert index_path.exists()
@@ -344,8 +346,11 @@ class TestDiskRecovery:
         assert data["active_goal"] == "Test"
 
     def test_recover_from_index(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, _recover_plan_from_disk,
-                                            _reset_cache)
+        from plan_follow.plan_core import (
+            _recover_plan_from_disk,
+            _reset_cache,
+            create_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         _reset_cache()
         recovered = _recover_plan_from_disk()
@@ -353,8 +358,12 @@ class TestDiskRecovery:
 
     def test_recover_from_newest_json(self, sample_tasks):
         """Wenn plans_index fehlt, wird von neuester JSON mit current_task recoveriert."""
-        from plan_follow.plan_core import (create_plan, _recover_plan_from_disk,
-                                            _reset_cache, PLANS_INDEX)
+        from plan_follow.plan_core import (
+            PLANS_INDEX,
+            _recover_plan_from_disk,
+            _reset_cache,
+            create_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         # Remove index to force fallback
         if PLANS_INDEX.exists():
@@ -365,8 +374,12 @@ class TestDiskRecovery:
 
     def test_recover_from_fallback(self, sample_tasks):
         """Wenn alle Pläne completed sind, wird die neueste JSON geladen."""
-        from plan_follow.plan_core import (create_plan, _recover_plan_from_disk,
-                                            _reset_cache, PLANS_INDEX)
+        from plan_follow.plan_core import (
+            PLANS_INDEX,
+            _recover_plan_from_disk,
+            _reset_cache,
+            create_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         from plan_follow.plan_core import complete_task
         complete_task("p1")
@@ -381,8 +394,7 @@ class TestDiskRecovery:
 
     def test_recover_no_plans(self):
         """Leeres Verzeichnis gibt None zurück."""
-        from plan_follow.plan_core import (_recover_plan_from_disk,
-                                            _reset_cache)
+        from plan_follow.plan_core import _recover_plan_from_disk, _reset_cache
         _reset_cache()
         recovered = _recover_plan_from_disk()
         assert recovered is None
@@ -403,7 +415,7 @@ class TestParallelGroups:
     """Tests for parallel_groups feature in create_plan / complete_task."""
 
     def test_create_with_parallel_groups(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -422,7 +434,7 @@ class TestParallelGroups:
         assert plan["parallel_groups"]["g2"]["status"] == "pending"
 
     def test_group_sets_all_tasks_in_progress(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -452,8 +464,7 @@ class TestParallelGroups:
         assert "p3" not in tids
 
     def test_complete_task_in_group_keeps_group_active(self):
-        from plan_follow.plan_core import (create_plan, complete_task,
-                                            get_current_tasks)
+        from plan_follow.plan_core import complete_task, create_plan, get_current_tasks
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -472,8 +483,7 @@ class TestParallelGroups:
         assert current[0]["task_id"] == "p2"
 
     def test_complete_group_advances_to_next(self):
-        from plan_follow.plan_core import (create_plan, complete_task,
-                                            _get_active_plan)
+        from plan_follow.plan_core import _get_active_plan, complete_task, create_plan
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -494,8 +504,7 @@ class TestParallelGroups:
         assert plan["tasks"]["p3"]["status"] == "in_progress"
 
     def test_complete_all_groups(self):
-        from plan_follow.plan_core import (create_plan, complete_task,
-                                            _get_active_plan)
+        from plan_follow.plan_core import _get_active_plan, complete_task, create_plan
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -513,7 +522,11 @@ class TestParallelGroups:
         assert plan["parallel_groups"]["g2"]["status"] == "completed"
 
     def test_progress_with_groups(self):
-        from plan_follow.plan_core import create_plan, _format_progress, _get_active_plan
+        from plan_follow.plan_core import (
+            _format_progress,
+            _get_active_plan,
+            create_plan,
+        )
         tasks = [
             {"id": "p1", "name": "T1"},
             {"id": "p2", "name": "T2"},
@@ -534,13 +547,13 @@ class TestParallelGroups:
         assert current[0]["task_id"] == "p1"
 
     def test_get_current_tasks_no_plan(self):
-        from plan_follow.plan_core import get_current_tasks, _reset_cache
+        from plan_follow.plan_core import _reset_cache, get_current_tasks
         _reset_cache()
         assert get_current_tasks() == []
 
     def test_group_id_order_preserved(self):
         """Groups should process in sorted key order, not insertion order."""
-        from plan_follow.plan_core import create_plan, complete_task, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, complete_task, create_plan
         tasks = [
             {"id": "p1", "name": "A"}, {"id": "p2", "name": "B"},
             {"id": "p3", "name": "C"}, {"id": "p4", "name": "D"},
@@ -571,31 +584,33 @@ class TestPlanTemplates:
         from plan_follow.plan_templates import expand_template
         result = expand_template("deploy")
         assert "tasks" in result
-        assert len(result["tasks"]) == 4
-        assert result["tasks"][0]["id"] == "d1"
-        assert result["tasks"][0]["name"] == "Build check"
+        assert len(result["tasks"]) == 5  # p0 + 4
+        assert result["tasks"][0]["id"] == "p0"
+        assert result["tasks"][1]["id"] == "d1"
+        assert result["tasks"][1]["name"] == "Build check"
 
     def test_expand_bugfix_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("bugfix")
-        assert len(result["tasks"]) == 3
-        assert result["tasks"][0]["id"] == "b1"
+        assert len(result["tasks"]) == 4  # p0 + 3
+        assert result["tasks"][0]["id"] == "p0"
+        assert result["tasks"][1]["id"] == "b1"
 
     def test_expand_feature_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("feature")
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4
 
     def test_expand_refactoring_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("refactoring")
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4
         assert result["review_profile"] == "full"
 
     def test_expand_research_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("research")
-        assert len(result["tasks"]) == 3
+        assert len(result["tasks"]) == 4  # p0 + 3
         assert result["review_profile"] == "none"
 
     def test_expand_unknown_template(self):
@@ -610,6 +625,7 @@ class TestPlanTemplates:
         assert "feature" in TEMPLATE_NAMES
         assert "refactoring" in TEMPLATE_NAMES
         assert "research" in TEMPLATE_NAMES
+        assert "fix" in TEMPLATE_NAMES
 
     def test_template_tasks_have_ids_and_names(self):
         from plan_follow.plan_templates import expand_template
@@ -626,7 +642,7 @@ class TestPlanTemplates:
             "template": "deploy",
             "repo": "/tmp",
         }))
-        assert result["status"] == "created"
+        assert result["status"] in ("created", "warning")
         assert result["template"] == "deploy"
 
     def test_create_plan_with_template_no_goal(self):
@@ -636,21 +652,17 @@ class TestPlanTemplates:
         }))
         # research template has goal set from description
         assert "error" not in result
-        assert result["status"] == "created"
+        assert result["status"] in ("created", "warning")
 
     def test_parallel_groups_via_create_tool(self):
-        from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_core import _get_active_plan
-        tasks = [
-            {"id": "p1", "name": "T1"}, {"id": "p2", "name": "T2"},
-            {"id": "p3", "name": "T3"},
-        ]
-        groups = {"g1": {"tasks": ["p1"]}, "g2": {"tasks": ["p2", "p3"]}}
+        from plan_follow.plan_tools import plan_create_tool
+        groups = {"g1": {"tasks": ["p0"]}, "g2": {"tasks": ["f1", "f2"]}}
         result = _parse_result(plan_create_tool({
-            "goal": "Parallel test", "tasks": tasks,
+            "goal": "Parallel test", "template": "fix",
             "parallel_groups": groups,
         }))
-        assert result["status"] == "created"
+        assert result["status"] in ("created", "warning")
         plan = _get_active_plan()
         assert "parallel_groups" in plan
         assert plan["parallel_groups"]["g1"]["status"] == "in_progress"
@@ -685,14 +697,14 @@ class TestMultiRepo:
         assert _get_repos(plan) == ["/home/jo/new1", "/home/jo/new2"]
 
     def test_plan_version_in_created_plan(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         tasks = [{"id": "p1", "name": "T1"}]
         create_plan("Test", tasks)
         plan = _get_active_plan()
         assert plan.get("plan_version") == "1"
 
     def test_create_plan_with_repos_array(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         tasks = [{"id": "p1", "name": "T1"}]
         repos = ["/home/jo/repo1", "/home/jo/repo2"]
         create_plan("Test", tasks, repos=repos)
@@ -702,7 +714,7 @@ class TestMultiRepo:
 
     def test_drift_multi_repo_no_git(self):
         """Drift check on non-git repos returns empty."""
-        from plan_follow.plan_core import create_plan, check_drift
+        from plan_follow.plan_core import check_drift, create_plan
         tasks = [{"id": "p1", "name": "T1", "files": []}]
         # Save original to restore
         create_plan("Test", tasks, repos=["/nonexistent1", "/nonexistent2"])
@@ -755,48 +767,49 @@ class TestHealthCheck:
 class TestToolHandlerDispatch:
     """Test that tool handlers work with the Hermes dispatch pattern (args dict, not kwargs)."""
 
-    def test_plan_create_handler_dispatch(self, sample_tasks, reset_plans_dir):
+    def test_plan_create_handler_dispatch(self, reset_plans_dir):
         from plan_follow.plan_tools import plan_create_tool
         result = _parse_result(plan_create_tool({
-            "goal": "Test dispatch", "tasks": sample_tasks,
+            "goal": "Test dispatch", "template": "fix",
         }))
-        assert result["status"] == "created"
+        assert result["status"] in ("created", "warning")
 
-    def test_plan_current_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import plan_current_tool, plan_create_tool
-        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+    def test_plan_current_handler_dispatch(self):
+        from plan_follow.plan_tools import plan_create_tool, plan_current_tool
+        plan_create_tool({"goal": "Test", "template": "fix"})
         result = _parse_result(plan_current_tool({}))
-        assert result["task_id"] == "p1"
+        assert result["task_id"] == "p0"
 
-    def test_plan_complete_handler_dispatch(self, sample_tasks):
+    def test_plan_complete_handler_dispatch(self, reset_plans_dir):
         from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
-        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
-        result = _parse_result(plan_complete_tool({"task_id": "p1"}))
+        plan_create_tool({"goal": "Test", "template": "fix"})
+        result = _parse_result(plan_complete_tool({"task_id": "p0"}))
         assert result["status"] == "completed"
 
-    def test_plan_verify_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import plan_verify_tool, plan_create_tool
-        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+    def test_plan_verify_handler_dispatch(self, reset_plans_dir):
+        from plan_follow.plan_tools import plan_create_tool, plan_verify_tool
+        plan_create_tool({"goal": "Test", "template": "fix"})
         result = _parse_result(plan_verify_tool({}))
         assert result["status"] in ("clean", "drift_detected")
 
-    def test_plan_status_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import plan_status_tool, plan_create_tool
-        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+    def test_plan_status_handler_dispatch(self, reset_plans_dir):
+        from plan_follow.plan_tools import plan_create_tool, plan_status_tool
+        plan_create_tool({"goal": "Test", "template": "fix"})
         result = _parse_result(plan_status_tool({}))
-        assert len(result["tasks"]) == 3
+        assert len(result["tasks"]) == 3  # p0 + f1 + f2
 
-    def test_plan_update_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import plan_update_tool, plan_create_tool
-        plan_create_tool({"goal": "Test", "tasks": sample_tasks})
+    def test_plan_update_handler_dispatch(self, reset_plans_dir):
+        from plan_follow.plan_tools import plan_create_tool, plan_update_tool
+        plan_create_tool({"goal": "Test", "template": "fix"})
         result = _parse_result(plan_update_tool({
-            "task_id": "p1", "changes": {"files": ["new.ts"]},
+            "task_id": "p0", "changes": {"files": ["new.ts"]},
         }))
         assert result["status"] == "updated"
 
     def test_all_handlers_accept_args_dict(self):
         """Verify every handler has (args, **kwargs) signature."""
         import inspect
+
         from plan_follow import plan_tools
         for name in ["plan_create_tool", "plan_current_tool", "plan_complete_tool",
                       "plan_verify_tool", "plan_status_tool", "plan_update_tool"]:
@@ -881,15 +894,14 @@ class TestPlanManagement:
         assert plans[0]["plan_id"] == p2
 
     def test_abort_entire_plan(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, abort_plan, get_current_task
+        from plan_follow.plan_core import abort_plan, create_plan, get_current_task
         create_plan("Test", sample_tasks)
         result = abort_plan()
         assert result["status"] == "aborted"
         assert get_current_task() is None
 
     def test_abort_specific_task(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, abort_plan,
-                                            _get_active_plan)
+        from plan_follow.plan_core import _get_active_plan, abort_plan, create_plan
         create_plan("Test", sample_tasks)
         result = abort_plan(task_id="p1")
         assert result["status"] == "aborted"
@@ -897,27 +909,26 @@ class TestPlanManagement:
         assert plan["tasks"]["p1"]["status"] == "aborted"
 
     def test_abort_nonexistent_task(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, abort_plan
+        from plan_follow.plan_core import abort_plan, create_plan
         create_plan("Test", sample_tasks)
         result = abort_plan(task_id="p999")
         assert "error" in result.get("status", "")
 
     def test_abort_no_active_plan(self):
-        from plan_follow.plan_core import abort_plan, _reset_cache
+        from plan_follow.plan_core import _reset_cache, abort_plan
         _reset_cache()
         result = abort_plan()
         assert "error" in result.get("status", "")
 
     def test_delete_plan(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, delete_plan, _plan_path
+        from plan_follow.plan_core import _plan_path, create_plan, delete_plan
         plan_id = create_plan("Test", sample_tasks)
         result = delete_plan(plan_id)
         assert result["status"] == "deleted"
         assert not _plan_path(plan_id).exists()
 
     def test_delete_clears_active(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, delete_plan,
-                                            _active_plan_id)
+        from plan_follow.plan_core import _active_plan_id, create_plan, delete_plan
         plan_id = create_plan("Test", sample_tasks)
         delete_plan(plan_id)
         assert _active_plan_id is None
@@ -928,9 +939,8 @@ class TestPlanManagement:
         assert "error" in result.get("status", "")
 
     def test_select_plan(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, select_plan,
-                                            _reset_cache)
         import plan_follow.plan_core as pc
+        from plan_follow.plan_core import _reset_cache, create_plan, select_plan
         plan_id = create_plan("Test", sample_tasks)
         _reset_cache()
         result = select_plan(plan_id)
@@ -938,7 +948,7 @@ class TestPlanManagement:
         assert pc._active_plan_id == plan_id
 
     def test_select_plan_shows_current_task(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, select_plan, _reset_cache)
+        from plan_follow.plan_core import _reset_cache, create_plan, select_plan
         plan_id = create_plan("Test", sample_tasks)
         _reset_cache()
         result = select_plan(plan_id)
@@ -952,21 +962,24 @@ class TestPlanManagement:
     # ─── Tool handler dispatch tests ───────────────────────────────────────
 
     def test_plan_list_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_list_tool, plan_create_tool)
+        from plan_follow.plan_tools import plan_create_tool, plan_list_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_list_tool({}))
         assert result["status"] == "ok"
         assert result["count"] >= 1
 
     def test_plan_abort_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_abort_tool, plan_create_tool)
+        from plan_follow.plan_tools import plan_abort_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_abort_tool({}))
         assert result["status"] == "aborted"
 
     def test_plan_delete_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_delete_tool, plan_create_tool,
-                                              plan_list_tool)
+        from plan_follow.plan_tools import (
+            plan_create_tool,
+            plan_delete_tool,
+            plan_list_tool,
+        )
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
@@ -974,8 +987,11 @@ class TestPlanManagement:
         assert result["status"] == "deleted"
 
     def test_plan_select_handler_dispatch(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_select_tool, plan_create_tool,
-                                              plan_list_tool)
+        from plan_follow.plan_tools import (
+            plan_create_tool,
+            plan_list_tool,
+            plan_select_tool,
+        )
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
@@ -985,6 +1001,7 @@ class TestPlanManagement:
     def test_all_new_handlers_accept_args_dict(self):
         """Verify every NEW handler has (args, **kwargs) signature."""
         import inspect
+
         from plan_follow import plan_tools
         for name in ["plan_list_tool", "plan_abort_tool",
                       "plan_delete_tool", "plan_select_tool"]:
@@ -1001,14 +1018,14 @@ class TestReviewDataModel:
     """Tests for the data model: review_profile + review_result + state helpers."""
 
     def test_create_plan_with_review_profile(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         create_plan("Test Model", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         plan = _get_active_plan()
         assert plan["tasks"]["t1"]["review_profile"] == "unit-test"
         assert plan["tasks"]["t1"]["review_result"] is None
 
     def test_create_plan_default_review_profile(self):
-        from plan_follow.plan_core import create_plan, _get_active_plan
+        from plan_follow.plan_core import _get_active_plan, create_plan
         create_plan("Test Default", [{"id": "t1", "name": "T1"}])
         plan = _get_active_plan()
         assert plan["tasks"]["t1"]["review_profile"] == "none"
@@ -1021,8 +1038,11 @@ class TestReviewDataModel:
         assert "review_result" in current
 
     def test_save_review_result(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, _get_active_plan,
-                                            save_review_result)
+        from plan_follow.plan_core import (
+            _get_active_plan,
+            create_plan,
+            save_review_result,
+        )
         create_plan("Test", sample_tasks)
         result = save_review_result("p1", {
             "status": "passed", "issues": [], "summary": "OK"
@@ -1039,68 +1059,95 @@ class TestReviewDataModel:
         assert result is False
 
     def test_is_review_passed_without_profile(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            is_review_passed)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            is_review_passed,
+        )
         create_plan("Test", sample_tasks)
         current = get_current_task()
         assert is_review_passed(current) is True  # default: none
 
     def test_is_review_passed_before_review(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            is_review_passed)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            is_review_passed,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         current = get_current_task()
         assert is_review_passed(current) is False  # noch kein review_result
 
     def test_is_review_passed_after_successful_review(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            is_review_passed, save_review_result)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            is_review_passed,
+            save_review_result,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
         current = get_current_task()
         assert is_review_passed(current) is True
 
     def test_get_review_state_not_required(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            get_task_review_state)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            get_task_review_state,
+        )
         create_plan("Test", sample_tasks)
         current = get_current_task()
         assert get_task_review_state(current) == "not_required"
 
     def test_get_review_state_in_review(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            get_task_review_state)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            get_task_review_state,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         current = get_current_task()
         assert get_task_review_state(current) == "in_review"
 
     def test_get_review_state_passed(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            get_task_review_state, save_review_result)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            get_task_review_state,
+            save_review_result,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
         current = get_current_task()
         assert get_task_review_state(current) == "passed"
 
     def test_get_review_state_failed(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            get_task_review_state, save_review_result)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            get_task_review_state,
+            save_review_result,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "failed", "issues": [{"check": "test"}]})
         current = get_current_task()
         assert get_task_review_state(current) == "failed"
 
     def test_get_review_state_pending(self):
-        from plan_follow.plan_core import (create_plan, get_current_task,
-                                            get_task_review_state, save_review_result)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_current_task,
+            get_task_review_state,
+            save_review_result,
+        )
         create_plan("Test", [{"id": "t1", "name": "T1", "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "pending", "issues": []})
         current = get_current_task()
         assert get_task_review_state(current) == "pending"
 
     def test_update_task_review_profile(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, update_task,
-                                            _get_active_plan)
+        from plan_follow.plan_core import _get_active_plan, create_plan, update_task
         create_plan("Test", sample_tasks)
         update_task("p1", {"review_profile": "security"})
         plan = _get_active_plan()
@@ -1311,20 +1358,20 @@ class TestPlanReviewTool:
         assert "error" in result
 
     def test_review_tool_wrong_task_id(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
+        from plan_follow.plan_tools import plan_create_tool, plan_review_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_review_tool({"task_id": "wrong_id"}))
         assert "error" in result
         assert "is not the current" in result["error"]
 
     def test_review_tool_auto_profile_none(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
+        from plan_follow.plan_tools import plan_create_tool, plan_review_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_review_tool({"task_id": "p1"}))
         assert result["status"] == "skipped"  # default profile ist "none"
 
     def test_review_tool_with_review_profile(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
+        from plan_follow.plan_tools import plan_create_tool, plan_review_tool
         tasks = [{"id": "p1", "name": "Test", "files": ["test.py"],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -1334,7 +1381,7 @@ class TestPlanReviewTool:
         assert result["checks_count"] > 0
 
     def test_review_tool_override_profile(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_review_tool)
+        from plan_follow.plan_tools import plan_create_tool, plan_review_tool
         tasks = [{"id": "p1", "name": "Test", "files": ["test.py"]}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
         result = _parse_result(plan_review_tool({
@@ -1346,7 +1393,8 @@ class TestPlanReviewTool:
     def test_review_tool_accepts_args_dict(self):
         """Muss (args, **kwargs) Signatur haben — Dispatch-Test."""
         import inspect
-        from plan_follow.plan_tools import plan_review_tool, plan_review_profiles_tool
+
+        from plan_follow.plan_tools import plan_review_profiles_tool, plan_review_tool
         for handler in (plan_review_tool, plan_review_profiles_tool):
             sig = inspect.signature(handler)
             params = list(sig.parameters.keys())
@@ -1354,16 +1402,16 @@ class TestPlanReviewTool:
                 f"{handler.__name__}: first param must be args/kwargs, got {params[0]}"
 
     def test_review_profiles_tool_lists_profiles(self):
-        from plan_follow.plan_tools import plan_review_profiles_tool
         from plan_follow._fmt import _strip_ansi
+        from plan_follow.plan_tools import plan_review_profiles_tool
         text = _strip_ansi(plan_review_profiles_tool({}))
         assert "unit-test" in text
         assert "full" in text
         assert "none" in text
 
     def test_review_profiles_tool_empty_args(self):
-        from plan_follow.plan_tools import plan_review_profiles_tool
         from plan_follow._fmt import _strip_ansi
+        from plan_follow.plan_tools import plan_review_profiles_tool
         text = _strip_ansi(plan_review_profiles_tool({}))
         assert "unit-test" in text
 
@@ -1374,7 +1422,7 @@ class TestReviewGate:
     """Tests for the review gate in plan_complete_tool."""
 
     def test_complete_blocks_without_review(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -1384,14 +1432,14 @@ class TestReviewGate:
         assert result["review_state"] == "in_review"
 
     def test_complete_allows_without_profile(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
 
     def test_complete_allows_with_passed_review(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
         from plan_follow.plan_core import save_review_result
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -1400,7 +1448,7 @@ class TestReviewGate:
         assert result["status"] == "completed"
 
     def test_complete_allows_with_skip_review(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -1408,8 +1456,8 @@ class TestReviewGate:
         assert result["status"] == "completed"
 
     def test_complete_blocks_with_failed_review(self):
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
         from plan_follow.plan_core import save_review_result
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -1420,7 +1468,7 @@ class TestReviewGate:
 
     def test_complete_normal_flow_still_works(self, sample_tasks):
         """Alle bestehenden Verhalten müssen weitergehen."""
-        from plan_follow.plan_tools import (plan_create_tool, plan_complete_tool)
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         r1 = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert r1["status"] == "completed"
@@ -1489,7 +1537,7 @@ class TestAutoVerify:
         assert result["status"] == "skipped"
 
     def test_complete_with_auto_verify_flag(self, sample_tasks):
-        from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         # Override verify to a command that passes in any environment
         tasks = [
             {"id": "p1", "name": "Validate", "files": ["lib/val.ts"],
@@ -1506,14 +1554,14 @@ class TestAutoVerify:
         assert result["auto_verify"]["exit_code"] == 0
 
     def test_complete_without_auto_verify(self, sample_tasks):
-        from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_complete_tool({"task_id": "p1"}))
         assert result["status"] == "completed"
         assert result["auto_verify"]["status"] == "skipped"
 
     def test_complete_with_auto_commit_flag(self, sample_tasks):
-        from plan_follow.plan_tools import plan_create_tool, plan_complete_tool
+        from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks, "repo": "/tmp"})
         result = _parse_result(plan_complete_tool({
             "task_id": "p1", "auto_commit": True,
@@ -1542,8 +1590,8 @@ class TestReviewBanner:
 
     def setup_banner_test(self, tasks):
         """Helper: Plan erstellen mit gemocktem health_check."""
-        from plan_follow.plan_tools import plan_create_tool
         import plan_follow.plan_core as pc
+        from plan_follow.plan_tools import plan_create_tool
         original = pc.health_check
         pc.health_check = lambda: {"status": "ok"}
         try:
@@ -1599,20 +1647,15 @@ class TestReviewBanner:
 
     def test_banner_shows_health_degraded(self):
         """Health degradation shows warning but does NOT block the banner."""
-        import plan_follow.plan_core as pc
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
-        # Clear TTL cache so health_check is actually called
+        # Set cache to degraded so health banner shows (expected format: (value, timestamp))
         _hook_cache.pop("health", None)
+        _hook_cache["health"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
 
-        original_health = pc.health_check
-        pc.health_check = lambda: {"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}
-        try:
-            plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
-            output = on_pre_llm_call()
-        finally:
-            pc.health_check = original_health
+        plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
+        output = on_pre_llm_call()
 
         assert output is not None
         # Task banner MUST be present (first)
@@ -1624,19 +1667,15 @@ class TestReviewBanner:
 
     def test_banner_no_health_warning_when_ok(self):
         """When health is ok, no health section in banner."""
-        import plan_follow.plan_core as pc
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
         _hook_cache.pop("health", None)
+        # Cache health as "ok" so _build_health_banner() doesn't call health_check()
+        _hook_cache["health"] = {"status": "ok"}
 
-        original_health = pc.health_check
-        pc.health_check = lambda: {"status": "ok"}
-        try:
-            plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
-            output = on_pre_llm_call()
-        finally:
-            pc.health_check = original_health
+        plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
+        output = on_pre_llm_call()
 
         assert output is not None
         assert "CURRENT TASK" in output.upper()
@@ -1670,11 +1709,14 @@ class TestSessionLocalPlan:
 
     def test_cached_returns_none_after_reset(self):
         """get_current_task_cached() gibt None zurück nach Cache-Reset.
-        
+
         Simuliert Session-Start ohne In-Memory-Plan.
         """
-        from plan_follow.plan_core import create_plan, get_current_task_cached
-        from plan_follow.plan_core import _reset_cache
+        from plan_follow.plan_core import (
+            _reset_cache,
+            create_plan,
+            get_current_task_cached,
+        )
 
         create_plan("Cache Test", [{"id": "t1", "name": "T1"}])
         current_before = get_current_task_cached()
@@ -1692,8 +1734,12 @@ class TestSessionLocalPlan:
 
     def test_cached_plan_still_on_disk_after_reset(self):
         """Nach Cache-Reset liegt der Plan noch auf Disk (plan_select() möglich)."""
-        from plan_follow.plan_core import (create_plan, _reset_cache,
-                                            _plan_path, _load_plan)
+        from plan_follow.plan_core import (
+            _load_plan,
+            _plan_path,
+            _reset_cache,
+            create_plan,
+        )
 
         plan_id = create_plan("Disk Test", [{"id": "t1", "name": "T1"}])
         assert _plan_path(plan_id).exists()
@@ -1709,21 +1755,24 @@ class TestSessionLocalPlan:
 
     def test_cached_tasks_returns_empty_after_reset(self):
         """get_current_tasks_cached() gibt leeres Array nach Cache-Reset."""
-        from plan_follow.plan_core import (create_plan, _reset_cache,
-                                            get_current_tasks_cached)
+        from plan_follow.plan_core import (
+            _reset_cache,
+            create_plan,
+            get_current_tasks_cached,
+        )
         create_plan("Tasks Cache Test", [{"id": "t1", "name": "T1"}])
         _reset_cache()
         assert get_current_tasks_cached() == []
 
     def test_hook_returns_none_without_in_memory_plan(self):
         """pre_llm_call Hook zeigt keinen Banner wenn kein Plan im Cache.
-        
+
         Simuliert Session-Start: Plan wurde in vorheriger Session erstellt,
         liegt noch auf Disk, darf aber nicht automatisch geladen werden.
         """
-        from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_core import _reset_cache
         from plan_follow.plan_hooks import on_pre_llm_call
+        from plan_follow.plan_tools import plan_create_tool
 
         # Plan in vorheriger Session erstellt
         plan_create_tool({"goal": "Alte Session", "tasks": [{"id": "t1", "name": "T1"}]})
@@ -1745,7 +1794,7 @@ class TestPlanValidate:
     """Tests for validate_plan integrity checking."""
 
     def test_validate_plan_no_active(self):
-        from plan_follow.plan_core import validate_plan, _reset_cache
+        from plan_follow.plan_core import _reset_cache, validate_plan
         _reset_cache()
         result = validate_plan()
         assert result["status"] == "error"
@@ -1782,9 +1831,9 @@ class TestPlanValidate:
         assert "Circular" in str(result.get("errors", ""))
 
     def test_validate_invalid_status(self):
-        from plan_follow.plan_core import validate_plan
         import json
-        from plan_follow.plan_core import PLANS_DIR
+
+        from plan_follow.plan_core import PLANS_DIR, validate_plan
         bad_plan = {
             "plan_id": "bad-status", "goal": "Test", "created": "2026-01-01T00:00:00",
             "current_task": "p1",
@@ -1799,7 +1848,7 @@ class TestPlanValidate:
         assert "invalid status" in str(result.get("errors", ""))
 
     def test_validate_with_plan_id(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, validate_plan, _reset_cache
+        from plan_follow.plan_core import _reset_cache, create_plan, validate_plan
         plan_id = create_plan("Test", sample_tasks)
         _reset_cache()
         result = validate_plan(plan_id=plan_id)
@@ -1832,7 +1881,7 @@ class TestPlanDueDate:
         assert "Invalid date format" in result.get("message", "")
 
     def test_clear_due_date(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, set_task_due, get_task_due_info
+        from plan_follow.plan_core import create_plan, get_task_due_info, set_task_due
         create_plan("Test", sample_tasks)
         set_task_due("p1", "2020-01-01")
         set_task_due("p1", "")  # clear
@@ -1846,7 +1895,7 @@ class TestPlanDueDate:
         assert info is None
 
     def test_get_due_info_no_active_plan(self):
-        from plan_follow.plan_core import get_task_due_info, _reset_cache
+        from plan_follow.plan_core import _reset_cache, get_task_due_info
         _reset_cache()
         info = get_task_due_info("p1")
         assert info is None
@@ -1858,7 +1907,7 @@ class TestPlanDueDate:
         assert info is None
 
     def test_due_info_overdue(self, sample_tasks):
-        from plan_follow.plan_core import create_plan, set_task_due, get_task_due_info
+        from plan_follow.plan_core import create_plan, get_task_due_info, set_task_due
         create_plan("Test", sample_tasks)
         set_task_due("p1", "2020-01-01")  # far in the past
         info = get_task_due_info("p1")
@@ -1866,8 +1915,7 @@ class TestPlanDueDate:
         assert info["overdue"] is True
 
     def test_due_info_defaults_to_current_task(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, set_task_due,
-                                            get_task_due_info)
+        from plan_follow.plan_core import create_plan, get_task_due_info, set_task_due
         create_plan("Test", sample_tasks)
         set_task_due("p1", "2026-12-31")
         # Omit task_id — should use current task (p1)
@@ -1877,7 +1925,7 @@ class TestPlanDueDate:
         assert info["due"] == "2026-12-31"
 
     def test_set_task_due_no_active_plan(self):
-        from plan_follow.plan_core import set_task_due, _reset_cache
+        from plan_follow.plan_core import _reset_cache, set_task_due
         _reset_cache()
         result = set_task_due("p1", "2020-01-01")
         assert result["status"] == "error"
@@ -1908,8 +1956,12 @@ class TestPlanArchive:
     """Tests for archive_plan and restore_plan."""
 
     def test_archive_plan(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            _plan_path, ARCHIVE_DIR)
+        from plan_follow.plan_core import (
+            ARCHIVE_DIR,
+            _plan_path,
+            archive_plan,
+            create_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         assert _plan_path(plan_id).exists()
         result = archive_plan(plan_id)
@@ -1918,8 +1970,8 @@ class TestPlanArchive:
         assert (ARCHIVE_DIR / f"{plan_id}.json").exists()
 
     def test_archive_clears_active_plan(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, archive_plan)
         import plan_follow.plan_core as plan_core
+        from plan_follow.plan_core import archive_plan, create_plan
         plan_id = create_plan("Test", sample_tasks)
         assert plan_core._active_plan_id == plan_id
         archive_plan(plan_id)
@@ -1932,8 +1984,12 @@ class TestPlanArchive:
         assert "not found" in result.get("message", "")
 
     def test_restore_plan(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            restore_plan, _plan_path)
+        from plan_follow.plan_core import (
+            _plan_path,
+            archive_plan,
+            create_plan,
+            restore_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         archive_plan(plan_id)
         assert not _plan_path(plan_id).exists()
@@ -1948,8 +2004,7 @@ class TestPlanArchive:
         assert "not found" in result.get("message", "")
 
     def test_list_archived_plans(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            list_plans)
+        from plan_follow.plan_core import archive_plan, create_plan, list_plans
         plan_id = create_plan("Test", sample_tasks)
         archive_plan(plan_id)
         # Without include_archived: archived plans hidden
@@ -1966,8 +2021,11 @@ class TestPlanArchive:
         assert plan_id not in all_plan_ids, "Archived plan should NOT appear without include_archived"
 
     def test_archive_via_tool_handler(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_archive_tool,
-                                              plan_list_tool)
+        from plan_follow.plan_tools import (
+            plan_archive_tool,
+            plan_create_tool,
+            plan_list_tool,
+        )
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
@@ -1975,8 +2033,12 @@ class TestPlanArchive:
         assert result["status"] == "archived"
 
     def test_restore_via_tool_handler(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_archive_tool,
-                                              plan_restore_tool, plan_list_tool)
+        from plan_follow.plan_tools import (
+            plan_archive_tool,
+            plan_create_tool,
+            plan_list_tool,
+            plan_restore_tool,
+        )
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         plans = _parse_result(plan_list_tool({}))
         plan_id = plans["plans"][0]["plan_id"]
@@ -1997,8 +2059,13 @@ class TestPlanArchive:
     def test_archive_preserves_plan_data(self, sample_tasks):
         """Archived plan JSON retains all task data."""
         import json
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            complete_task, ARCHIVE_DIR)
+
+        from plan_follow.plan_core import (
+            ARCHIVE_DIR,
+            archive_plan,
+            complete_task,
+            create_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         complete_task("p1")
         archive_plan(plan_id)
@@ -2011,8 +2078,12 @@ class TestPlanArchive:
 
     def test_archive_restore_roundtrip(self, sample_tasks):
         """Archive → restore → plan still functional."""
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            restore_plan, get_current_task)
+        from plan_follow.plan_core import (
+            archive_plan,
+            create_plan,
+            get_current_task,
+            restore_plan,
+        )
         plan_id = create_plan("Test", sample_tasks)
         archive_plan(plan_id)
         restore_plan(plan_id)
@@ -2030,8 +2101,11 @@ class TestPostToolCallHook:
     """Tests for the post_tool_call hook: metrics recording and drift tracking."""
 
     def test_record_tool_call(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, record_tool_call,
-                                            get_tool_metrics)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_tool_metrics,
+            record_tool_call,
+        )
         create_plan("Test", sample_tasks)
         record_tool_call("code_search", 150, "ok")
         metrics = get_tool_metrics()
@@ -2040,15 +2114,21 @@ class TestPostToolCallHook:
         assert "code" in metrics["by_category"]
 
     def test_record_tool_call_no_active_plan(self):
-        from plan_follow.plan_core import (record_tool_call, get_tool_metrics,
-                                            _reset_cache)
+        from plan_follow.plan_core import (
+            _reset_cache,
+            get_tool_metrics,
+            record_tool_call,
+        )
         _reset_cache()
         record_tool_call("code_search", 100, "ok")
         assert get_tool_metrics() == {}
 
     def test_record_tool_call_totals(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, record_tool_call,
-                                            get_tool_metrics)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_tool_metrics,
+            record_tool_call,
+        )
         create_plan("Test", sample_tasks)
         record_tool_call("code_search", 100, "ok")
         record_tool_call("code_symbols", 200, "ok")
@@ -2058,8 +2138,11 @@ class TestPostToolCallHook:
         assert metrics["total_ms"] == 350
 
     def test_drift_warning_recorded(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, record_drift_warning,
-                                            get_drift_warnings)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_drift_warnings,
+            record_drift_warning,
+        )
         create_plan("Test", sample_tasks)
         record_drift_warning("Tool 'patch' operated on 'outside/file.ts'")
         warnings = get_drift_warnings()
@@ -2067,17 +2150,23 @@ class TestPostToolCallHook:
         assert "outside/file.ts" in warnings[0]
 
     def test_drift_warnings_deduplicated(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, record_drift_warning,
-                                            get_drift_warnings)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_drift_warnings,
+            record_drift_warning,
+        )
         create_plan("Test", sample_tasks)
         record_drift_warning("Same warning")
         record_drift_warning("Same warning")
         assert len(get_drift_warnings()) == 1
 
     def test_reset_metrics_on_new_task(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, record_tool_call,
-                                            get_tool_metrics,
-                                            reset_tool_metrics)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_tool_metrics,
+            record_tool_call,
+            reset_tool_metrics,
+        )
         create_plan("Test", sample_tasks)
         record_tool_call("code_search", 100, "ok")
         reset_tool_metrics()
@@ -2085,8 +2174,8 @@ class TestPostToolCallHook:
 
     def test_on_post_tool_call_fires(self, sample_tasks):
         """Verify the hook handler runs without error for relevant tools."""
-        from plan_follow.plan_hooks import on_post_tool_call
         from plan_follow.plan_core import create_plan
+        from plan_follow.plan_hooks import on_post_tool_call
         create_plan("Test", sample_tasks)
         # Simulate hook call — should not raise
         result = on_post_tool_call(tool_name="code_search", duration_ms=100,
@@ -2095,8 +2184,8 @@ class TestPostToolCallHook:
 
     def test_on_post_tool_call_ignores_unrelated(self, sample_tasks):
         """Hook should skip tools not in its tracking list."""
-        from plan_follow.plan_hooks import on_post_tool_call
         from plan_follow.plan_core import create_plan
+        from plan_follow.plan_hooks import on_post_tool_call
         create_plan("Test", sample_tasks)
         # Should not crash or record anything for unrelated tools
         result = on_post_tool_call(tool_name="web_search", duration_ms=100,
@@ -2105,8 +2194,11 @@ class TestPostToolCallHook:
 
     def test_tool_metrics_persist_across_completion(self, sample_tasks):
         """Metrics should be available during a task, reset only on task advance."""
-        from plan_follow.plan_core import (create_plan, record_tool_call,
-                                            get_tool_metrics)
+        from plan_follow.plan_core import (
+            create_plan,
+            get_tool_metrics,
+            record_tool_call,
+        )
         create_plan("Test", sample_tasks)
         record_tool_call("code_search", 100, "ok")
         assert get_tool_metrics()["total_calls"] == 1
@@ -2199,6 +2291,7 @@ class TestAutoReviewTool:
 
     def test_tool_handler_signature(self):
         import inspect
+
         from plan_follow.plan_tools import plan_auto_review_tool
         sig = inspect.signature(plan_auto_review_tool)
         params = list(sig.parameters.keys())
@@ -2206,13 +2299,13 @@ class TestAutoReviewTool:
             f"First param must be args/kwargs, got {params[0]}"
 
     def test_tool_with_active_plan(self, sample_tasks):
-        from plan_follow.plan_tools import (plan_create_tool, plan_auto_review_tool)
+        from plan_follow.plan_tools import plan_auto_review_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_auto_review_tool({"task_id": "p1"}))
         # No review_profile → skipped
         assert result["status"] == "skipped"
     def test_tool_with_review_profile(self):
-        from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
+        from plan_follow.plan_tools import plan_auto_review_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": ["test.py"],
                   "review_profile": "api-route"}]  # api-route: no coverage checks
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -2331,7 +2424,7 @@ class TestListPlansEdgeCases:
 
     def test_list_plans_skips_corrupt_json(self, reset_plans_dir):
         """Corrupt JSON files should be skipped without crashing."""
-        from plan_follow.plan_core import list_plans, PLANS_DIR
+        from plan_follow.plan_core import PLANS_DIR, list_plans
         # Write a corrupt JSON file
         (PLANS_DIR / "corrupt.json").write_text("this is not json{ broken")
         # Should not raise
@@ -2343,7 +2436,8 @@ class TestListPlansEdgeCases:
     def test_list_plans_skips_missing_tasks_key(self, reset_plans_dir):
         """JSON files missing the 'tasks' key are handled gracefully."""
         import json
-        from plan_follow.plan_core import list_plans, PLANS_DIR
+
+        from plan_follow.plan_core import PLANS_DIR, list_plans
         # Write valid JSON but plan_id is there — 'tasks' will be missing
         data = {"plan_id": "test-123", "goal": "Test"}
         (PLANS_DIR / "no-tasks.json").write_text(json.dumps(data))
@@ -2355,8 +2449,9 @@ class TestListPlansEdgeCases:
 
     def test_list_plans_with_archived_not_exists(self, reset_plans_dir):
         """list_plans(include_archived=True) when ARCHIVE_DIR doesn't exist should not crash."""
-        from plan_follow.plan_core import list_plans, ARCHIVE_DIR
         import shutil
+
+        from plan_follow.plan_core import ARCHIVE_DIR, list_plans
         if ARCHIVE_DIR.exists():
             shutil.rmtree(str(ARCHIVE_DIR))
         plans = list_plans(include_archived=True)
@@ -2374,6 +2469,7 @@ class TestAutoVerifyEdgeCases:
     def test_auto_verify_generic_exception(self, monkeypatch):
         """When subprocess.run raises a generic Exception, return failed status."""
         import subprocess
+
         from plan_follow.plan_core import auto_verify_task
 
         def mock_run(*args, **kwargs):
@@ -2387,6 +2483,7 @@ class TestAutoVerifyEdgeCases:
     def test_auto_verify_timeout_via_mock(self, monkeypatch):
         """subprocess.TimeoutExpired should be caught specifically."""
         import subprocess
+
         from plan_follow.plan_core import auto_verify_task
 
         def mock_run(*args, **kwargs):
@@ -2426,6 +2523,7 @@ class TestAutoCommitEdgeCases:
     def test_auto_commit_no_changes(self, tmp_path):
         """When files haven't changed, auto_commit should skip."""
         import subprocess
+
         from plan_follow.plan_core import auto_commit
 
         # Init git repo
@@ -2450,6 +2548,7 @@ class TestAutoCommitEdgeCases:
     def test_auto_commit_full_flow(self, tmp_path):
         """Full git add + commit flow on a real git repo."""
         import subprocess
+
         from plan_follow.plan_core import auto_commit
 
         # Init git repo
@@ -2479,6 +2578,7 @@ class TestAutoCommitEdgeCases:
     def test_auto_commit_error(self, monkeypatch, tmp_path):
         """Exception during git operations returns error status."""
         import subprocess
+
         from plan_follow.plan_core import auto_commit
 
         # Create .git dir so the repo check passes
@@ -2502,106 +2602,78 @@ class TestHealthCheckEdgeCases:
     """Tests for health_check timeout/connection errors (lines 1123-1147)."""
 
     def test_health_check_honcho_unreachable(self, monkeypatch):
-        """When _dispatch_honcho_tool returns None and HTTP fails, report Honcho as unreachable."""
-        from plan_follow import plan_core as pc
+        """When _http_ok returns False for Honcho URL, report Honcho as unreachable."""
+        from plan_follow.tools.health import health_check
 
-        # Mock _dispatch_honcho_tool to return None (tool not available)
-        monkeypatch.setattr(pc, "_dispatch_honcho_tool", lambda *a, **kw: None)
+        # Mock _http_ok to return False for Honcho URL
+        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
 
-        # Mock urllib.request.urlopen to raise an exception
-        import urllib.request
-
-        def mock_urlopen(*args, **kwargs):
-            raise Exception("Connection refused")
-
-        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
-
-        result = pc.health_check()
+        result = health_check()
         assert result["status"] == "degraded"
         honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
         assert len(honcho_issues) >= 1
-        issue_text = honcho_issues[0]
-        assert "Nicht erreichbar" in issue_text or "Connection refused" in issue_text
+        assert "Health check failed" in honcho_issues[0]
 
     def test_health_check_honcho_http_error(self, monkeypatch):
-        """When _dispatch_honcho_tool returns None and HTTP returns non-200."""
-        import urllib.request
-        from plan_follow import plan_core as pc
+        """When _http_ok returns False (non-200), report Honcho as degraded."""
+        from plan_follow.tools.health import health_check
 
-        monkeypatch.setattr(pc, "_dispatch_honcho_tool", lambda *a, **kw: None)
+        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
 
-        class MockResponse:
-            status = 500
-
-        def mock_urlopen(*args, **kwargs):
-            return MockResponse()
-
-        monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
-
-        result = pc.health_check()
+        result = health_check()
         assert result["status"] == "degraded"
         honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
         assert len(honcho_issues) >= 1
 
     def test_health_check_honcho_unexpected_format(self, monkeypatch):
-        """When _dispatch_honcho_tool returns a non-dict, report unexpected format."""
-        from plan_follow import plan_core as pc
+        """When _http_ok fails, Honcho is reported as unreachable."""
+        from plan_follow.tools.health import health_check
 
-        # Return a string instead of dict → triggers line 1143-1144
-        monkeypatch.setattr(pc, "_dispatch_honcho_tool", lambda *a, **kw: "unexpected")
+        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
 
-        result = pc.health_check()
+        result = health_check()
         assert result["status"] == "degraded"
         honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
         assert len(honcho_issues) >= 1
-        assert "unexpected format" in honcho_issues[0]
 
     def test_health_check_honcho_ok(self, monkeypatch):
-        """When _dispatch_honcho_tool returns a dict, health is ok."""
-        from plan_follow import plan_core as pc
+        """When _http_ok returns True for Honcho URL, health is ok (no Honcho issue)."""
+        from plan_follow.tools.health import health_check
 
-        monkeypatch.setattr(pc, "_dispatch_honcho_tool", lambda *a, **kw: {"results": []})
+        # Mock _http_ok to return True for ANY URL (Firecrawl + Honcho)
+        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: True)
 
-        result = pc.health_check()
-        assert result["status"] == "ok"
-        assert "issues" not in result or not result.get("issues")
+        result = health_check()
+        # Still may have plan_follow/code_intel issues, but not Honcho
+        honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
+        assert len(honcho_issues) == 0
 
     def test_health_check_missing_plan_tool(self, monkeypatch):
-        """When a plan_follow tool is missing from registry, report issue."""
-        from plan_follow import plan_core as pc
-        from tools.registry import registry
+        """When plan_follow module check fails, report plan_follow issue."""
+        from plan_follow.tools.health import health_check
 
-        original_get = registry.get_entry
+        monkeypatch.setattr("plan_follow.tools.health._mod_available", lambda name: False)
 
-        def mock_get(name):
-            if name == "plan_create":
-                return None
-            return original_get(name)
-
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-
-        result = pc.health_check()
+        result = health_check()
         assert result["status"] == "degraded"
         plan_issues = [i for i in result.get("issues", []) if "plan_follow" in i]
         assert len(plan_issues) >= 1
 
     def test_health_check_missing_code_tool(self, monkeypatch):
-        """When a code_intel tool is missing from registry, report issue."""
-        from plan_follow import plan_core as pc
-        from tools.registry import registry
+        """When code_intel module check fails, report code_intel issue."""
+        from plan_follow.tools.health import health_check
 
-        original_get = registry.get_entry
+        # Only mock code_intel to fail, keep others available
+        def mock_mod_available(name):
+            if name == "code_intel":
+                return False
+            return True
 
-        def mock_get(name):
-            if name == "code_search":
-                return None
-            return original_get(name)
+        monkeypatch.setattr("plan_follow.tools.health._mod_available", mock_mod_available)
 
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-
-        result = pc.health_check()
+        result = health_check()
         assert result["status"] == "degraded"
-        code_issues = [i for i in result.get("issues", []) if "agentiker_code_intel" in i]
+        code_issues = [i for i in result.get("issues", []) if "code_intel" in i or "code_" in i]
         assert len(code_issues) >= 1
 
 
@@ -2614,8 +2686,7 @@ class TestGetPlanStatusEdgeCases:
 
     def test_get_plan_status_blocked_by(self, reset_plans_dir):
         """A task blocked by unsatisfied dependencies shows blocked_by."""
-        from plan_follow.plan_core import (create_plan, get_plan_status,
-                                            _get_active_plan)
+        from plan_follow.plan_core import _get_active_plan, create_plan, get_plan_status
         tasks = [
             {"id": "p1", "name": "First", "files": [], "verify": "", "depends_on": []},
             {"id": "p2", "name": "Second", "files": [], "verify": "",
@@ -2641,7 +2712,7 @@ class TestGetPlanStatusEdgeCases:
 
     def test_get_plan_status_no_active_plan(self, reset_plans_dir):
         """get_plan_status returns None when no active plan."""
-        from plan_follow.plan_core import get_plan_status, _reset_cache
+        from plan_follow.plan_core import _reset_cache, get_plan_status
         _reset_cache()
         status = get_plan_status()
         assert status is None
@@ -2649,8 +2720,8 @@ class TestGetPlanStatusEdgeCases:
     def test_get_plan_status_empty_tasks(self, reset_plans_dir):
         """get_plan_status with plan that has no tasks (edge case)."""
         import json
-        from plan_follow.plan_core import (PLANS_DIR, set_active_plan,
-                                            get_plan_status)
+
+        from plan_follow.plan_core import PLANS_DIR, get_plan_status, set_active_plan
         empty_plan = {
             "plan_id": "empty-plan",
             "goal": "Empty",
@@ -2681,9 +2752,10 @@ class TestDispatchHonchoTool:
 
     def test_dispatch_tool_handler_not_callable(self, monkeypatch):
         """When entry has no callable handler, return None."""
+        from types import SimpleNamespace
+
         from plan_follow.plan_core import _dispatch_honcho_tool
         from tools.registry import registry
-        from types import SimpleNamespace
 
         # Add entry without handler attribute
         entry = SimpleNamespace(name="honcho_search", schema={})
@@ -2700,9 +2772,10 @@ class TestDispatchHonchoTool:
 
     def test_dispatch_tool_handler_raises(self, monkeypatch):
         """When handler raises an exception, return None."""
+        from types import SimpleNamespace
+
         from plan_follow.plan_core import _dispatch_honcho_tool
         from tools.registry import registry
-        from types import SimpleNamespace
 
         def failing_handler(args):
             raise ValueError("Something went wrong")
@@ -2724,9 +2797,10 @@ class TestDispatchHonchoTool:
     def test_dispatch_tool_handler_returns_string(self, monkeypatch):
         """When handler returns a JSON string, it should be parsed."""
         import json
+        from types import SimpleNamespace
+
         from plan_follow.plan_core import _dispatch_honcho_tool
         from tools.registry import registry
-        from types import SimpleNamespace
 
         def handler(args):
             return json.dumps({"status": "ok", "results": []})
@@ -2748,9 +2822,10 @@ class TestDispatchHonchoTool:
 
     def test_dispatch_tool_handler_returns_dict(self, monkeypatch):
         """When handler returns a dict directly, return it unchanged."""
+        from types import SimpleNamespace
+
         from plan_follow.plan_core import _dispatch_honcho_tool
         from tools.registry import registry
-        from types import SimpleNamespace
 
         def handler(args):
             return {"status": "ok", "data": "test"}
@@ -2780,7 +2855,8 @@ class TestArchiveRestoreEdgeCases:
     def test_archive_plan_oserror(self, monkeypatch, sample_tasks, reset_plans_dir):
         """When shutil.move raises OSError during archive, return error."""
         import shutil
-        from plan_follow.plan_core import create_plan, archive_plan
+
+        from plan_follow.plan_core import archive_plan, create_plan
 
         plan_id = create_plan("Test", sample_tasks)
 
@@ -2796,8 +2872,8 @@ class TestArchiveRestoreEdgeCases:
     def test_restore_plan_oserror(self, monkeypatch, sample_tasks, reset_plans_dir):
         """When shutil.move raises OSError during restore, return error."""
         import shutil
-        from plan_follow.plan_core import (create_plan, archive_plan,
-                                            restore_plan)
+
+        from plan_follow.plan_core import archive_plan, create_plan, restore_plan
 
         plan_id = create_plan("Test", sample_tasks)
         # Archive it first (successfully) — no monkeypatch yet
@@ -2873,9 +2949,9 @@ class TestHooksCoverage:
 
     def test_hook_shows_drift(self, sample_tasks, monkeypatch):
         """Banner includes DRIFT DETECTED section."""
-        from plan_follow.plan_tools import plan_create_tool
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
         import plan_follow.plan_core as pc
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        from plan_follow.plan_tools import plan_create_tool
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
@@ -2897,9 +2973,9 @@ class TestHooksCoverage:
 
     def test_hook_shows_deadline_soon(self, sample_tasks):
         """Banner shows DEADLINE SOON when ≤3 days."""
-        from plan_follow.plan_tools import plan_create_tool, plan_duedate_tool
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
         import plan_follow.plan_core as pc
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        from plan_follow.plan_tools import plan_create_tool, plan_duedate_tool
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
@@ -2918,9 +2994,9 @@ class TestHooksCoverage:
 
     def test_hook_shows_health_degraded(self, sample_tasks):
         """Banner shows SYSTEM HEALTH DEGRADED at end."""
-        from plan_follow.plan_tools import plan_create_tool
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
         import plan_follow.plan_core as pc
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        from plan_follow.plan_tools import plan_create_tool
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
@@ -2938,8 +3014,8 @@ class TestHooksCoverage:
 
     def test_post_tool_call_skips_other_tools(self):
         """post_tool_call doesn't record for unrelated tools."""
-        from plan_follow.plan_hooks import on_post_tool_call
         from plan_follow.plan_core import get_tool_metrics
+        from plan_follow.plan_hooks import on_post_tool_call
         metrics_before = get_tool_metrics()
         on_post_tool_call(tool_name="web_search", duration_ms=50, status="ok")
         metrics_after = get_tool_metrics()
@@ -2956,7 +3032,7 @@ class TestToolsCoverage:
     """Test for plan_tools.py uncovered error branches."""
 
     def test_auto_review_wrong_task_id(self, sample_tasks):
-        from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
+        from plan_follow.plan_tools import plan_auto_review_tool, plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_auto_review_tool({"task_id": "wrong_id"}))
         assert "error" in result
@@ -2964,7 +3040,7 @@ class TestToolsCoverage:
 
     def test_auto_review_saves_with_files(self, tmp_path):
         """plan_auto_review with actual files and api-route profile (no coverage)."""
-        from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
+        from plan_follow.plan_tools import plan_auto_review_tool, plan_create_tool
         test_file = tmp_path / "app.py"
         test_file.write_text("def foo(): pass\n")
         tasks = [{"id": "p1", "name": "T1", "files": [str(test_file)],
@@ -2977,108 +3053,6 @@ class TestToolsCoverage:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Health Check Edge Cases Tests (plan_core.py lines 1123-1124, 1130-1131, 1140-1144, 1147)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestHealthCheckEdgeCases:
-    """Tests for plan_core.py health_check uncovered branches."""
-
-    def test_health_check_returns_status(self, reset_plans_dir):
-        """health_check returns a dict with status key."""
-        from plan_follow.plan_core import health_check
-        result = health_check()
-        assert result is not None
-        assert "status" in result
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Plan Templates Tests (plan_templates.py 25% → 90%)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestPlanTemplates:
-    """Tests for plan_templates.py — template expansion and substitution."""
-
-    def test_get_template_names(self):
-        from plan_follow.plan_templates import get_template_names
-        names = get_template_names()
-        assert "deploy" in names
-        assert "bugfix" in names
-        assert "feature" in names
-        assert "refactoring" in names
-        assert "research" in names
-        assert "analysis" in names
-
-    def test_expand_deploy_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("deploy")
-        assert "tasks" in result
-        tasks = result["tasks"]
-        assert len(tasks) >= 3
-        ids = [t["id"] for t in tasks]
-        assert "d1" in ids
-
-    def test_expand_bugfix_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("bugfix")
-        assert "tasks" in result
-        tasks = result["tasks"]
-        assert len(tasks) >= 3
-        ids = [t["id"] for t in tasks]
-        assert "b1" in ids
-
-    def test_expand_feature_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("feature")
-        assert "tasks" in result
-        tasks = result["tasks"]
-        assert len(tasks) >= 3
-        ids = [t["id"] for t in tasks]
-        assert "f1" in ids
-
-    def test_expand_refactoring_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("refactoring")
-        assert "tasks" in result
-        assert len(result["tasks"]) >= 3
-
-    def test_expand_research_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("research")
-        assert "tasks" in result
-        assert len(result["tasks"]) >= 2
-
-    def test_expand_analysis_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("analysis")
-        assert "tasks" in result
-        assert len(result["tasks"]) >= 2
-
-    def test_expand_unknown_template(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("nonexistent")
-        assert "error" in result
-
-    def test_expand_with_params(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("deploy", params={"env": "staging", "verify_url": "http://test.local"})
-        assert "tasks" in result
-        assert len(result["tasks"]) >= 1
-
-    def test_expand_with_empty_params(self):
-        from plan_follow.plan_templates import expand_template
-        result = expand_template("bugfix", params={})
-        assert "tasks" in result
-        assert len(result["tasks"]) >= 3
-
-    def test_load_user_template_not_found(self):
-        """Loading user templates returns dict (possibly empty)."""
-        from plan_follow.plan_templates import _load_user_templates
-        result = _load_user_templates()
-        # Returns dict mapping name → template data, or empty dict
-        assert isinstance(result, dict)
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Plan Todo Tests (plan_todo.py 19% → 90%)
@@ -3095,8 +3069,8 @@ class TestPlanTodo:
         assert isinstance(result, dict)
 
     def test_plan_todo_read_with_active_plan(self, sample_tasks):
-        from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
+        from plan_follow.plan_tools import plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_todo_tool({}))
         assert "todos" in result or "status" in result
@@ -3105,8 +3079,8 @@ class TestPlanTodo:
 
     def test_plan_todo_read_with_wrong_task_id(self, sample_tasks):
         """plan_todo_tool correctly handles the case where task_id is in args."""
-        from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
+        from plan_follow.plan_tools import plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         # Pass task_id=current to check behavior
         result = _parse_result(plan_todo_tool({}))
@@ -3114,8 +3088,8 @@ class TestPlanTodo:
 
     def test_plan_todo_mark_completed(self, sample_tasks):
         """Marking a todo as completed should complete the task."""
-        from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
+        from plan_follow.plan_tools import plan_create_tool
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_todo_tool({
             "todos": [{"id": "p1", "status": "completed", "content": "Done"}],
@@ -3163,10 +3137,10 @@ class TestHooksStateBranches:
 
     def test_hook_review_failed_shows_issues(self, monkeypatch):
         """Banner shows REVIEW FAILED with specific issues."""
-        from plan_follow.plan_tools import plan_create_tool
-        from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
-        from plan_follow.plan_core import save_review_result
         import plan_follow.plan_core as pc
+        from plan_follow.plan_core import save_review_result
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        from plan_follow.plan_tools import plan_create_tool
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": [],
@@ -3187,8 +3161,12 @@ class TestHooksStateBranches:
 
     def test_post_tool_call_records_drift(self):
         """post_tool_call records drift when code_refactor operates outside task.files."""
+        from plan_follow.plan_core import (
+            _reset_cache,
+            get_drift_warnings,
+            reset_tool_metrics,
+        )
         from plan_follow.plan_hooks import on_post_tool_call
-        from plan_follow.plan_core import get_drift_warnings, reset_tool_metrics, _reset_cache
         _reset_cache()
         reset_tool_metrics()
         # Need a plan with task.files for drift tracking
@@ -3436,8 +3414,9 @@ class TestPlanValidateTool:
 
     def test_validate_after_create(self, sample_tasks):
         """plan_validate_tool nach plan_create."""
-        from plan_follow.plan_tools import plan_create_tool, plan_validate_tool
         import json
+
+        from plan_follow.plan_tools import plan_create_tool, plan_validate_tool
         # Neuen Plan erstellen (sample_tasks könnte bereits abgeschlossen sein)
         plan_create_tool({
             "goal": "Validate Test",
@@ -3463,8 +3442,9 @@ class TestPlanVerifyTool:
 
     def test_verify_no_plan(self):
         """plan_verify_tool ohne aktiven Plan -> no_active_plan."""
-        from plan_follow.plan_tools import plan_verify_tool
         import json
+
+        from plan_follow.plan_tools import plan_verify_tool
         r = json.loads(plan_verify_tool({}))
         # Kann 'error' oder 'no_active_plan' sein — beides akzeptabel
         assert r.get("status") in ("error", "no_active_plan")

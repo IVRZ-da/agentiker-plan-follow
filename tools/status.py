@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 from .base import (
-    logger,
-    _plan_path,
     _get_active_plan,
 )
-from plan_follow.tools.resolver import resolve_plans_dir
-from plan_follow.tools.state import STATE
+from .resolver import resolve_plans_dir
+from .state import STATE
 
 
 def get_plan_status() -> Optional[dict]:

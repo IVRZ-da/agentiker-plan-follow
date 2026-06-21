@@ -1,7 +1,7 @@
 """Tests for __init__.py — Plugin registration, hooks, steering hints."""
 
-import sys
 import logging
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

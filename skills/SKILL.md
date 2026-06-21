@@ -1,7 +1,7 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.4.2) — 24 plan tools + 2 hooks + 7 templates + review gate + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
-version: 1.4.2
+description: "Plugin-provided skill (v1.4.3) — 24 plan tools + 2 hooks + 7 templates + review gate + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
+version: 1.4.3
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
 related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
@@ -17,7 +17,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 
 | Tool | Funktion |
 |------|----------|
-| `plan_create(goal, tasks, repo, template, parallel_groups)` | Plan anlegen (Tasks, Dependencies, Templates, parallele Gruppen) — **inkl. Auto Peer Review + TTS** |
+| `plan_create(goal, repo, template, parallel_groups)` | Plan anlegen (template=Pflicht, Tasks werden aus Template generiert) — **inkl. p0 (Peer Review) + TDD + Auto Peer Review + TTS** |
 | `plan_current()` | Zeigt den/die aktiven Task(s) |
 | `plan_complete(task_id, skip_review, auto_verify, auto_commit)` | Task abschliessen + Review-Gate + auto-verify + auto-commit + **TTS-Marker** |
 | `plan_verify()` | Drift-Check: ungeplante Änderungen? |
@@ -48,7 +48,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 |----------|-------|--------|-------------|
 | `deploy` | 4 | api-route | Build → Test → Deploy → Verify |
 | `bugfix` | 3 | unit-test | RED → GREEN → REFACTOR (TDD) |
-| `feature` | 4 | unit-test | Spec → Implement → Test → Docs |
+| `feature` | 4 | unit-test | RED → GREEN → REFACTOR → Docs (TDD) |
 | `refactoring` | 4 | full | Coverage → Refactor → Verify |
 | `research` | 3 | none | Search → Analyze → Summarize |
 | `analysis` | 4 | unit-test | Code-Scan → Analyze → Report → Review |
@@ -85,6 +85,9 @@ Injiziert in JEDEN Turn einen Banner mit:
 
 ## Verhalten
 
+- **Template-Pflicht:** `plan_create()` erfordert zwingend ein Template — manuelle Tasks werden nicht akzeptiert. Ohne Template: Fehler.
+- **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch einen p0-Task (Peer Review) vor alle Template-Tasks. Der erste Code-Task hängt von p0 ab.
+- **TDD in Code-Templates:** `fix`, `bugfix`, `feature` haben RED→GREEN (→REFACTOR). Tests werden VOR Implementation geschrieben.
 - **pre_llm_call Hook** injiziert Task-Banner in JEDEN Turn
 - **TTL-Cache (60s)** — health_check + drift nicht auf jedem Turn
 - **Disk-Recovery:** nach `/new` wird letzter aktiver Plan automatisch geladen (via plans_index.json)

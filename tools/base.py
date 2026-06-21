@@ -3,20 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import uuid
-import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
+from .resolver import resolve_plans_dir, resolve_plans_index, resolve_roadmaps_dir
+from .state import STATE
 
 logger = logging.getLogger("plan_follow")
-
-from plan_follow.tools.resolver import resolve_plans_dir, resolve_plans_index, resolve_roadmaps_dir
-
-# ─── Centralized Session ID ────────────────────────────────────────────────────
-
-from plan_follow.tools.state import STATE
 
 
 def get_session_id() -> str:

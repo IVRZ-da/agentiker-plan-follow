@@ -15,24 +15,46 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 try:
     from plan_follow.coord_state import (
-        register_session, unregister_session, update_session,
-        get_sessions, get_session,
-        acquire_lock, release_lock, get_locks, get_lock,
-        send_notification, get_notifications, clear_notifications,
-        cleanup_stale_sessions, cleanup_stale_locks,
-        SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE,
+        LOCKS_FILE,
+        NOTIFICATIONS_FILE,
+        SESSIONS_FILE,
+        acquire_lock,
+        cleanup_stale_locks,
+        cleanup_stale_sessions,
+        clear_notifications,
+        get_lock,
+        get_locks,
+        get_notifications,
+        get_session,
+        get_sessions,
+        register_session,
+        release_lock,
+        send_notification,
+        unregister_session,
+        update_session,
     )
 except ImportError:
     # Silent fallback — expected when running tests directly
     # (conftest.py handles module setup for pytest suite runs)
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from coord_state import (
-        register_session, unregister_session, update_session,
-        get_sessions, get_session,
-        acquire_lock, release_lock, get_locks, get_lock,
-        send_notification, get_notifications, clear_notifications,
-        cleanup_stale_sessions, cleanup_stale_locks,
-        SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE,
+        LOCKS_FILE,
+        NOTIFICATIONS_FILE,
+        SESSIONS_FILE,
+        acquire_lock,
+        cleanup_stale_locks,
+        cleanup_stale_sessions,
+        clear_notifications,
+        get_lock,
+        get_locks,
+        get_notifications,
+        get_session,
+        get_sessions,
+        register_session,
+        release_lock,
+        send_notification,
+        unregister_session,
+        update_session,
     )
 
 
@@ -325,8 +347,8 @@ These tests import via plan_follow.plan_tools so relative imports work.
 
     def test_plan_history_no_git(self, tmp_path):
         """plan_history should return 'not active' hint when no .git exists."""
-        from plan_follow.plan_tools import plan_history_tool
         from plan_follow.plan_core import PLANS_DIR
+        from plan_follow.plan_tools import plan_history_tool
 
         git_dir = PLANS_DIR / ".git"
         had_git = git_dir.exists()
@@ -342,8 +364,8 @@ These tests import via plan_follow.plan_tools so relative imports work.
             assert "nicht aktiv" in result or "Keine" in result
         finally:
             if had_git:
-                import subprocess as _sp
                 import os
+                import subprocess as _sp
                 _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
                 _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
@@ -362,10 +384,10 @@ class TestGitIntegration:
 
     def test_git_commit_creates_commit(self, tmp_path):
         """_git_commit_if_active should create a commit when .git exists."""
-        from plan_follow.plan_core import PLANS_DIR
-
         # Temporarily create a git repo in PLANS_DIR
         import subprocess
+
+        from plan_follow.plan_core import PLANS_DIR
         orig_git = PLANS_DIR / ".git"
         had_git = orig_git.exists()
 
@@ -376,7 +398,7 @@ class TestGitIntegration:
             plan = {"plan_id": "git-test-plan", "tasks": {"t1": {"status": "completed"}}, "current_task": "t1"}
 
             # Save plan first (otherwise _git_commit_if_active has nothing to add)
-            from plan_core import _save_plan
+            from plan_follow.plan_core import _save_plan
             _save_plan(plan)
 
             # Check commit exists
@@ -392,7 +414,7 @@ class TestGitIntegration:
 
     def test_git_skip_on_no_git(self, tmp_path):
         """Without .git dir, _save_plan should work normally."""
-        from plan_follow.plan_core import _save_plan, PLANS_DIR
+        from plan_follow.plan_core import PLANS_DIR, _save_plan
 
         git_dir = PLANS_DIR / ".git"
         had_git = git_dir.exists()
@@ -438,8 +460,8 @@ class TestGitIntegration:
             assert "initialized" in result or "bereits aktiv" in result
         finally:
             if had_git:
-                import subprocess as _sp
                 import os
+                import subprocess as _sp
                 _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
                 _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
@@ -494,8 +516,11 @@ class TestEdgeCases:
     def test_smoke_run_all_tools(self):
         """Quick smoke test of all 5 new tools without crashing."""
         from plan_follow.plan_tools import (
-            plan_session_tool, plan_lock_tool, plan_notify_tool,
-            plan_history_tool, plan_git_init_tool,
+            plan_git_init_tool,
+            plan_history_tool,
+            plan_lock_tool,
+            plan_notify_tool,
+            plan_session_tool,
         )
         # Just call them — they should not crash
         plan_session_tool({}, **{})
@@ -503,7 +528,7 @@ class TestEdgeCases:
         plan_notify_tool({"action": "check"}, **{})
         plan_history_tool({"plan_id": "smoke"}, **{})
         plan_git_init_tool({}, **{})
-        
+
 
 # ─── Auto-Lock/Unlock Tests ────────────────────────────────────────────────────
 

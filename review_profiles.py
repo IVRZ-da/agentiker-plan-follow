@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 PROFILES: dict[str, dict[str, Any]] = {
     "none": {
         "description": "Kein Review — Task wird ohne Prüfung abgeschlossen.",

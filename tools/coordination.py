@@ -6,15 +6,15 @@ import json
 from typing import Any, Optional
 
 from .base import (
-    logger,
-    _plan_path,
-    _save_plan,
-    _update_plans_index,
     get_session_id,
-    _reset_cache,
+    logger,
 )
-from plan_follow.tools.resolver import resolve_plans_dir, resolve_honcho_url, resolve_honcho_workspace, resolve_honcho_peer
-
+from .resolver import (
+    resolve_honcho_peer,
+    resolve_honcho_url,
+    resolve_honcho_workspace,
+    resolve_plans_dir,
+)
 
 # ─── Honcho Integration (Registry-Dispatch mit Fallback) ──────────────────────
 
@@ -165,7 +165,7 @@ def _load_plan_state_from_honcho() -> Optional[str]:
 
 def _git_commit_if_active(plan: dict) -> None:
     """Git-Commit des Plan-JSONs wenn PLANS_DIR/.git existiert.
-    
+
     Nur bei relevanten Events (create/complete) — nicht bei jedem update.
     Fehlertolerant: Git-Fehler blockieren nicht das Speichern.
     """
@@ -177,9 +177,9 @@ def _git_commit_if_active(plan: dict) -> None:
     current_task = plan.get("current_task", "none")
     done = sum(1 for t in plan.get("tasks", {}).values() if t.get("status") == "completed")
     total = len(plan.get("tasks", {}))
-    
+
     msg = f"plan: {plan_id[:50]} — task {current_task} ({done}/{total})"
-    
+
     import subprocess
     try:
         # Add only this plan's JSON file
@@ -189,7 +189,7 @@ def _git_commit_if_active(plan: dict) -> None:
         )
         if add.returncode != 0:
             return  # Git add failed — silent skip
-        
+
         # Check if there's anything to commit
         diff = subprocess.run(
             ["git", "diff", "--cached", "--stat"],
@@ -197,7 +197,7 @@ def _git_commit_if_active(plan: dict) -> None:
         )
         if not diff.stdout.strip():
             return  # No changes — silent skip
-        
+
         # Commit
         subprocess.run(
             ["git", "commit", "-m", msg],

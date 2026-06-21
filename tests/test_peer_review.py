@@ -341,7 +341,7 @@ class TestApplyFindings:
 
     def test_apply_verify_fix(self):
         """apply_findings should update a task's verify command."""
-        from plan_follow.plan_peer_review import run_peer_review, apply_findings
+        from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
             make_task("p1", verify="echo 'done'"),
@@ -356,7 +356,7 @@ class TestApplyFindings:
 
     def test_apply_empty_files_fix(self):
         """apply_findings should set a default file list for empty files."""
-        from plan_follow.plan_peer_review import run_peer_review, apply_findings
+        from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
             make_task("p1", name="Fix something", files=[]),
@@ -370,7 +370,7 @@ class TestApplyFindings:
 
     def test_apply_missing_depends_on(self):
         """apply_findings should add depends_on where needed."""
-        from plan_follow.plan_peer_review import run_peer_review, apply_findings
+        from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
             make_task("p1", name="Setup"),
@@ -384,7 +384,7 @@ class TestApplyFindings:
 
     def test_apply_findings_idempotent(self):
         """Running apply_findings twice on the same plan should not crash."""
-        from plan_follow.plan_peer_review import run_peer_review, apply_findings
+        from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
             make_task("p1", verify="echo 'done'"),

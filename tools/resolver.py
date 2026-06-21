@@ -4,7 +4,7 @@ Allows tests to monkeypatch plan_core.PLANS_DIR and have the change
 propagate to all submodules at call time.
 
 Pattern:
-  from plan_follow.tools.resolver import resolve_plans_dir, resolve_archive_dir, resolve_roadmaps_dir
+  from . resolver import resolve_plans_dir, resolve_archive_dir, resolve_roadmaps_dir
 
   pd = resolve_plans_dir()  # returns plan_core.PLANS_DIR (monkeypatchable!)
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union
 
 
 def _resolve(name: str, default: Union[Path, str]) -> Union[Path, str]:

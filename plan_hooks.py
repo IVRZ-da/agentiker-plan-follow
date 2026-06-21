@@ -21,6 +21,30 @@ logger = logging.getLogger("plan_follow")
 _hook_cache: dict = {}
 _HOOK_CACHE_TTL = 60  # seconds
 
+# ─── Circuit Breaker ──────────────────────────────────────────────────────────────
+# Tracked tool failures that should stop work. Set by post_tool_call on error,
+# displayed in pre_llm_call banner, auto-expires after _BREAKER_TTL seconds.
+_breaker_state: dict[str, dict] = {}  # {tool_name: {"error": str, "ts": float}}
+_BREAKER_TTL = 300  # 5 min auto-clear
+_BREAKER_CRITICAL_PREFIXES = (
+    "honcho_", "mcp_firecrawl_", "analysis_", "bug_hunt_",
+    "research_", "code_", "plan_",
+)
+
+
+def _check_breaker() -> dict[str, dict]:
+    """Return active breaker entries (auto-expired ones removed)."""
+    now = time.monotonic()
+    expired = [t for t, info in list(_breaker_state.items()) if now - info["ts"] > _BREAKER_TTL]
+    for t in expired:
+        _breaker_state.pop(t, None)
+    return dict(_breaker_state)
+
+
+def _set_breaker(tool_name: str, error_msg: str) -> None:
+    """Record a circuit-breaker hit for a critical tool."""
+    _breaker_state[tool_name] = {"error": error_msg[:80], "ts": time.monotonic()}
+
 
 def _cached_or_fresh(key: str, fetcher, ttl: int = _HOOK_CACHE_TTL):
     """Generic TTL cache: returns cached value or calls fetcher()."""
@@ -293,11 +317,30 @@ def _build_review_banner(current: dict) -> list[str]:
     return lines
 
 
+def _build_breaker_banner() -> list[str]:
+    """Build circuit-breaker warning lines (shown BEFORE health banner)."""
+    active = _check_breaker()
+    if not active:
+        return []
+    lines = [
+        "║  🚫 CIRCUIT BREAKER ACTIVE                ║",
+    ]
+    for tool, info in list(active.items())[:3]:
+        lines.append(f"║    • {tool}: {info['error'][:50]}")
+    if len(active) > 3:
+        lines.append(f"║    ... und {len(active) - 3} weitere")
+    lines.append("║  → Nur lesende Analyse                 ║")
+    lines.append("║  → Johannes entscheiden lassen          ║")
+    return lines
+
+
 def _build_health_banner() -> list[str]:
     """Build health check lines (cached, non-blocking, at end)."""
     lines = []
     try:
-        health = _cached_or_fresh("health", lambda: plan_core.health_check())
+        from .tools.health import health_check as _health_check
+
+        health = _cached_or_fresh("health", _health_check)
         if health and health.get("status") == "degraded":
             issues = health.get("issues", [])
             if issues:
@@ -345,6 +388,10 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
         if health_lines:
             lines.append("║                                       ║")
             lines.extend(health_lines)
+        breaker_lines = _build_breaker_banner()
+        if breaker_lines:
+            lines.append("║                                       ║")
+            lines.extend(breaker_lines)
 
         return _build_banner(lines)
     except Exception as e:
@@ -369,6 +416,13 @@ def on_post_tool_call(**kwargs: Any) -> None:
     tool_name = kwargs.get("tool_name", "")
     duration = kwargs.get("duration_ms", 0)
     status = kwargs.get("status", "")
+    error = kwargs.get("error", "")
+
+    # ─── Circuit Breaker ────────────────────────────────────────────────────
+    # Check BEFORE the early-return filter so firecrawl/honcho failures are caught
+    if status == "error" and tool_name.startswith(_BREAKER_CRITICAL_PREFIXES):
+        error_msg = str(error or kwargs.get("result", "Unknown error"))[:80]
+        _set_breaker(tool_name, error_msg)
 
     # Only track plan_follow and code_* tools to avoid noise
     if not tool_name.startswith(("plan_", "code_", "patch", "terminal")):
@@ -376,9 +430,9 @@ def on_post_tool_call(**kwargs: Any) -> None:
 
     # Record metrics (if a plan is active)
     from .plan_core import (
-        record_tool_call,
-        record_drift_warning,
         get_current_task_cached,
+        record_drift_warning,
+        record_tool_call,
     )
 
     record_tool_call(tool_name, duration, status)

@@ -24,7 +24,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .plan_core import _list_roadmaps, _load_roadmap, _save_roadmap
+from .tools.roadmap_data import _list_roadmaps, _load_roadmap, _save_roadmap
 
 logger = logging.getLogger("plan_follow")
 
@@ -274,7 +274,7 @@ def _phase_to_plan_tasks(phase: dict) -> list[dict]:
 
 def plan_roadmap_handler(args: dict, **kwargs: Any) -> str:
     """Handle plan_roadmap tool calls.
-    
+
     Accepts both ``cmd`` (legacy) and ``action`` (consistent with plan_lock/plan_notify).
     If neither is specified, defaults to "status".
     """

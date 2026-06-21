@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import copy
 import logging
-import yaml
 from pathlib import Path
 from typing import Any, Optional
+
+import yaml
 
 logger = logging.getLogger("plan_follow")
 
@@ -79,9 +80,9 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "tasks": [
             {"id": "f1", "name": "Spec schreiben / Types definieren", "files": ["src/"],
              "verify": "{{typecheck_command}}", "depends_on": []},
-            {"id": "f2", "name": "Implementierung", "files": ["src/"],
-             "verify": "{{typecheck_command}}", "depends_on": ["f1"]},
-            {"id": "f3", "name": "Tests schreiben", "files": ["*spec.ts"],
+            {"id": "f2", "name": "RED: Tests schreiben", "files": ["*spec.ts"],
+             "verify": "{{test_command}} -- --grep 'new feature'", "depends_on": ["f1"]},
+            {"id": "f3", "name": "GREEN: Implementierung", "files": ["src/"],
              "verify": "{{test_command}}", "depends_on": ["f2"]},
             {"id": "f4", "name": "Dokumentation", "files": ["README.md", "docs/"],
              "verify": "{{lint_command}}", "depends_on": ["f3"]},
@@ -118,6 +119,16 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
             {"id": "a2", "name": "Ergebnisse analysieren und Muster erkennen", "files": [], "verify": "", "depends_on": ["a1"]},
             {"id": "a3", "name": "Analyse-Report schreiben", "files": [], "verify": "", "depends_on": ["a2"]},
             {"id": "a4", "name": "Review: Report auf Vollständigkeit prüfen", "files": [], "verify": "", "depends_on": ["a3"], "review_profile": "unit-test"},
+        ],
+        "review_profile": "unit-test",
+    },
+    "fix": {
+        "description": "Schneller Bug-Fix mit TDD: RED → GREEN",
+        "tasks": [
+            {"id": "f1", "name": "RED: Test schreiben der den Bug zeigt", "files": ["*spec.ts", "*_test.go", "*test.py"],
+             "verify": "echo '❌ Test failed — Bug reproduziert'", "depends_on": []},
+            {"id": "f2", "name": "GREEN: Bug fixen bis Test grün", "files": ["src/"],
+             "verify": "echo '✅ Test passed — Bug gefixt'", "depends_on": ["f1"]},
         ],
         "review_profile": "unit-test",
     },
@@ -203,7 +214,7 @@ def _substitute_params(value: Any, params: dict[str, str]) -> Any:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-TEMPLATE_NAMES = ["deploy", "bugfix", "feature", "refactoring", "research", "analysis"]
+TEMPLATE_NAMES = ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "fix"]
 
 
 def expand_template(name: str, goal: str = "", params: Optional[dict] = None) -> dict:
@@ -230,6 +241,26 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
         "review_profile": template.get("review_profile", "none"),
         "description": template.get("description", ""),
     }
+
+    # ─── Auto p0: Peer-Review-Task vor alle anderen Tasks ────────────────
+    # JEDER Plan hat einen p0-review Task als Task 0. Der Review prüft den
+    # Plan gegen die 8-Punkte-Checkliste (depends_on, verify, files, etc.)
+    # und wendet Korrekturen an. Erst danach gehts an die Umsetzung.
+    # User-defined Templates kriegen den p0 ebenfalls automatisch.
+    p0_task = {
+        "id": "p0",
+        "name": "Peer Review: Plan prüfen + Korrekturen einarbeiten",
+        "files": [],
+        "verify": "echo '✅ Plan reviewed and accepted'",
+        "depends_on": [],
+    }
+    result["tasks"].insert(0, p0_task)
+    # Adjust depends_on: erster Template-Task hängt von p0 ab
+    if len(result["tasks"]) > 1 and result["tasks"][1].get("depends_on"):
+        if p0_task["id"] not in result["tasks"][1]["depends_on"]:
+            result["tasks"][1]["depends_on"] = [p0_task["id"]] + result["tasks"][1]["depends_on"]
+    elif len(result["tasks"]) > 1:
+        result["tasks"][1]["depends_on"] = [p0_task["id"]]
     if template.get("repo_hint"):
         result["repo_hint"] = template["repo_hint"]
 

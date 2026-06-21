@@ -1,8 +1,9 @@
 """Tests for plan_templates.py — Template-Engine."""
 
 import sys
-import yaml
 from pathlib import Path
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
@@ -16,7 +17,7 @@ class TestExpandTemplate:
         from plan_follow.plan_templates import expand_template
         result = expand_template("deploy")
         assert "error" not in result
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4 deploy-Tasks
         assert result["review_profile"] == "api-route"
         assert "Deployment" in result["description"]
 
@@ -24,31 +25,31 @@ class TestExpandTemplate:
         from plan_follow.plan_templates import expand_template
         result = expand_template("bugfix")
         assert "error" not in result
-        assert len(result["tasks"]) == 3
+        assert len(result["tasks"]) == 4  # p0 + 3 bugfix-Tasks
         assert result["review_profile"] == "unit-test"
 
     def test_feature_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("feature")
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4 feature-Tasks
         assert result["review_profile"] == "unit-test"
 
     def test_refactoring_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("refactoring")
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4 refactoring-Tasks
         assert result["review_profile"] == "full"
 
     def test_research_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("research")
-        assert len(result["tasks"]) == 3
+        assert len(result["tasks"]) == 4  # p0 + 3 research-Tasks
         assert result["review_profile"] == "none"
 
     def test_analysis_template(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("analysis")
-        assert len(result["tasks"]) == 4
+        assert len(result["tasks"]) == 5  # p0 + 4 analysis-Tasks
         assert result["review_profile"] == "unit-test"
 
     def test_unknown_template(self):
@@ -60,7 +61,7 @@ class TestExpandTemplate:
     def test_parameter_substitution(self):
         from plan_follow.plan_templates import expand_template
         result = expand_template("deploy", params={"env": "production", "service": "medusa-prod"})
-        deploy_task = result["tasks"][2]  # "Deploy to ..."
+        deploy_task = result["tasks"][3]  # [p0, d1, d2, d3, d4] → d3
         assert "production" in deploy_task["name"]
         assert "medusa-prod" in deploy_task["verify"]
 
@@ -68,14 +69,14 @@ class TestExpandTemplate:
         from plan_follow.plan_templates import expand_template
         result = expand_template("deploy")
         # Default values from TEMPLATE_DEFAULTS
-        deploy_task = result["tasks"][2]
+        deploy_task = result["tasks"][3]  # [p0, d1, d2, d3, d4] → d3
         assert "medusa-staging" in deploy_task["verify"]
 
     def test_parameter_override(self):
         from plan_follow.plan_templates import expand_template
         # User param overrides default
         result = expand_template("deploy", params={"service": "medusa-custom"})
-        deploy_task = result["tasks"][2]
+        deploy_task = result["tasks"][3]  # [p0, d1, d2, d3, d4] → d3
         assert "medusa-custom" in deploy_task["verify"]
         assert "medusa-staging" not in deploy_task["verify"]
 
@@ -143,15 +144,16 @@ class TestLoadUserTemplates:
     """Tests for _load_user_templates — loading YAML from disk."""
 
     def test_no_templates_dir(self, monkeypatch):
-        from plan_follow.plan_templates import _load_user_templates, TEMPLATES_DIR
         import tempfile
+
+        from plan_follow.plan_templates import _load_user_templates
         fake_dir = Path(tempfile.mkdtemp()) / "nonexistent"
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", fake_dir)
         result = _load_user_templates()
         assert result == {}
 
     def test_load_valid_template(self, tmp_path, monkeypatch):
-        from plan_follow.plan_templates import _load_user_templates, TEMPLATES_DIR
+        from plan_follow.plan_templates import _load_user_templates
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         yaml_file = tmp_path / "my_template.yaml"
         yaml_file.write_text(yaml.dump({
@@ -168,7 +170,8 @@ class TestLoadUserTemplates:
 
     def test_corrupt_yaml(self, tmp_path, monkeypatch, caplog):
         import logging
-        from plan_follow.plan_templates import _load_user_templates, TEMPLATES_DIR
+
+        from plan_follow.plan_templates import _load_user_templates
         caplog.set_level(logging.WARNING)
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         yaml_file = tmp_path / "bad.yaml"
@@ -177,7 +180,7 @@ class TestLoadUserTemplates:
         assert result == {}
 
     def test_multiple_templates(self, tmp_path, monkeypatch):
-        from plan_follow.plan_templates import _load_user_templates, TEMPLATES_DIR
+        from plan_follow.plan_templates import _load_user_templates
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         for name in ["alpha", "beta"]:
             (tmp_path / f"{name}.yaml").write_text(
@@ -189,7 +192,7 @@ class TestLoadUserTemplates:
         assert len(result) == 2
 
     def test_non_dict_yaml(self, tmp_path, monkeypatch):
-        from plan_follow.plan_templates import _load_user_templates, TEMPLATES_DIR
+        from plan_follow.plan_templates import _load_user_templates
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         yaml_file = tmp_path / "list.yaml"
         yaml_file.write_text("- just\n- a\n- list")
@@ -209,7 +212,7 @@ class TestGetAllTemplates:
         assert len(all_tpl) >= 6
 
     def test_user_template_overrides_builtin(self, tmp_path, monkeypatch):
-        from plan_follow.plan_templates import _get_all_templates, TEMPLATES_DIR
+        from plan_follow.plan_templates import _get_all_templates
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         # Create a user template with the same name as a built-in
         yaml_file = tmp_path / "deploy.yaml"

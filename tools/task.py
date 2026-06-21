@@ -4,27 +4,23 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from .base import (
-    logger,
-    _plan_path,
-    _save_plan,
-    _load_plan,
     _get_active_plan,
     _get_cached_plan,
+    _load_plan,
+    _save_plan,
     get_session_id,
     reset_tool_metrics,
-    _reset_cache,
 )
 from .coordination import (
-    _save_plan_state_to_honcho,
     _auto_lock_task_files,
     _auto_unlock_task_files,
+    _save_plan_state_to_honcho,
 )
+from .state import STATE
 from .status import _format_progress
-from plan_follow.tools.state import STATE
-
 
 # ─── Plan CRUD ────────────────────────────────────────────────────────────────
 
@@ -118,7 +114,7 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
 
 def get_current_task() -> Optional[dict]:
     """Return the current task dict, or None if no active plan.
-    
+
     Uses full recovery chain (cache → disk → Honcho).
     For session-local check, use get_current_task_cached().
     """
@@ -128,7 +124,7 @@ def get_current_task() -> Optional[dict]:
 
 def get_current_task_cached() -> Optional[dict]:
     """Return current task from in-memory cache ONLY.
-    
+
     No disk or Honcho recovery — prevents plan leaks across sessions.
     """
     plan = _get_cached_plan()
@@ -164,7 +160,7 @@ def get_current_tasks() -> list[dict]:
     In linear mode (no parallel_groups), returns a list with one task.
     In group mode, returns all tasks in the active group that are
     still in_progress or pending.
-    
+
     Uses full recovery chain (cache → disk → Honcho).
     For session-local check, use get_current_tasks_cached().
     """
@@ -174,7 +170,7 @@ def get_current_tasks() -> list[dict]:
 
 def get_current_tasks_cached() -> list[dict]:
     """Return ALL current tasks from in-memory cache ONLY.
-    
+
     No disk or Honcho recovery.
     """
     plan = _get_cached_plan()

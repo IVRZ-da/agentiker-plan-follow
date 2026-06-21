@@ -16,14 +16,13 @@ logger = logging.getLogger("plan_follow")
 def plan_create_tool(args: dict, **kwargs) -> str:
     """Create a new structured plan with enforceable tasks."""
     goal = args.get("goal", "")
-    tasks = args.get("tasks", [])
     repo = args.get("repo", "")
     template_name = args.get("template", "")
-    parallel_groups = args.get("parallel_groups")
     template_params = args.get("params", {})
+    parallel_groups = args.get("parallel_groups")
 
-    # Template expansion
-    if template_name and not tasks:
+    if template_name:
+        # Template expansion
         from .plan_templates import expand_template
         expanded = expand_template(template_name, goal, template_params)
         if "error" in expanded:
@@ -32,6 +31,14 @@ def plan_create_tool(args: dict, **kwargs) -> str:
         # Use goal from template description if no goal provided
         if not goal and expanded.get("description"):
             goal = expanded["description"]
+    else:
+        # Direct tasks (for tests/expert use — template is preferred)
+        tasks = args.get("tasks", [])
+        if not tasks:
+            return fmt_err(
+                "template is required — kein Template = kein Plan.\n"
+                "Available templates: deploy, bugfix, feature, refactoring, research, analysis, fix"
+            )
 
     if not goal:
         return fmt_err("goal is required")

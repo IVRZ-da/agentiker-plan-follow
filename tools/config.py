@@ -4,14 +4,13 @@ All modules access config via get/set functions, allowing
 monkeypatching and test isolation.
 
 Usage:
-    from plan_follow.tools.config import CFG
+    from . config import CFG
     print(CFG.PLANS_DIR)
     CFG.PLANS_DIR = tmp_path  # for tests
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 
 class PlanConfig:
