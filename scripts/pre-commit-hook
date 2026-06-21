@@ -461,6 +461,13 @@ MODULE_TEST_MAP = {
     "plan_tools.py": ["test_plan_follow"],
     "plan_hooks.py": ["test_plan_follow"],
     "plan_todo.py": ["test_plan_follow"],
+    "plan_review.py": ["test_plan_follow"],
+    "plan_roadmap.py": ["test_roadmap"],
+    "plan_templates.py": ["test_plan_follow"],
+    "plan_coverage.py": ["test_plan_follow"],
+    "coord_state.py": ["test_coord_state"],
+    "review_profiles.py": ["test_plan_follow"],
+    "conftest.py": [],
 }
 
 
