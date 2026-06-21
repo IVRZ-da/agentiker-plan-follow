@@ -1,0 +1,19 @@
+name: research
+description: "Recherche: Web-Suche → Analyse → Zusammenfassung"
+review_profile: none
+tasks:
+  - id: rs1
+    name: "Web-Recherche durchführen"
+    files: []
+    verify: ""
+    depends_on: []
+  - id: rs2
+    name: "Ergebnisse analysieren"
+    files: []
+    verify: ""
+    depends_on: [rs1]
+  - id: rs3
+    name: "Zusammenfassung schreiben"
+    files: []
+    verify: ""
+    depends_on: [rs2]

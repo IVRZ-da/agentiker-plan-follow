@@ -1,0 +1,19 @@
+name: bugfix
+description: "Bug-Fix mit TDD: RED → GREEN → REFACTOR"
+review_profile: unit-test
+tasks:
+  - id: b1
+    name: "RED: Failenden Test schreiben"
+    files: ["*spec.ts"]
+    verify: "{{test_command}} -- --grep 'new test'"
+    depends_on: []
+  - id: b2
+    name: "GREEN: Fix implementieren"
+    files: ["src/"]
+    verify: "{{test_command}}"
+    depends_on: [b1]
+  - id: b3
+    name: "REFACTOR: Code aufräumen"
+    files: ["src/"]
+    verify: "{{lint_command}}"
+    depends_on: [b2]

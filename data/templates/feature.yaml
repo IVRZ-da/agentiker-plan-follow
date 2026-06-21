@@ -1,0 +1,24 @@
+name: feature
+description: "Neues Feature: Spec → Implementierung → Tests → Docs"
+review_profile: unit-test
+tasks:
+  - id: f1
+    name: "Spec schreiben / Types definieren"
+    files: ["src/"]
+    verify: "{{typecheck_command}}"
+    depends_on: []
+  - id: f2
+    name: "Implementierung"
+    files: ["src/"]
+    verify: "{{typecheck_command}}"
+    depends_on: [f1]
+  - id: f3
+    name: "Tests schreiben"
+    files: ["*spec.ts"]
+    verify: "{{test_command}}"
+    depends_on: [f2]
+  - id: f4
+    name: "Dokumentation"
+    files: ["README.md", "docs/"]
+    verify: "{{lint_command}}"
+    depends_on: [f3]

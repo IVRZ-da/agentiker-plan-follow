@@ -1,0 +1,24 @@
+name: refactoring
+description: "Refactoring: Coverage → Refactor → Verify → Docs"
+review_profile: full
+tasks:
+  - id: r1
+    name: "Coverage-Check vor Refactoring"
+    files: []
+    verify: "{{test_coverage_command}}"
+    depends_on: []
+  - id: r2
+    name: "Refactoring durchführen"
+    files: ["src/"]
+    verify: "{{typecheck_command}}"
+    depends_on: [r1]
+  - id: r3
+    name: "Tests + Coverage nach Refactoring"
+    files: ["*spec.ts"]
+    verify: "{{test_coverage_command}}"
+    depends_on: [r2]
+  - id: r4
+    name: "Dokumentation aktualisieren"
+    files: ["README.md", "docs/"]
+    verify: "{{lint_command}}"
+    depends_on: [r3]

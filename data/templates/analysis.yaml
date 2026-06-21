@@ -1,0 +1,25 @@
+name: analysis
+description: "Code-Analyse: Code scannen → Ergebnisse analysieren → Report schreiben → Review"
+review_profile: unit-test
+tasks:
+  - id: a1
+    name: "Code scannen und Daten sammeln"
+    files: []
+    verify: ""
+    depends_on: []
+  - id: a2
+    name: "Ergebnisse analysieren und Muster erkennen"
+    files: []
+    verify: ""
+    depends_on: [a1]
+  - id: a3
+    name: "Analyse-Report schreiben"
+    files: []
+    verify: ""
+    depends_on: [a2]
+  - id: a4
+    name: "Review: Report auf Vollständigkeit prüfen"
+    files: []
+    verify: ""
+    depends_on: [a3]
+    review_profile: unit-test

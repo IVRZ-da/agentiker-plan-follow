@@ -13,8 +13,8 @@ Tasks support {{param}} placeholders for parameterization:
 from __future__ import annotations
 
 import copy
-import json
 import logging
+import yaml
 from pathlib import Path
 from typing import Any, Optional
 
@@ -127,7 +127,7 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
 # ─── User Templates (YAML) ────────────────────────────────────────────────────
 
 def _load_user_templates() -> dict[str, dict[str, Any]]:
-    """Load user-defined templates from TEMPLATES_DIR/*.yaml."""
+    """Load user-defined templates from TEMPLATES_DIR/*.yaml using PyYAML."""
     templates = {}
     if not TEMPLATES_DIR.exists():
         return templates
@@ -135,7 +135,7 @@ def _load_user_templates() -> dict[str, dict[str, Any]]:
     for yaml_file in sorted(TEMPLATES_DIR.glob("*.yaml")):
         try:
             content = yaml_file.read_text(encoding="utf-8")
-            parsed = _parse_yaml_simple(content)
+            parsed = yaml.safe_load(content)
             if not parsed or not isinstance(parsed, dict):
                 logger.warning(f"Template {yaml_file.name}: could not be parsed")
                 continue
@@ -155,98 +155,13 @@ def _load_user_templates() -> dict[str, dict[str, Any]]:
 
 
 def _parse_yaml_simple(content: str) -> Optional[dict]:
-    """Simple YAML parser for template files.
+    """Parse YAML content via PyYAML.
 
-    Uses json if content is JSON, otherwise tries a basic YAML subset.
-    Falls back to yaml module if available.
+    PyYAML is always available in Hermes plugins (standard dependency).
+    This function exists for backward compatibility — delegates to yaml.safe_load.
     """
-    content = content.strip()
-
-    # Try JSON first (valid JSON is valid YAML subset)
-    try:
-        return json.loads(content)
-    except json.JSONDecodeError:
-        pass
-
-    # Try python yaml if available
-    try:
-        import yaml
-        return yaml.safe_load(content)
-    except ImportError:
-        pass
-
-    # Basic hand-rolled parser for simple YAML structures
-    # Handles: lists of dicts with string/array values
-    try:
-        result = {}
-        current_task = None
-        current_tasks = []
-        lines = content.split("\n")
-        in_tasks = False
-
-        for line in lines:
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-
-            # Top-level key: value
-            if not stripped.startswith("-") and ":" in stripped and not stripped.startswith(" "):
-                key, _, val = stripped.partition(":")
-                key = key.strip()
-                val = val.strip().strip('"').strip("'")
-                if key == "tasks":
-                    in_tasks = True
-                elif key == "name" and not in_tasks:
-                    result["name"] = val
-                elif key == "description":
-                    result["description"] = val
-                elif key == "review_profile":
-                    result["review_profile"] = val
-                elif key == "repo_hint":
-                    result["repo_hint"] = val
-                continue
-
-            # Task list items
-            if stripped.startswith("-"):
-                if current_task:
-                    current_tasks.append(current_task)
-                current_task = {}
-                in_tasks = True
-                # Inline task: - id: t1  name: "Foo"
-                rest = stripped[1:].strip()
-                if rest:
-                    for part in rest.split("  "):
-                        part = part.strip()
-                        if ":" in part:
-                            k, _, v = part.partition(":")
-                            k = k.strip()
-                            v = v.strip().strip('"').strip("'")
-                            if v.startswith("[") and v.endswith("]"):
-                                v = [x.strip().strip('"').strip("'") for x in v[1:-1].split(",")]
-                            current_task[k] = v
-                continue
-
-            # Task fields (indented under -)
-            if in_tasks and current_task is not None:
-                if ":" in stripped:
-                    k, _, v = stripped.partition(":")
-                    k = k.strip()
-                    v = v.strip().strip('"').strip("'")
-                    if v.startswith("[") and v.endswith("]"):
-                        v = [x.strip().strip('"').strip("'") for x in v[1:-1].split(",")]
-                    current_task[k] = v
-
-        if current_task:
-            current_tasks.append(current_task)
-        if current_tasks:
-            result["tasks"] = current_tasks
-
-        if result:
-            return result
-    except Exception:
-        pass
-
-    return None
+    import yaml
+    return yaml.safe_load(content)
 
 
 # ─── Template Merging ─────────────────────────────────────────────────────────

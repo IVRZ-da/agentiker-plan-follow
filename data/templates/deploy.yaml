@@ -1,0 +1,24 @@
+name: deploy
+description: "Deployment: Build → Test → Deploy → Verify"
+review_profile: api-route
+tasks:
+  - id: d1
+    name: "Build check"
+    files: []
+    verify: "npx medusa build"
+    depends_on: []
+  - id: d2
+    name: "Tests ausführen"
+    files: []
+    verify: "npm test"
+    depends_on: [d1]
+  - id: d3
+    name: "Deploy to {{env}}"
+    files: []
+    verify: "systemctl --user restart {{service}}"
+    depends_on: [d2]
+  - id: d4
+    name: "Health-Check verify"
+    files: []
+    verify: "curl -f {{verify_url}}"
+    depends_on: [d3]

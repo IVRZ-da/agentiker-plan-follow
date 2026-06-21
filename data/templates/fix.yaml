@@ -1,0 +1,14 @@
+name: fix
+description: "Schnell-Fix: Analysieren → Beheben"
+review_profile: none
+tasks:
+  - id: x1
+    name: "Problem analysieren"
+    files: []
+    verify: ""
+    depends_on: []
+  - id: x2
+    name: "Fix implementieren"
+    files: ["src/"]
+    verify: ""
+    depends_on: [x1]
