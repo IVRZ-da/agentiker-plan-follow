@@ -6,9 +6,9 @@ Each function is registered as a Hermes tool via PluginContext.register_tool().
 
 import logging
 
-from ._fmt import fmt_ok, fmt_err, fmt_info, fmt_table
-from . import plan_core
-from . import plan_peer_review
+from . import plan_core, plan_peer_review
+from ._fmt import fmt_err, fmt_info, fmt_ok, fmt_table
+from .plan_roadmap import plan_roadmap_handler  # noqa: F401
 
 logger = logging.getLogger("plan_follow")
 
