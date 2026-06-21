@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hermes_cli.plugins import PluginContext
 
-from . import plan_core  # noqa: F401
-from . import plan_tools
-from . import plan_todo
+from . import (
+    plan_core,  # noqa: F401
+    plan_todo,
+    plan_tools,
+)
 
 logger = logging.getLogger("plan_follow")
 
@@ -495,7 +497,7 @@ PER_TOOL_SCHEMAS = {
                 "items": {"type": "object"},
             },
         },
-        "required": [],  
+        "required": [],
     },
     "plan_session": {
         "type": "object",
@@ -572,7 +574,7 @@ def _register_tools(ctx: PluginContext) -> None:
 
 def _register_hooks(ctx: PluginContext) -> None:
     """Register pre_llm_call hook for task injection and post_tool_call for logging."""
-    from .plan_hooks import on_pre_llm_call, on_post_tool_call
+    from .plan_hooks import on_post_tool_call, on_pre_llm_call
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
     ctx.register_hook("post_tool_call", on_post_tool_call)
     logger.info("plan_follow: pre_llm_call + post_tool_call hooks registered")
