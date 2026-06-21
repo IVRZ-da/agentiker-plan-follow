@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.3 (2026-06-22)
+
+### Fixes
+- **Flaky Git-Tests behoben:** 3 Tests in `test_coord_state.py` schlugen im Combined Run fehl
+  - Root Cause: `shutil.move()` zwischen ext4 und tmpfs verursachte cross-device link Fehler
+  - Fix: `subprocess.run(["cp", "-a"])` + `["rm", "-rf"]` statt `shutil.move()`
+  - Resultat: 557 passed, 0 failed
+
 ## 1.4.2 (2026-06-22)
 
 ### Tests — E2E-Konvertierung

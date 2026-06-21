@@ -323,7 +323,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
         result = plan_notify_tool({}, **{})
         assert "error" in result
 
-    def test_plan_history_no_git(self):
+    def test_plan_history_no_git(self, tmp_path):
         """plan_history should return 'not active' hint when no .git exists."""
         from plan_follow.plan_tools import plan_history_tool
         from plan_follow.plan_core import PLANS_DIR
@@ -332,17 +332,20 @@ These tests import via plan_follow.plan_tools so relative imports work.
         had_git = git_dir.exists()
         try:
             if had_git:
-                import shutil
+                import subprocess as _sp
                 import tempfile
                 backup = tempfile.mkdtemp()
-                shutil.move(str(git_dir), os.path.join(backup, "dot_git"))
+                _sp.run(["cp", "-a", str(git_dir), backup], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", str(git_dir)], capture_output=True, timeout=30)
 
             result = plan_history_tool({"plan_id": "test-plan"}, **{})
             assert "nicht aktiv" in result or "Keine" in result
         finally:
             if had_git:
-                import shutil
-                shutil.move(os.path.join(backup, "dot_git"), str(git_dir))
+                import subprocess as _sp
+                import os
+                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
 
 # ─── Git-Integration Tests (10 Tests) ─────────────────────────────────────────
@@ -396,9 +399,10 @@ class TestGitIntegration:
 
         try:
             if had_git:
-                import shutil
+                import subprocess as _sp
                 backup = tmp_path / "dot_git_backup"
-                shutil.move(str(git_dir), str(backup))
+                _sp.run(["cp", "-a", str(git_dir), str(backup)], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", str(git_dir)], capture_output=True, timeout=30)
 
             plan = {"plan_id": "no-git-test", "tasks": {}, "current_task": None}
             _save_plan(plan)  # Should not raise
@@ -411,8 +415,9 @@ class TestGitIntegration:
             if not had_git:
                 pass
             elif had_git and not git_dir.exists():
-                import shutil
-                shutil.move(str(backup), str(git_dir))
+                import subprocess as _sp
+                _sp.run(["cp", "-a", str(backup / ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", str(backup)], capture_output=True, timeout=30)
 
     def test_plan_git_init_tool(self):
         """plan_git_init should work and show 'initialized' or 'already active'."""
@@ -423,17 +428,20 @@ class TestGitIntegration:
 
         try:
             if had_git:
-                import shutil
+                import subprocess as _sp
                 import tempfile
                 backup = tempfile.mkdtemp()
-                shutil.move(str(git_dir), os.path.join(backup, "dot_git"))
+                _sp.run(["cp", "-a", str(git_dir), backup], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", str(git_dir)], capture_output=True, timeout=30)
 
             result = plan_git_init_tool({}, **{})
             assert "initialized" in result or "bereits aktiv" in result
         finally:
             if had_git:
-                import shutil
-                shutil.move(os.path.join(backup, "dot_git"), str(git_dir))
+                import subprocess as _sp
+                import os
+                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
+                _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
     def test_history_tool_custom_plan_id(self):
         """plan_history with specific plan_id should work."""
