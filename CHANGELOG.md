@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.5.0 (2026-06-21)
+
+### Major — Module-Split + Code-Qualität (9 Phasen)
+
+- **Module-Split:** `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Submodulen
+  - `tools/base.py` — Module-State, Persistenz, Session-ID
+  - `tools/coordination.py` — Honcho, Git, Lock-Integration
+  - `tools/task.py` — Task CRUD (create, complete, set_active)
+  - `tools/status.py` — Status, Liste, Progress-Formatierung
+  - `tools/plan_mgmt.py` — Abort, Delete, Due-Dates, Archive
+  - `tools/auto.py` — Auto-Verify, Auto-Commit, Drift
+  - `tools/review.py` — Review-Helper
+  - `tools/health.py` — Health-Check
+  - `tools/validation.py` — Plan-Validierung (DAG, orphan, profiles)
+  - `tools/roadmap_data.py` — Roadmap-Datenfunktionen
+- **Shared State:** `tools/state.py` — STATE-Singleton ersetzt 4 verteilte Global-Variablen
+- **Config-Resolution:** `tools/resolver.py` — Monkeypatch-safe Config-Resolution für Test-Kompatibilität
+- **`plan_core.py`:** Re-Export Facade mit `__getattr__`/`__setattr__` für Rückwärtskompatibilität
+
+### Refactoring
+- **PyYAML statt eigenem Parser:** `_parse_yaml_simple` von 93 Zeilen auf 3 Zeilen reduziert (direktes `yaml.safe_load`). 7 Template-YAML-Dateien in `data/templates/`
+- **Complexity-Reduktion:** `on_pre_llm_call` von 52 auf 7 Branches reduziert durch Extraktion von 9 Sub-Funktionen
+- **Companion-Skill:** Version 1.0.1→1.4.2, Tools 12→24 dokumentiert, Templates 6→7, Architektur ergänzt
+
+### Coverage-Verbesserungen
+- `_fmt.py`: 46% → 98% (neue `test_fmt.py` mit 45 Tests)
+- `plan_templates.py`: 45% → 99% (neue `test_templates.py` mit 29 Tests)
+- `plan_coverage.py`: 50% → 86% (neue `test_coverage.py` mit 28 Tests)
+- `__init__.py`: 35% → 98% (neue `test_init.py` mit 16 Tests)
+- **Gesamtcoverage:** 79% → ~88%
+
+### Neue Features
+- **pytest-cov Fallback:** Graceful Degradation wenn pytest-cov nicht installiert ist
+- **Template-YAML-Dateien:** 7 Referenz-Templates in `data/templates/*.yaml`
+
+### Tests
+- **601 Tests (vorher 483), 0 failed**
+- 4 neue Test-Dateien: `test_fmt.py`, `test_templates.py`, `test_coverage.py`, `test_init.py`
+- 118 neue Tests insgesamt
+- Subprocess-Mocking, Filesystem-Isolation, Registry-Mocking
+
 ## 1.4.3 (2026-06-22)
 
 ### Fixes

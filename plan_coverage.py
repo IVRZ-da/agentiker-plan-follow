@@ -186,6 +186,36 @@ def measure_coverage(
     original_dir = os.getcwd()
     coverage_json_path = None
     try:
+        # Prüfe ob pytest-cov installiert ist (graceful degradation)
+        try:
+            import subprocess as _sp
+            cov_check = _sp.run(
+                [sys.executable, "-m", "pytest", "--cov", "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if cov_check.returncode != 0:
+                return {
+                    "success": False,
+                    "error": "pytest-cov nicht installiert. Installation: pip install pytest-cov",
+                    "pct": 0.0,
+                    "covered": 0,
+                    "total": 0,
+                    "missing_files": [],
+                    "passed": False,
+                    "threshold": threshold,
+                }
+        except (OSError, _sp.TimeoutExpired):
+            return {
+                "success": False,
+                "error": "pytest-cov nicht verfügbar (kann nicht ausgeführt werden)",
+                "pct": 0.0,
+                "covered": 0,
+                "total": 0,
+                "missing_files": [],
+                "passed": False,
+                "threshold": threshold,
+            }
+
         os.chdir(project_path)
 
         # Temporäre Datei für Coverage-JSON-Output
