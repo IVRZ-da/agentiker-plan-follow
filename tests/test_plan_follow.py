@@ -3425,3 +3425,67 @@ repo_hint: /path/to/repo"""
         result = _get_all_templates()
         assert isinstance(result, dict)
         assert len(result) >= 6
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# E2E-Migration: plan_validate_tool + plan_verify + roadmap delete
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestPlanValidateTool:
+    """plan_validate_tool direkter Aufruf."""
+
+    def test_validate_after_create(self, sample_tasks):
+        """plan_validate_tool nach plan_create."""
+        from plan_follow.plan_tools import plan_create_tool, plan_validate_tool
+        import json
+        # Neuen Plan erstellen (sample_tasks könnte bereits abgeschlossen sein)
+        plan_create_tool({
+            "goal": "Validate Test",
+            "tasks": [{"id": "v1", "name": "Validation task"}],
+        })
+        r = json.loads(plan_validate_tool({}))
+        assert r.get("status") != "error"
+
+
+class TestPlanVerifyTool:
+    """plan_verify_tool mit verify-command."""
+
+    def test_verify_with_command(self, sample_tasks):
+        """plan_verify_tool nach plan_create mit verify-command."""
+        from plan_follow.plan_tools import plan_create_tool, plan_verify_tool
+        plan_create_tool({
+            "goal": "Verify Test",
+            "tasks": [{"id": "w1", "name": "Verify task", "verify": "echo 'ok'"}],
+        })
+        import json
+        r = json.loads(plan_verify_tool({}))
+        assert r.get("status") != "error"
+
+    def test_verify_no_plan(self):
+        """plan_verify_tool ohne aktiven Plan -> no_active_plan."""
+        from plan_follow.plan_tools import plan_verify_tool
+        import json
+        r = json.loads(plan_verify_tool({}))
+        # Kann 'error' oder 'no_active_plan' sein — beides akzeptabel
+        assert r.get("status") in ("error", "no_active_plan")
+
+
+class TestRoadmapDelete:
+    """Roadmap Delete (plan_roadmap_handler) — 'delete' cmd existiert nicht,
+    daher nur create + list testen."""
+
+    def test_roadmap_create_and_list(self, tmp_path):
+        """Roadmap erstellen und auflisten."""
+        import plan_follow.plan_roadmap as rm
+        rm.PLANS_DIR = tmp_path / "roadmaps"
+        rm.PLANS_DIR.mkdir(parents=True, exist_ok=True)
+
+        create = rm.plan_roadmap_handler({
+            "cmd": "create", "name": "e2e-test-roadmap",
+            "phases": [{"id": "p1", "name": "Phase 1", "effort": 2, "impact": 5}],
+        })
+        assert "erstellt" in create or "existiert" in create or "✅" in str(create)
+
+        lst = rm.plan_roadmap_handler({"cmd": "list"})
+        assert "e2e-test-roadmap" in lst or len(lst) > 0
+

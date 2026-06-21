@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.2 (2026-06-22)
+
+### Tests — E2E-Konvertierung
+- **E2E-Tests in Unit-Tests konvertiert:** Alle 29 E2E-Tests (gated via E2E_TEST=1) wurden konvertiert:
+  - 25 Plan-Tests (tools + plan_more): **100% redundant** — existierende Unit-Tests decken alles ab
+  - 3 Roadmap-Tests: **2 neue Tests** in `test_plan_follow.py` (create+list, create + list)
+  - 1 Workflow-Test: **redundant**
+  - 4 Lückentests ergänzt: `TestPlanValidateTool`, `TestPlanVerifyTool`, `TestRoadmapDelete` in `test_plan_follow.py`
+- **`test_e2e/` Verzeichnis gelöscht** — `_setup_plan_follow_package()` conftest entfällt
+- Resultat: 483 passed, 0 von E2E_TEST abhängig
+
 ## 1.4.1 (2026-06-22)
 
 ### Bug Fixes

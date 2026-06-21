@@ -26,7 +26,7 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger("plan_follow")
 
@@ -327,10 +327,10 @@ def _get_cached_plan() -> Optional[dict]:
 
 # ─── Honcho Integration (Registry-Dispatch mit Fallback) ──────────────────────
 
-def _retry_with_backoff(fn, max_attempts: int = 3) -> any:
+def _retry_with_backoff(fn, max_attempts: int = 3) -> Any:
     """Execute fn with exponential backoff (1s, 2s, 4s). Returns result or raises last exception."""
     import time
-    last_exc = None
+    last_exc: Optional[Exception] = None
     for attempt in range(max_attempts):
         try:
             return fn()
@@ -340,7 +340,9 @@ def _retry_with_backoff(fn, max_attempts: int = 3) -> any:
                 wait = 2 ** attempt  # 1, 2, 4 seconds
                 logger.debug(f"Honcho retry {attempt+1}/{max_attempts} in {wait}s: {e}")
                 time.sleep(wait)
-    raise last_exc
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("_retry_with_backoff: no exception was caught")
 
 
 def _dispatch_honcho_tool(tool_name: str, args: dict) -> Optional[dict]:
