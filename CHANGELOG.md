@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.1 (2026-06-22)
+
+### Bug Fixes
+- **Plugin-Start repariert**: plan_tools.py importierte `plan_roadmap_handler` nicht aus `plan_roadmap.py` — `AttributeError` beim Laden des Plugins. Fix: `from .plan_roadmap import plan_roadmap_handler` ergänzt.
+
 ## 1.4.0 (2026-06-21)
 
 ### Neue Features
