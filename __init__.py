@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from hermes_cli.plugins import PluginContext
 
-from . import plan_core
+from . import plan_core  # noqa: F401
 from . import plan_tools
 from . import plan_todo
 
@@ -594,22 +594,23 @@ def _inject_steering_hints() -> None:
     """Add usage hints to existing tool descriptions (like code_intel does).
     Also deregisters the built-in `todo` tool since plan_todo replaces it.
     """
-    from tools.registry import registry
-
-    # Deregister built-in todo tool — plan_todo ersetzt es
     try:
+        from tools.registry import registry
+
         registry.deregister("todo")
         logger.info("plan_follow: built-in 'todo' tool deregistered (replaced by plan_todo)")
+
+        hints = [
+            ("plan_create", "\n\nAfter creating a plan, call plan_current() to see the first task. Complete tasks in order: plan_complete(task_id) when done, then plan_current() shows the next one."),
+        ]
+        for tool_name, hint_text in hints:
+            entry = registry.get_entry(tool_name)
+            if entry and "description" in entry.schema and hint_text not in entry.schema.get("description", ""):
+                entry.schema["description"] = entry.schema.get("description", "") + hint_text
+    except ImportError:
+        logger.warning("plan_follow: could not import tools.registry — todo deregistration + hints skipped")
     except Exception as e:
         logger.warning("plan_follow: could not deregister 'todo': %s", e)
-
-    hints = [
-        ("plan_create", "\n\nAfter creating a plan, call plan_current() to see the first task. Complete tasks in order: plan_complete(task_id) when done, then plan_current() shows the next one."),
-    ]
-    for tool_name, hint_text in hints:
-        entry = registry.get_entry(tool_name)
-        if entry and "description" in entry.schema and hint_text not in entry.schema.get("description", ""):
-            entry.schema["description"] = entry.schema.get("description", "") + hint_text
 
 
 def register(ctx: PluginContext) -> None:
