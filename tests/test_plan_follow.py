@@ -2,9 +2,7 @@
 
 import json
 import os
-import re
 import sys
-import tempfile
 from pathlib import Path
 
 # Helper: parse rich-formatted tool output back to dict
@@ -337,8 +335,7 @@ class TestDiskRecovery:
     """Tests for plans_index.json and _recover_plan_from_disk()."""
 
     def test_update_plans_index_creates_file(self, sample_tasks):
-        from plan_follow.plan_core import (create_plan, _update_plans_index,
-                                            PLANS_DIR, _get_active_plan)
+        from plan_follow.plan_core import (create_plan, PLANS_DIR)
         create_plan("Test", sample_tasks)
         index_path = PLANS_DIR / "plans_index.json"
         assert index_path.exists()
@@ -476,7 +473,7 @@ class TestParallelGroups:
 
     def test_complete_group_advances_to_next(self):
         from plan_follow.plan_core import (create_plan, complete_task,
-                                            get_current_tasks, _get_active_plan)
+                                            _get_active_plan)
         tasks = [
             {"id": "p1", "name": "Task 1"},
             {"id": "p2", "name": "Task 2"},
@@ -705,8 +702,7 @@ class TestMultiRepo:
 
     def test_drift_multi_repo_no_git(self):
         """Drift check on non-git repos returns empty."""
-        from plan_follow.plan_core import create_plan, check_drift, _reset_cache
-        import plan_follow.plan_core as pc
+        from plan_follow.plan_core import create_plan, check_drift
         tasks = [{"id": "p1", "name": "T1", "files": []}]
         # Save original to restore
         create_plan("Test", tasks, repos=["/nonexistent1", "/nonexistent2"])
@@ -874,7 +870,7 @@ class TestPlanManagement:
 
     def test_list_plans_multiple(self, sample_tasks):
         from plan_follow.plan_core import create_plan, list_plans
-        p1 = create_plan("First", sample_tasks)
+        create_plan("First", sample_tasks)
         # Clear cache so second create actually creates a new plan
         from plan_follow.plan_core import _reset_cache
         _reset_cache()
@@ -893,7 +889,7 @@ class TestPlanManagement:
 
     def test_abort_specific_task(self, sample_tasks):
         from plan_follow.plan_core import (create_plan, abort_plan,
-                                            _get_active_plan, get_current_task)
+                                            _get_active_plan)
         create_plan("Test", sample_tasks)
         result = abort_plan(task_id="p1")
         assert result["status"] == "aborted"
@@ -1112,8 +1108,7 @@ class TestReviewDataModel:
 
     def test_migration_compatibility(self):
         """Alte Pläne ohne review_profile müssen funktionieren."""
-        import json, tempfile
-        from plan_follow.plan_core import _get_active_plan
+        import json
         # Simuliere alten Plan ohne review_profile
         old_plan = {
             "plan_id": "migration-test",
@@ -1576,7 +1571,7 @@ class TestReviewBanner:
 
     def test_banner_shows_passed_state(self):
         from plan_follow.plan_core import save_review_result
-        output = self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
+        self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
         output2 = self._call_hook_mocked()
@@ -1584,7 +1579,7 @@ class TestReviewBanner:
 
     def test_banner_shows_failed_state(self):
         from plan_follow.plan_core import save_review_result
-        output = self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
+        self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "failed", "issues": [{"check": "missing_tests"}]})
         output2 = self._call_hook_mocked()
@@ -1699,7 +1694,6 @@ class TestSessionLocalPlan:
         """Nach Cache-Reset liegt der Plan noch auf Disk (plan_select() möglich)."""
         from plan_follow.plan_core import (create_plan, _reset_cache,
                                             _plan_path, _load_plan)
-        from plan_follow.plan_core import _get_active_plan
 
         plan_id = create_plan("Disk Test", [{"id": "t1", "name": "T1"}])
         assert _plan_path(plan_id).exists()
@@ -1956,7 +1950,6 @@ class TestPlanArchive:
     def test_list_archived_plans(self, sample_tasks):
         from plan_follow.plan_core import (create_plan, archive_plan,
                                             list_plans)
-        import plan_follow.plan_core as plan_core
         plan_id = create_plan("Test", sample_tasks)
         archive_plan(plan_id)
         # Without include_archived: archived plans hidden
@@ -1966,9 +1959,9 @@ class TestPlanArchive:
         # With include_archived=True: archived plans shown
         plans_with_archived = list_plans(include_archived=True)
         # Archive dir might be stale due to module-level constant, check plan existence differently
-        archived_ids = [p.get("plan_id", "") for p in plans_with_archived]
+        [p.get("plan_id", "") for p in plans_with_archived]
         all_plan_ids = [p.get("plan_id", "") for p in plans]
-        plan_ids_set = set(all_plan_ids)
+        set(all_plan_ids)
         # Archived plan ID should show up in full list
         assert plan_id not in all_plan_ids, "Archived plan should NOT appear without include_archived"
 
@@ -2019,8 +2012,7 @@ class TestPlanArchive:
     def test_archive_restore_roundtrip(self, sample_tasks):
         """Archive → restore → plan still functional."""
         from plan_follow.plan_core import (create_plan, archive_plan,
-                                            restore_plan, complete_task,
-                                            get_current_task)
+                                            restore_plan, get_current_task)
         plan_id = create_plan("Test", sample_tasks)
         archive_plan(plan_id)
         restore_plan(plan_id)
@@ -2084,7 +2076,7 @@ class TestPostToolCallHook:
 
     def test_reset_metrics_on_new_task(self, sample_tasks):
         from plan_follow.plan_core import (create_plan, record_tool_call,
-                                            complete_task, get_tool_metrics,
+                                            get_tool_metrics,
                                             reset_tool_metrics)
         create_plan("Test", sample_tasks)
         record_tool_call("code_search", 100, "ok")
@@ -2221,7 +2213,6 @@ class TestAutoReviewTool:
         assert result["status"] == "skipped"
     def test_tool_with_review_profile(self):
         from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
-        import json
         tasks = [{"id": "p1", "name": "T1", "files": ["test.py"],
                   "review_profile": "api-route"}]  # api-route: no coverage checks
         plan_create_tool({"goal": "Test", "tasks": tasks})
@@ -2263,7 +2254,6 @@ class TestCoverageCore:
 
     def test_get_project_path_fallback_cwd(self):
         from plan_follow.plan_coverage import get_project_path
-        import os
         task = {"files": []}
         plan = {}
         path = get_project_path(task, plan)
@@ -2847,7 +2837,7 @@ class TestHooksCoverage:
 
     def test_cached_or_fresh_hit(self):
         """_cached_or_fresh returns cached value within TTL."""
-        from plan_follow.plan_hooks import _cached_or_fresh, _hook_cache, _HOOK_CACHE_TTL
+        from plan_follow.plan_hooks import _cached_or_fresh, _hook_cache
         _hook_cache.clear()
         _hook_cache["test_key"] = ("cached_value", __import__("time").monotonic())
         result = _cached_or_fresh("test_key", lambda: "fresh_value")
@@ -2910,7 +2900,6 @@ class TestHooksCoverage:
         from plan_follow.plan_tools import plan_create_tool, plan_duedate_tool
         from plan_follow.plan_hooks import on_pre_llm_call, _hook_cache
         import plan_follow.plan_core as pc
-        import json
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
@@ -2968,7 +2957,6 @@ class TestToolsCoverage:
 
     def test_auto_review_wrong_task_id(self, sample_tasks):
         from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
-        import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_auto_review_tool({"task_id": "wrong_id"}))
         assert "error" in result
@@ -2977,7 +2965,6 @@ class TestToolsCoverage:
     def test_auto_review_saves_with_files(self, tmp_path):
         """plan_auto_review with actual files and api-route profile (no coverage)."""
         from plan_follow.plan_tools import plan_create_tool, plan_auto_review_tool
-        import json
         test_file = tmp_path / "app.py"
         test_file.write_text("def foo(): pass\n")
         tasks = [{"id": "p1", "name": "T1", "files": [str(test_file)],
@@ -3103,7 +3090,6 @@ class TestPlanTodo:
 
     def test_plan_todo_no_active_plan(self):
         from plan_follow.plan_todo import plan_todo_tool
-        import json
         result = _parse_result(plan_todo_tool({}))
         # Without active plan, returns todos list (possibly empty) or has status/error
         assert isinstance(result, dict)
@@ -3111,7 +3097,6 @@ class TestPlanTodo:
     def test_plan_todo_read_with_active_plan(self, sample_tasks):
         from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
-        import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_todo_tool({}))
         assert "todos" in result or "status" in result
@@ -3122,7 +3107,6 @@ class TestPlanTodo:
         """plan_todo_tool correctly handles the case where task_id is in args."""
         from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
-        import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         # Pass task_id=current to check behavior
         result = _parse_result(plan_todo_tool({}))
@@ -3132,7 +3116,6 @@ class TestPlanTodo:
         """Marking a todo as completed should complete the task."""
         from plan_follow.plan_tools import plan_create_tool
         from plan_follow.plan_todo import plan_todo_tool
-        import json
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
         result = _parse_result(plan_todo_tool({
             "todos": [{"id": "p1", "status": "completed", "content": "Done"}],
@@ -3151,25 +3134,21 @@ class TestToolsErrorBranches:
 
     def test_create_missing_goal(self):
         from plan_follow.plan_tools import plan_create_tool
-        import json
         result = _parse_result(plan_create_tool({"tasks": []}))
         assert "error" in result or "status" in result
 
     def test_duedate_without_plan(self):
         from plan_follow.plan_tools import plan_duedate_tool
-        import json
         result = _parse_result(plan_duedate_tool({}))
         assert result is not None
 
     def test_plan_verify_without_plan(self):
         from plan_follow.plan_tools import plan_verify_tool
-        import json
         result = _parse_result(plan_verify_tool({}))
         assert "no_active" in result.get("status", "") or "error" in result
 
     def test_plan_status_without_plan(self):
         from plan_follow.plan_tools import plan_status_tool
-        import json
         result = _parse_result(plan_status_tool({}))
         assert "no_active" in result.get("status", "") or "error" in result or result is not None
 
@@ -3313,7 +3292,6 @@ class TestCoverageFast:
 
     def test_get_project_path_no_plan_no_files(self):
         from plan_follow.plan_coverage import get_project_path
-        import os
         task = {"files": []}
         result = get_project_path(task)
         # Should fallback to cwd

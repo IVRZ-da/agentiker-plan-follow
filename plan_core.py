@@ -848,7 +848,7 @@ def get_plan_status() -> Optional[dict]:
 
     total = len(plan["tasks"])
     done = sum(1 for t in plan["tasks"].values() if t["status"] == "completed")
-    blocked = sum(1 for t in plan["tasks"].values() if t["status"] == "blocked")
+    sum(1 for t in plan["tasks"].values() if t["status"] == "blocked")
 
     tasks_list = []
     for tid, tdef in plan["tasks"].items():
@@ -1078,7 +1078,6 @@ def auto_commit(task_id: str, files: list[str], repo: str = "") -> dict:
         return {"status": "skipped", "message": "No files to commit."}
 
     import subprocess
-    temp_dir = None
     try:
         # Add files
         for f in files:

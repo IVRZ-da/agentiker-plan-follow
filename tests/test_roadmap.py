@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -16,9 +14,8 @@ from plan_follow.plan_roadmap import (
     _format_roadmap_overview, _format_phase_detail,
     _phase_to_plan_tasks, plan_roadmap_handler,
     set_active_roadmap, get_active_roadmap, reset_active_roadmap,
-    PRIORITY_ICONS, STATUS_ICONS, VALID_PRIORITIES, VALID_STATUSES,
 )
-from plan_follow.plan_core import _parse_roadmap_yaml_simple, _roadmap_path, ROADMAPS_DIR, _save_roadmap, _load_roadmap, _list_roadmaps
+from plan_follow.plan_core import _parse_roadmap_yaml_simple, ROADMAPS_DIR, _save_roadmap, _load_roadmap, _list_roadmaps
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -121,7 +118,7 @@ class TestYamlParsing:
         assert result is None
 
     def test_parse_invalid_yaml(self):
-        result = _parse_roadmap_yaml_simple(": : : invalid")
+        _parse_roadmap_yaml_simple(": : : invalid")
         # Simple parser may return partial result for garbage input
         # Just verify it doesn't crash
         pass
@@ -143,7 +140,6 @@ phases:
 
     def test_parse_json_format(self):
         """JSON format is handled by _load_roadmap, not the simple parser."""
-        import json
         import tempfile
         from pathlib import Path
         data = '{"name": "JSON-Roadmap", "goal": "Test", "created": "2026-01-01", "phases": [{"id": "a", "name": "A", "priority": "high", "status": "pending"}]}'
@@ -194,7 +190,7 @@ class TestValidation:
             "name": "Test", "goal": "Test",
             "phases": [{"id": "a", "name": "A", "priority": "urgent", "status": "pending"}],
         }
-        errors = _validate_roadmap(data)
+        _validate_roadmap(data)
         assert data["phases"][0]["priority"] == "medium"
 
     def test_invalid_status_defaults_to_pending(self):
@@ -202,7 +198,7 @@ class TestValidation:
             "name": "Test", "goal": "Test",
             "phases": [{"id": "a", "name": "A", "priority": "high", "status": "done"}],
         }
-        errors = _validate_roadmap(data)
+        _validate_roadmap(data)
         assert data["phases"][0]["status"] == "pending"
 
     def test_unknown_dependency(self):

@@ -1,6 +1,6 @@
 name: plan_follow
-version: 1.3.0
-description: "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit, Disk-Recovery, TTL-Cache, Validierung, Fälligkeit, Archivierung, Cross-Session Koordination (plan_session/lock/notify), optionale Git-Versionierung (plan_history/git_init), Auto-Lock/Unlock für Task-Files, Lock-Enforcement im Hook, cleanup_stale Automatisierung und zentrale Session-ID. Bietet 24 Tools, 2 Hooks, 7 Templates und 430+ Tests."
+version: 1.4.0
+description: "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit, Disk-Recovery, TTL-Cache, Validierung, Fälligkeit, Archivierung, Cross-Session Koordination, optionaler Git-Versionierung, Auto-Lock/Unlock, Auto-Peer-Review (run_peer_review nach plan_create), TTS-Event-Marker (plan_created, task_completed, review_failed) im Hook-Banner, Lock-Enforcement und cleanup_stale. Bietet 24 Tools, 2 Hooks, 7 Templates, plan_peer_review.py und 475+ Tests."
 author: "Johannes Lettner"
 license: MIT
 repo: https://git.ivory.green/johannes/agentiker-plan-follow-plugin

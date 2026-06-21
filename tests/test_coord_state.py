@@ -6,7 +6,6 @@ Run: python -m pytest tests/test_coord_state.py -v
 import json
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -33,7 +32,7 @@ except ImportError:
         acquire_lock, release_lock, get_locks, get_lock,
         send_notification, get_notifications, clear_notifications,
         cleanup_stale_sessions, cleanup_stale_locks,
-        SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE,
+        SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE,
     )
 
 
@@ -286,7 +285,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
     def test_plan_session_with_data(self, sample_session):
         from plan_follow.plan_tools import plan_session_tool
         result = plan_session_tool({}, **{})
-        data = json.loads(result) if isinstance(result, str) else result
+        json.loads(result) if isinstance(result, str) else result
 
     def test_plan_lock_tool_acquire(self):
         from plan_follow.plan_tools import plan_lock_tool
@@ -333,7 +332,8 @@ These tests import via plan_follow.plan_tools so relative imports work.
         had_git = git_dir.exists()
         try:
             if had_git:
-                import shutil, tempfile
+                import shutil
+                import tempfile
                 backup = tempfile.mkdtemp()
                 shutil.move(str(git_dir), os.path.join(backup, "dot_git"))
 
@@ -359,7 +359,7 @@ class TestGitIntegration:
 
     def test_git_commit_creates_commit(self, tmp_path):
         """_git_commit_if_active should create a commit when .git exists."""
-        from plan_follow.plan_core import _git_commit_if_active, PLANS_DIR
+        from plan_follow.plan_core import PLANS_DIR
 
         # Temporarily create a git repo in PLANS_DIR
         import subprocess
@@ -396,7 +396,7 @@ class TestGitIntegration:
 
         try:
             if had_git:
-                import shutil, tempfile
+                import shutil
                 backup = tmp_path / "dot_git_backup"
                 shutil.move(str(git_dir), str(backup))
 
@@ -423,7 +423,8 @@ class TestGitIntegration:
 
         try:
             if had_git:
-                import shutil, tempfile
+                import shutil
+                import tempfile
                 backup = tempfile.mkdtemp()
                 shutil.move(str(git_dir), os.path.join(backup, "dot_git"))
 
@@ -595,7 +596,7 @@ class TestSessionId:
 
     def test_notification_with_real_session(self):
         """Notifications with real session IDs should work end-to-end."""
-        from plan_follow.plan_core import get_session_id, reset_session_id
+        from plan_follow.plan_core import reset_session_id
         reset_session_id()
 
         sid = "test-real-session"

@@ -16,7 +16,6 @@ Output-Format identisch zu built-in todo:
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 from ._fmt import fmt_ok
 
@@ -91,7 +90,6 @@ def _apply_write(todos: list) -> list:
     - Andere Status-Änderungen werden via plan_core.update_task() versucht
       (falls erlaubt) oder ignoriert.
     """
-    applied_any = False
     for item in todos:
         tid = str(item.get("id", "")).strip()
         new_status = str(item.get("status", "")).strip().lower()
@@ -119,7 +117,7 @@ def _apply_write(todos: list) -> list:
                 # complete_task prüft selbst ob task_id == current_task
                 result = plan_core.complete_task(tid)
                 if result and result.get("status") in ("completed", "already_completed"):
-                    applied_any = True
+                    pass
             except Exception as e:
                 logger.warning("plan_todo: complete_task(%s) failed: %s", tid, e)
         elif new_status in ("in_progress", "pending"):
@@ -127,7 +125,7 @@ def _apply_write(todos: list) -> list:
             try:
                 result = plan_core.update_task(tid, {"status": new_status})
                 if result:
-                    applied_any = True
+                    pass
             except Exception:
                 # update_task unterstützt kein status-Feld → silent skip
                 pass

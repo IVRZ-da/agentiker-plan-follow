@@ -3,21 +3,21 @@ name: plan-follow
 description: "Plugin-provided skill (v1.0.1) — 12 plan tools + 2 hooks + 6 templates + review gate + parallel groups. Bietet strukturierte Task-Abarbeitung mit Enforcement."
 version: 1.0.1
 author: Hermes Agent
-tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel]
-related_skills: [requesting-code-review, code-intel-code-review]
+tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts]
+related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
 ---
 
 # Plan-Follow Skill v1.0.0
 
-**Plugin-provided skill (plan_follow plugin, v1.0.0).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit und parallelen Gruppen.
+**Plugin-provided skill (plan_follow plugin, v1.0.0).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
 
 ## Tools
 
 | Tool | Funktion |
 |------|----------|
-| `plan_create(goal, tasks, repo, template, parallel_groups)` | Plan anlegen (Tasks, Dependencies, Templates, parallele Gruppen) |
+| `plan_create(goal, tasks, repo, template, parallel_groups)` | Plan anlegen (Tasks, Dependencies, Templates, parallele Gruppen) — **inkl. Auto Peer Review + TTS** |
 | `plan_current()` | Zeigt den/die aktiven Task(s) |
-| `plan_complete(task_id, skip_review, auto_verify, auto_commit)` | Task abschliessen + Review-Gate + auto-verify + auto-commit |
+| `plan_complete(task_id, skip_review, auto_verify, auto_commit)` | Task abschliessen + Review-Gate + auto-verify + auto-commit + **TTS-Marker** |
 | `plan_verify()` | Drift-Check: ungeplante Änderungen? |
 | `plan_status()` | Alle Tasks als Übersicht |
 | `plan_update(task_id, changes)` | Task-Eigenschaften ändern |
@@ -50,9 +50,9 @@ related_skills: [requesting-code-review, code-intel-code-review]
 | `security` | Secrets + Injection + XSS + Auth |
 | `full` | Alle Checks kombiniert |
 
-## Verhalten v1.0.0
+## Verhalten
 
-- **pre_llm_call Hook** injiziert Task-Banner in JEDEN Turn (CURRENT TASK + Drift + Review + Health)
+- **pre_llm_call Hook** injiziert Task-Banner in JEDEN Turn (CURRENT TASK + Drift + Review + Health + TTS Marker)
 - **TTL-Cache (60s)** — health_check + drift werden nicht auf jedem Turn neu ausgeführt
 - **Health-Warnung am ENDE** des Banners (blockiert nicht mehr den Task-Banner)
 - **Disk-Recovery:** nach `/new` wird der letzte aktive Plan automatisch geladen
@@ -60,6 +60,32 @@ related_skills: [requesting-code-review, code-intel-code-review]
 - **Auto-Verify:** `plan_complete(task_id, auto_verify=true)` führt verify-Command aus
 - **Auto-Commit:** `plan_complete(task_id, auto_commit=true)` committed Task-Files
 - **post_tool_call Hook** loggt Tool-Aufrufe für Analyse
+- **Auto Peer Review:** Nach `plan_create()` läuft automatisch `run_peer_review()` gegen die 8-Punkte-Checkliste. Findings werden via `apply_findings()` eingearbeitet. Kein Parameter — immer aktiv.
+- **TTS Marker:** Bei `plan_create()` wird `[TTS:event=plan_created]` gesetzt, bei `plan_complete()` ein `[TTS:event=task_completed]`. Der Agent sieht die Marker im Hook-Banner.
+- **TTS Events:** Marker erscheinen im Banner, werden genau einmal angezeigt, dann gelöscht.
+
+## Auto Peer Review
+
+Nach jedem `plan_create()` wird automatisch ein Peer Review des Plans ausgeführt:
+
+1. Prüfung gegen 8-Punkte-Checkliste (depends_on, verify, files, ordering, profiles, parallel_groups)
+2. Findings werden automatisch via `apply_findings()` korrigiert
+3. Kritische Findings erscheinen als `peer_review` im `plan_create()` Ergebnis
+4. Bei kritischen Findings bekommt der Status `warning` statt `created`
+5. Der Plan wird nach der Korrektur automatisch gespeichert
+
+## TTS Event Marker
+
+Das Plugin setzt `tts_flags` im Plan. Der Hook zeigt sie als `[TTS:event=X:message=Y]`:
+
+| Trigger | Event | Wann |
+|---------|-------|------|
+| Plan erstellt | `plan_created` | Nach `plan_create()` |
+| Task abgeschlossen | `task_completed` | Nach `plan_complete()` |
+| Review fehlgeschlagen | `review_failed` | Bei failed review_result |
+
+Der Agent (LLM) sieht diese Marker und ruft `text_to_speech(message)` auf.
+Marker werden genau einmal angezeigt und dann aus dem Plan gelöscht.
 
 ## Review-Workflow
 

@@ -8,7 +8,7 @@ import logging
 
 from ._fmt import fmt_ok, fmt_err, fmt_info, fmt_table
 from . import plan_core
-from .plan_roadmap import plan_roadmap_handler
+from . import plan_peer_review
 
 logger = logging.getLogger("plan_follow")
 
@@ -44,11 +44,45 @@ def plan_create_tool(args: dict, **kwargs) -> str:
 
     plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups)
     status = plan_core.get_plan_status()
+
+    # ─── Auto Peer Review (immer aktiv — kein Feature-Toggle) ────────────
+    # Nach plan_create() wird der Plan automatisch gegen die 8-Punkte-Checkliste
+    # geprüft. Findings werden via apply_findings() eingearbeitet.
+    peer_review_findings = []
+    try:
+        plan = plan_core._get_active_plan()
+        if plan:
+            findings = plan_peer_review.run_peer_review(plan)
+            if findings:
+                peer_review_findings = findings
+                # Apply automatic fixes (safe: verify commands, files, profiles)
+                updated = plan_peer_review.apply_findings(plan, findings)
+                plan_core._save_plan(updated)
+    except Exception as e:
+        logger.warning(f"Auto peer review failed (non-blocking): {e}")
+
+    # ─── TTS Flag: Plan Created ──────────────────────────────────────────
+    try:
+        plan = plan_core._get_active_plan()
+        if plan:
+            if "tts_flags" not in plan:
+                plan["tts_flags"] = {}
+            plan["tts_flags"]["plan_created"] = True
+            plan_core._save_plan(plan)
+    except Exception as e:
+        logger.warning(f"TTS flag setting failed (non-blocking): {e}")
+
     response = {
         "status": "created",
         "plan_id": plan_id,
         "current_task": status["current_task"] if status else None,
     }
+    if peer_review_findings:
+        response["peer_review"] = peer_review_findings
+        critical = [f for f in peer_review_findings if f.get("severity") == "critical"]
+        if critical:
+            response["status"] = "warning"
+            response["peer_review_summary"] = f"{len(critical)} critical finding(s) — auto-fixes applied"
     if template_name:
         response["template"] = template_name
     return fmt_ok(response)
@@ -128,6 +162,19 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
             repo = plan.get("repo", "") if plan else ""
             commit_result = plan_core.auto_commit(task_id, current.get("files", []), repo)
             result["auto_commit"] = commit_result
+
+        # ─── TTS Flag: Task Completed ────────────────────────────────────
+        try:
+            plan = plan_core._get_active_plan()
+            if plan:
+                if "tts_flags" not in plan:
+                    plan["tts_flags"] = {}
+                if "task_completed" not in plan["tts_flags"]:
+                    plan["tts_flags"]["task_completed"] = []
+                plan["tts_flags"]["task_completed"].append(task_id)
+                plan_core._save_plan(plan)
+        except Exception as e:
+            logger.warning(f"TTS flag for task completion failed: {e}")
 
     return fmt_ok(result)
 
@@ -525,7 +572,7 @@ def plan_history_tool(args: dict, **kwargs) -> str:
         return fmt_info(
             "Keine Git-Versionierung aktiv.\n"
             "  Verwende plan_git_init() um Git zu aktivieren.\n"
-            f"  Oder: cd ~/.hermes/plans && git init && git add . && git commit -m 'initial'\n"
+            "  Oder: cd ~/.hermes/plans && git init && git add . && git commit -m 'initial'\n"
             "  Aktuell ist nur der letzte Plan-Stand gespeichert."
         )
 
@@ -533,7 +580,7 @@ def plan_history_tool(args: dict, **kwargs) -> str:
     try:
         # Get git log for this plan
         result = subprocess.run(
-            ["git", "log", f"--oneline", f"-{lines}", "--", f"{plan_id}.json"],
+            ["git", "log", "--oneline", f"-{lines}", "--", f"{plan_id}.json"],
             cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
         )
         if not result.stdout.strip():
@@ -541,7 +588,7 @@ def plan_history_tool(args: dict, **kwargs) -> str:
 
         # Add stats per commit
         detailed = subprocess.run(
-            ["git", "log", f"--oneline", f"-{lines}", "--stat", "--", f"{plan_id}.json"],
+            ["git", "log", "--oneline", f"-{lines}", "--stat", "--", f"{plan_id}.json"],
             cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
         )
 
@@ -592,7 +639,7 @@ def plan_git_init_tool(args: dict, **kwargs) -> str:
             ["git", "add", "--", "."],
             cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
         )
-        commit = subprocess.run(
+        subprocess.run(
             ["git", "commit", "-m", commit_msg],
             cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=30,
         )

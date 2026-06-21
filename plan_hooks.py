@@ -73,7 +73,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                 f"║  Files: {', '.join(current['files'][:3])}" +
                 (" ..." if len(current['files']) > 3 else ""),
                 f"║  Progress: {current['progress']}",
-                f"║                                       ║",
+                "║                                       ║",
             ]
 
             # ─── 1b. Roadmap Banner (if a roadmap is active) ───────────────
@@ -169,7 +169,6 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                 # Check if current files are locked by other sessions
                 current = plan_core.get_current_task_cached()
                 if current and locks:
-                    my_locks = []
                     other_locks = []
                     task_files = current.get("files", [])
                     for path, lock in locks.items():
@@ -189,9 +188,70 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
                 if notifs:
                     lines.append("║                                       ║")
                     lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
-                    lines.append(f"║    → plan_notify(action='check')          ║")
+                    lines.append("║    → plan_notify(action='check')          ║")
             except Exception:
                 pass  # Cross-session info is best-effort
+
+            # ─── 3c. TTS Event Markers ───────────────────────────────────────
+            # Inject [TTS:event=...:message=...] markers for the Agent to pick up.
+            # Markers are shown EXACTLY ONCE and cleared after display.
+            try:
+                active_plan = plan_core._get_active_plan()
+                if active_plan and active_plan.get("tts_flags"):
+                    tts_flags = active_plan["tts_flags"]
+                    tts_messages_to_clear = []
+
+                    # Plan created → announce plan goal
+                    if tts_flags.get("plan_created"):
+                        goal_text = active_plan.get("goal", "Plan created")[:80]
+                        task_count = len(active_plan.get("tasks", {}))
+                        lines.append("║                                       ║")
+                        lines.append("║  [TTS:event=plan_created:message=Plan erstellt:             ║")
+                        lines.append(f"║   {goal_text} ({task_count} Tasks)]  ║")
+                        tts_messages_to_clear.append("plan_created")
+
+                    # Task completed → announce task name
+                    completed_tasks = tts_flags.get("task_completed", [])
+                    for ctid in list(completed_tasks):
+                        task = active_plan.get("tasks", {}).get(ctid, {})
+                        task_name = task.get("name", ctid)[:50]
+                        lines.append("║                                       ║")
+                        lines.append("║  [TTS:event=task_completed:message=Aufgabe abgeschlossen:  ║")
+                        lines.append(f"║   {task_name}]          ║")
+                        tts_messages_to_clear.append(ctid)  # mark individual task as shown
+
+                    # Review failed → announce critical issues
+                    failed_reviews = tts_flags.get("review_failed", [])
+                    for rfid in list(failed_reviews):
+                        task = active_plan.get("tasks", {}).get(rfid, {})
+                        review_result = task.get("review_result", {})
+                        issues = review_result.get("issues", []) if isinstance(review_result, dict) else []
+                        error_issues = [i for i in issues if i.get("severity") == "error"] if issues else []
+                        issue_summary = f"{len(error_issues)} kritische(s) Problem(e)" if error_issues else "Review fehlgeschlagen"
+                        lines.append("║                                       ║")
+                        lines.append(f"║  [TTS:event=review_failed:message={issue_summary}  ║")
+                        task_name = task.get("name", rfid)[:40]
+                        lines.append(f"║   in {task_name}]                            ║")
+                        tts_messages_to_clear.append(rfid)
+
+                    # Clear shown flags after display
+                    if "plan_created" in tts_messages_to_clear:
+                        tts_flags.pop("plan_created", None)
+                    for ctid in tts_messages_to_clear:
+                        if ctid in tts_flags.get("task_completed", []):
+                            tts_flags["task_completed"].remove(ctid)
+                        if ctid in tts_flags.get("review_failed", []):
+                            tts_flags["review_failed"].remove(ctid)
+
+                    # If all flags consumed, remove the key entirely
+                    if not tts_flags:
+                        active_plan.pop("tts_flags", None)
+
+                    # Persist cleared flags back to disk
+                    plan_core._save_plan(active_plan)
+
+            except Exception:
+                pass  # TTS markers are best-effort
 
             # ─── 4. Review Status Banner ──────────────────────────────────
             try:
@@ -312,7 +372,7 @@ def on_post_tool_call(**kwargs: Any) -> None:
     try:
         log_dir = plan_core.PLANS_DIR / ".session-logs"
         log_dir.mkdir(parents=True, exist_ok=True)
-        log_file = log_dir / f"tool-calls.log"
+        log_file = log_dir / "tool-calls.log"
         iso = __import__("datetime").datetime.now(__import__("zoneinfo").ZoneInfo("UTC")).isoformat()
         entry = f"[{iso}] {tool_name} | {status} | {duration}ms\n"
         with open(log_file, "a") as f:

@@ -22,10 +22,9 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Optional
 
-from .plan_core import ROADMAPS_DIR, _roadmap_path, _list_roadmaps, _load_roadmap, _save_roadmap
+from .plan_core import _list_roadmaps, _load_roadmap, _save_roadmap
 
 logger = logging.getLogger("plan_follow")
 
