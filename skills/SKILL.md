@@ -13,7 +13,7 @@ related_skills: [requesting-code-review, code-intel-code-review, plan-peer-revie
 
 Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
-## Tools (24)
+## Tools (31)
 
 | Tool | Funktion |
 |------|----------|
@@ -31,16 +31,23 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `plan_abort(task_id?)` | Task oder ganzen Plan abbrechen |
 | `plan_delete(plan_id)` | Plan von Disk löschen |
 | `plan_select(plan_id)` | Zwischen Plänen wechseln |
-| `plan_validate(plan_id)` | Plan-Struktur validieren (depends_on, Zyklen, orphan tasks) |
+| `plan_validate(plan_id)` | Plan-Struktur validieren (depends_on, Zyklen, orphan tasks, **Branch-Naming-Convention**) |
 | `plan_duedate(task_id, due)` | Fälligkeit setzen/anzeigen |
 | `plan_archive(plan_id)` | Plan archivieren |
 | `plan_restore(plan_id)` | Archivierten Plan wiederherstellen |
-| `plan_roadmap(cmd, action, name, phase, status, goal, phases, phase_data, priority, effort, impact, tasks)` | Roadmap YAML-Management (11 Subcommands) — siehe Subcommands-Tabelle unten |
+| `plan_roadmap(cmd, action, name, phase, status, goal, phases, phase_data, priority, effort, impact, tasks)` | Roadmap YAML-Management (11 Subcommands) |
 | `plan_session()` | Cross-Session Status + History anzeigen |
 | `plan_lock(action, path, session_id)` | File-Lock-Management (acquire/release/list/check) |
 | `plan_notify(action, to, message)` | Notifications senden/empfangen/listen |
 | `plan_history(plan_id, lines)` | Git-History eines Plans anzeigen |
 | `plan_git_init(message)` | Git-Repo für PLANS_DIR initialisieren |
+| `plan_git_push(remote, branch)` | Push committed changes to remote |
+| `plan_git_status()` | Git-Status: Branch, Dirty, Ahead/Behind |
+| `plan_git_sync(remote, branch, push)` | Pull → Add → Commit → Push |
+| `plan_git_stash(action, message)` | Stash push/pop/list |
+| `plan_git_branch(action, name)` | Branch current/list/create/switch/delete |
+| `plan_git_tag(action, tag_name, message)` | Tag create/list/delete |
+| `plan_pr_create(title, body, head, base, owner, repo_name)` | PR via Forgejo API erstellen |
 
 ## Templates (7)
 

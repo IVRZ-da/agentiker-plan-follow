@@ -87,7 +87,9 @@ def get_project_path(task: dict, plan: Optional[dict] = None) -> Optional[str]:
 
     # Plan-Repo
     if plan:
-        repo = plan.get("repo") or (plan.get("repos") or [None])[0]
+        repos_plan = plan.get("repos", []) or []
+        single_repo = plan.get("repo", "")
+        repo = single_repo or (repos_plan[0] if repos_plan else None)
         if repo:
             p = Path(repo)
             if p.exists():

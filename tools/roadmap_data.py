@@ -195,6 +195,7 @@ def _parse_roadmap_yaml_simple(content: str) -> Optional[dict]:
         if result:
             return result
     except Exception:
+        logger.debug("Roadmap fallback parse failed (best-effort)")
         pass
 
     return None

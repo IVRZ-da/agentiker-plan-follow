@@ -13,15 +13,7 @@ from .base import (
 
 
 def auto_verify_task(verify_cmd: str, timeout: int = 120) -> dict:
-    """Run a verify command as a subprocess and return results.
-
-    Args:
-        verify_cmd: Shell command to execute.
-        timeout: Max seconds to wait (default 120).
-
-    Returns:
-        Dict with status (passed/failed/skipped), exit_code, stdout, stderr.
-    """
+    """Run a verify command as a subprocess and return results."""
     if not verify_cmd or not verify_cmd.strip():
         return {"status": "skipped", "message": "No verify command configured."}
 
@@ -45,10 +37,7 @@ def auto_verify_task(verify_cmd: str, timeout: int = 120) -> dict:
 
 
 def _commit_in_repo(repo: str, task_id: str, files: list[str]) -> dict:
-    """Git-add + commit in a single repo.
-
-    Returns dict with status (committed/skipped/failed/error).
-    """
+    """Git-add + commit in a single repo."""
     if not os.path.isdir(os.path.join(repo, ".git")):
         return {"status": "skipped", "repo": repo, "message": "No .git in repo."}
 
@@ -81,20 +70,7 @@ def _commit_in_repo(repo: str, task_id: str, files: list[str]) -> dict:
 
 def auto_commit(task_id: str, files: list[str], repo: str = "",
                 repos: list[str] | None = None) -> dict:
-    """Git-commit task files across one or more repositories.
-
-    Supports multi-repo via ``repos`` list. Falls back to single ``repo``
-    for backward compatibility.
-
-    Args:
-        task_id: Task identifier for the commit message.
-        files: List of file paths to add.
-        repo: Single git repo path (legacy).
-        repos: Multiple git repo paths.
-
-    Returns:
-        Dict with results per repo.
-    """
+    """Git-commit task files across one or more repositories."""
     if not files:
         return {"status": "skipped", "message": "No files to commit."}
 
@@ -136,16 +112,7 @@ def auto_commit(task_id: str, files: list[str], repo: str = "",
 
 def auto_push(repos: list[str], remote: str = "origin",
               branch: str | None = None) -> dict:
-    """Git-push to remote for one or more repos.
-
-    Args:
-        repos: List of git repo paths.
-        remote: Remote name (default: origin).
-        branch: Branch to push (default: current branch).
-
-    Returns:
-        Dict with results per repo.
-    """
+    """Git-push to remote for one or more repos."""
     import subprocess
     results = []
     for repo in repos:
@@ -177,11 +144,281 @@ def auto_push(repos: list[str], remote: str = "origin",
     return {"results": results}
 
 
+def get_git_status(repo: str) -> dict:
+    """Get comprehensive git status for a single repo."""
+    import subprocess
+
+    result: dict = {"repo": repo}
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        result["status"] = "no_git"
+        return result
+
+    try:
+        br = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        result["branch"] = br.stdout.strip()
+
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        result["dirty"] = bool(dirty.stdout.strip())
+        result["dirty_files"] = len([ln for ln in dirty.stdout.splitlines() if ln.strip()])
+
+        ab = subprocess.run(
+            ["git", "rev-list", "--left-right", "--count",
+             "HEAD...@{upstream}"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        if ab.returncode == 0 and ab.stdout.strip():
+            parts = ab.stdout.strip().split()
+            result["ahead"] = int(parts[0]) if parts else 0
+            result["behind"] = int(parts[1]) if len(parts) > 1 else 0
+        else:
+            result["ahead"] = 0
+            result["behind"] = 0
+
+        lc = subprocess.run(
+            ["git", "log", "-1", "--oneline"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        result["last_commit"] = lc.stdout.strip() if lc.returncode == 0 else ""
+
+        result["status"] = "ok"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+
+    return result
+
+
+def git_sync(repo: str, task_id: str, files: list[str],
+             remote: str = "origin", branch: str | None = None,
+             push_flag: bool = True) -> dict:
+    """Pull to add to commit to push in one step."""
+    import subprocess
+
+    out: dict = {"repo": repo, "steps": []}
+
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        out["status"] = "skipped"
+        out["message"] = "No .git in repo."
+        return out
+
+    try:
+        pull = subprocess.run(
+            ["git", "pull", "--ff-only", remote],
+            cwd=repo, capture_output=True, text=True, timeout=30,
+        )
+        out["steps"].append({
+            "step": "pull",
+            "status": "ok" if pull.returncode == 0 else "failed",
+            "output": pull.stdout[:200] + pull.stderr[:200],
+        })
+
+        for f in files:
+            subprocess.run(
+                ["git", "add", "--", f],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+        out["steps"].append({"step": "add", "status": "ok"})
+
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--stat"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        if diff.stdout.strip():
+            commit = subprocess.run(
+                ["git", "commit", "-m", f"plan: {task_id} — auto-sync"],
+                cwd=repo, capture_output=True, text=True, timeout=30,
+            )
+            out["steps"].append({
+                "step": "commit",
+                "status": "ok" if commit.returncode == 0 else "failed",
+                "output": commit.stdout[:200] + commit.stderr[:200],
+            })
+        else:
+            out["steps"].append({"step": "commit", "status": "skipped",
+                                 "message": "No changes to commit."})
+
+        if push_flag:
+            br = branch or subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            ).stdout.strip() or "main"
+            push_result = subprocess.run(
+                ["git", "push", remote, br],
+                cwd=repo, capture_output=True, text=True, timeout=60,
+            )
+            out["steps"].append({
+                "step": "push",
+                "status": "ok" if push_result.returncode == 0 else "failed",
+                "output": push_result.stdout[:200] + push_result.stderr[:200],
+            })
+
+        out["status"] = "ok" if all(
+            s["status"] == "ok" or s["status"] == "skipped"
+            for s in out["steps"]
+        ) else "failed"
+
+    except Exception as e:
+        out["status"] = "error"
+        out["error"] = str(e)
+
+    return out
+
+
+# ─── Git Stash / Branch / Tag ──────────────────────────────────────────────────
+
+
+def git_stash(repo: str, action: str = "push", message: str = "") -> dict:
+    """Stash or unstash changes in a repo.
+
+    Args:
+        repo: Git repo path.
+        action: 'push' (stash), 'pop' (restore), 'list' (show).
+        message: Optional stash message for push.
+    """
+    import subprocess
+    result: dict = {"repo": repo, "action": action}
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        result["status"] = "skipped"
+        result["message"] = "No .git in repo."
+        return result
+
+    try:
+        if action == "push":
+            cmd = ["git", "stash", "push", "-u"]
+            if message:
+                cmd.extend(["-m", message])
+            out = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=30)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+            result["stashed"] = "No local changes" not in out.stdout
+        elif action == "pop":
+            out = subprocess.run(["git", "stash", "pop"], cwd=repo, capture_output=True, text=True, timeout=30)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        elif action == "list":
+            out = subprocess.run(["git", "stash", "list"], cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok"
+            result["stashes"] = out.stdout.strip()
+        else:
+            result["status"] = "error"
+            result["message"] = f"Unknown action: {action}"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+    return result
+
+
+def git_branch(repo: str, action: str = "current", name: str = "",
+               start_point: str = "") -> dict:
+    """Manage branches in a repo.
+
+    Args:
+        repo: Git repo path.
+        action: 'current', 'list', 'create', 'switch', 'delete'.
+        name: Branch name (for create/switch/delete).
+        start_point: Start point for branch creation.
+    """
+    import subprocess
+    result: dict = {"repo": repo, "action": action}
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        result["status"] = "skipped"
+        result["message"] = "No .git in repo."
+        return result
+
+    try:
+        if action == "current":
+            out = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                                 cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok"
+            result["branch"] = out.stdout.strip()
+        elif action == "list":
+            out = subprocess.run(["git", "branch", "-a"],
+                                 cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok"
+            result["branches"] = out.stdout.strip()
+        elif action == "create":
+            cmd = ["git", "branch", name]
+            if start_point:
+                cmd.append(start_point)
+            out = subprocess.run(cmd, cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        elif action == "switch":
+            git_stash(repo, "push", "auto-stash before branch switch")
+            out = subprocess.run(["git", "checkout", name],
+                                 cwd=repo, capture_output=True, text=True, timeout=30)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        elif action == "delete":
+            out = subprocess.run(["git", "branch", "-d", name],
+                                 cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        else:
+            result["status"] = "error"
+            result["message"] = f"Unknown action: {action}"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+    return result
+
+
+def git_tag(repo: str, tag_name: str, message: str = "", action: str = "create") -> dict:
+    """Create or manage git tags.
+
+    Args:
+        repo: Git repo path.
+        tag_name: Tag name.
+        message: Tag annotation message.
+        action: 'create', 'list', 'delete'.
+    """
+    import subprocess
+    result: dict = {"repo": repo, "tag": tag_name, "action": action}
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        result["status"] = "skipped"
+        result["message"] = "No .git in repo."
+        return result
+
+    try:
+        if action == "create":
+            if message:
+                out = subprocess.run(["git", "tag", "-a", tag_name, "-m", message],
+                                     cwd=repo, capture_output=True, text=True, timeout=10)
+            else:
+                out = subprocess.run(["git", "tag", tag_name],
+                                     cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        elif action == "list":
+            out = subprocess.run(["git", "tag", "-l", "--sort=-creatordate"],
+                                 cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok"
+            result["tags"] = out.stdout.strip()
+        elif action == "delete":
+            out = subprocess.run(["git", "tag", "-d", tag_name],
+                                 cwd=repo, capture_output=True, text=True, timeout=10)
+            result["status"] = "ok" if out.returncode == 0 else "failed"
+            result["output"] = (out.stdout[:300] + out.stderr[:300])
+        else:
+            result["status"] = "error"
+            result["message"] = f"Unknown action: {action}"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = str(e)
+    return result
+
+
 # ─── Drift Detection ─────────────────────────────────────────────────────────
 
 
 def _get_repos(plan: dict) -> list[str]:
-    """Normalize repo/repos to a list. Supports legacy single 'repo' and new 'repos' array."""
+    """Normalize repo/repos to a list."""
     repos = plan.get("repos", [])
     if isinstance(repos, list) and repos:
         return repos
@@ -192,8 +429,7 @@ def _get_repos(plan: dict) -> list[str]:
 
 
 def check_drift() -> list:
-    """Compare git diff against current task's files. Returns list of unplanned files.
-    Supports multiple repos — checks all configured repositories."""
+    """Compare git diff against current task's files."""
     plan = _get_active_plan()
     if not plan or not plan.get("current_task"):
         return []

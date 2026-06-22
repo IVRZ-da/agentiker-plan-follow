@@ -124,6 +124,12 @@ _SUBMODULE_ATTRS = {
     # tools/auto
     "_get_repos": ".tools.auto",
     "auto_commit": ".tools.auto",
+    "auto_push": ".tools.auto",
+    "get_git_status": ".tools.auto",
+    "git_sync": ".tools.auto",
+    "git_stash": ".tools.auto",
+    "git_branch": ".tools.auto",
+    "git_tag": ".tools.auto",
     "auto_verify_task": ".tools.auto",
     "check_drift": ".tools.auto",
     # tools/review

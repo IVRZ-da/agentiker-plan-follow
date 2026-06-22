@@ -232,8 +232,65 @@ TOOL_DESCRIPTIONS = {
         "- commit_message (str, optional): Initial commit message\n"
         "Creates .gitignore, adds all existing plans, and makes an initial commit. "
         "Only needs to be called once. Plans work fine without Git."
-    ),
-}
+        ),
+        "plan_git_push": (
+        "Push committed changes to remote for all configured repos. "
+        "Parameters:\n"
+        "- remote (str, optional): Remote name (default: origin)\n"
+        "- branch (str, optional): Branch to push (default: current branch)\n"
+        "Iterates over all repos configured in the current plan and runs git push. "
+        "Returns per-repo results."
+        ),
+        "plan_git_status": (
+        "Show comprehensive git status for all configured repos. "
+        "Returns branch name, dirty flag, ahead/behind count, "
+        "and last commit message for each repo."
+        ),
+        "plan_git_sync": (
+        "Pull to add to commit to push in one step for all configured repos. "
+        "Parameters:\n"
+        "- remote (str, optional): Remote name (default: origin)\n"
+        "- branch (str, optional): Branch to push (default: current branch)\n"
+        "- push (bool, optional): Whether to push after commit (default: true)\n"
+        "Handles the full sync cycle automatically. "
+        "Skips commit if no changes detected."
+        ),
+        "plan_git_stash": (
+        "Stash or unstash uncommitted changes in configured repos. "
+        "Parameters:\n"
+        "- action (str, required): 'push' (stash changes), 'pop' (restore latest), 'list' (show stashes)\n"
+        "- message (str, optional): Stash description (push only)\n"
+        "Useful before switching branches or pulling changes."
+        ),
+        "plan_git_branch": (
+        "Manage git branches in configured repos. "
+        "Parameters:\n"
+        "- action (str, required): 'current', 'list', 'create', 'switch', 'delete'\n"
+        "- name (str, optional): Branch name (for create/switch/delete)\n"
+        "- start_point (str, optional): Start point for branch creation\n"
+        "When switching branches, dirty changes are auto-stashed first."
+        ),
+        "plan_git_tag": (
+        "Create, list, or delete git tags in configured repos. "
+        "Parameters:\n"
+        "- action (str, required): 'create', 'list', 'delete'\n"
+        "- tag_name (str, optional): Tag name (required for create/delete)\n"
+        "- message (str, optional): Tag annotation message (create only, creates annotated tag)\n"
+        "Useful for marking releases or completed milestones."
+        ),
+        "plan_pr_create": (
+        "Create a Pull Request via Forgejo API for all configured repos. "
+        "Parameters:\n"
+        "- title (str, required): PR title\n"
+        "- body (str, optional): PR description\n"
+        "- head (str, optional): Source branch (default: current branch)\n"
+        "- base (str, optional): Target branch (default: main)\n"
+        "- owner (str, optional): Repo owner (default: from git remote)\n"
+        "- repo_name (str, optional): Repo name (default: from git remote)\n"
+        "Uses BOT_FORGEJO_TOKEN or FORGEJO_TOKEN env var for auth. "
+        "Auto-detects repo owner/name from git remote URL."
+        ),
+        }
 
 PLAN_TOOLS = [
     ("plan_create", plan_tools.plan_create_tool),
@@ -260,6 +317,13 @@ PLAN_TOOLS = [
     ("plan_notify", plan_tools.plan_notify_tool),
     ("plan_history", plan_tools.plan_history_tool),
     ("plan_git_init", plan_tools.plan_git_init_tool),
+    ("plan_git_push", plan_tools.plan_git_push_tool),
+    ("plan_git_status", plan_tools.plan_git_status_tool),
+    ("plan_git_sync", plan_tools.plan_git_sync_tool),
+    ("plan_git_stash", plan_tools.plan_git_stash_tool),
+    ("plan_git_branch", plan_tools.plan_git_branch_tool),
+    ("plan_git_tag", plan_tools.plan_git_tag_tool),
+    ("plan_pr_create", plan_tools.plan_pr_create_tool),
 ]
 
 # Per-tool schemas for each individual tool
@@ -576,6 +640,75 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "commit_message": {"type": "string", "description": "Initiale Commit-Nachricht (optional)"},
         },
+    },
+    "plan_git_push": {
+        "type": "object",
+        "properties": {
+            "remote": {"type": "string", "description": "Remote-Name (default: origin)"},
+            "branch": {"type": "string", "description": "Branch zum Pushen (default: aktueller Branch)"},
+        },
+    },
+    "plan_git_status": {
+        "type": "object",
+        "properties": {},
+    },
+    "plan_git_sync": {
+        "type": "object",
+        "properties": {
+            "remote": {"type": "string", "description": "Remote-Name (default: origin)"},
+            "branch": {"type": "string", "description": "Branch (default: aktueller)"},
+            "push": {"type": "boolean", "description": "Nach Commit pushen (default: true)"},
+        },
+    },
+    "plan_git_stash": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["push", "pop", "list"],
+                "description": "Aktion: push (stashen), pop (wiederherstellen), list (anzeigen)",
+            },
+            "message": {"type": "string", "description": "Stash-Beschreibung (push only)"},
+        },
+        "required": ["action"],
+    },
+    "plan_git_branch": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["current", "list", "create", "switch", "delete"],
+                "description": "Aktion: current, list, create, switch, delete",
+            },
+            "name": {"type": "string", "description": "Branch-Name (create/switch/delete)"},
+            "start_point": {"type": "string", "description": "Start-Punkt (create only)"},
+        },
+        "required": ["action"],
+    },
+    "plan_git_tag": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["create", "list", "delete"],
+                "description": "Aktion: create, list, delete",
+            },
+            "tag_name": {"type": "string", "description": "Tag-Name (create/delete)"},
+            "message": {"type": "string", "description": "Tag-Beschreibung (create only, annotierter Tag)"},
+        },
+        "required": ["action"],
+    },
+    "plan_pr_create": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "PR-Titel (erforderlich)"},
+            "body": {"type": "string", "description": "PR-Beschreibung"},
+            "head": {"type": "string", "description": "Quell-Branch (default: aktueller Branch)"},
+            "base": {"type": "string", "description": "Ziel-Branch (default: main)"},
+            "owner": {"type": "string", "description": "Repo-Owner (default: aus Git-Remote)"},
+            "repo_name": {"type": "string", "description": "Repo-Name (default: aus Git-Remote)"},
+        },
+        "required": ["title"],
     },
 }
 

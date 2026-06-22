@@ -114,6 +114,49 @@ def _build_roadmap_banner() -> list[str]:
     return lines
 
 
+def _build_git_banner() -> list[str]:
+    """Build git status lines (branch, ahead/behind, dirty) — cached, non-blocking."""
+    lines = []
+    try:
+        plan = plan_core._get_active_plan()
+        if not plan:
+            return lines
+
+        repos = plan_core._get_repos(plan)
+        if not repos:
+            return lines
+
+        for repo in repos:
+            def _git_status_wrapper(r=repo):
+                return plan_core.get_git_status(r)
+            status = _cached_or_fresh(f"git_status:{repo}", _git_status_wrapper, ttl=120)
+            if not status or status.get("status") != "ok":
+                continue
+
+            repo_name = repo.rstrip("/").split("/")[-1]
+            parts = [f"{repo_name}"]
+            parts.append(f"🌿{status.get('branch', '?')}")
+
+            if status.get("dirty"):
+                parts.append(f"💩+{status['dirty_files']}")
+
+            ahead = status.get("ahead", 0)
+            behind = status.get("behind", 0)
+            if ahead or behind:
+                if ahead and behind:
+                    parts.append(f"↑{ahead}↓{behind}")
+                elif ahead:
+                    parts.append(f"↑{ahead}")
+                elif behind:
+                    parts.append(f"↓{behind}")
+
+            lines.append(f"║  📍 {' '.join(parts)}")
+
+    except Exception:
+        pass  # Non-blocking
+    return lines
+
+
 def _build_drift_banner() -> list[str]:
     """Build drift detection lines (cached, best-effort)."""
     lines = []
@@ -369,6 +412,10 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
 
         # Build banner sections sequentially
         lines = _build_task_header(current)
+        git_lines = _build_git_banner()
+        if git_lines:
+            lines.append("║                                       ║")
+            lines.extend(git_lines)
         lines.extend(_build_roadmap_banner())
         drift_lines = _build_drift_banner()
         if drift_lines:

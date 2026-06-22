@@ -4,6 +4,7 @@
 from .base import (
     _get_active_plan,
     _load_plan,
+    logger,
 )
 
 # ─── Plan Validation ──────────────────────────────────────────────────────────
@@ -128,6 +129,39 @@ def validate_plan(plan_id: str = "") -> dict:
         "plan_id": plan_id,
         "goal": plan.get("goal", "")[:60],
     }
+    # 6. Branch naming convention check (optional, warning only)
+    try:
+        import os as _os
+        import subprocess
+        repos_to_check = []
+        single_repo = plan.get("repo", "")
+        multi_repos = plan.get("repos", [])
+        if multi_repos:
+            repos_to_check = list(multi_repos)
+        elif single_repo:
+            repos_to_check = [single_repo]
+
+        for repo in repos_to_check:
+            if not _os.path.isdir(_os.path.join(repo, ".git")):
+                continue
+            br = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=repo, capture_output=True, text=True, timeout=5,
+            )
+            branch = br.stdout.strip() if br.returncode == 0 else ""
+            if branch and branch not in ("main", "master"):
+                valid_prefixes = \
+                    ["feat/", "fix/", "refactor/", "chore/", "docs/", "test/", "release/"]
+                if not any(branch.startswith(p) for p in valid_prefixes):
+                    warnings.append(
+                        f"Branch '{branch}' in repo '{_os.path.basename(repo)}' "
+                        f"doesn't follow convention. Expected prefix: "
+                        f"{', '.join(valid_prefixes)}"
+                    )
+    except Exception:
+        logger.debug("Validation Git check failed (non-blocking)")
+        pass  # Non-blocking: Git-Fehler blockieren nicht die Validierung
+
     if errors:
         result["errors"] = errors
     if warnings:

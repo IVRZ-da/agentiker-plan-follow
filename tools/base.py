@@ -226,6 +226,7 @@ def _get_active_plan() -> Optional[dict]:
             if set_active_plan(plan_id):
                 return STATE.active_plan
     except Exception:
+        logger.debug("Honcho recovery failed (best-effort)")
         pass
 
     return None

@@ -2545,7 +2545,11 @@ class TestAutoCommitEdgeCases:
         # File not changed since last commit → no diff to stage
         result = auto_commit("p1", ["test.py"], repo=str(tmp_path))
         assert result["status"] == "skipped"
-        assert "No changes" in result.get("message", "")
+        # New format: message is in per-repo results
+        msg = result.get("message", "")
+        if not msg and "results" in result:
+            msg = result["results"][0].get("message", "")
+        assert "No changes" in msg
 
     def test_auto_commit_full_flow(self, tmp_path):
         """Full git add + commit flow on a real git repo."""
@@ -2592,8 +2596,14 @@ class TestAutoCommitEdgeCases:
 
         monkeypatch.setattr(subprocess, "run", mock_run)
         result = auto_commit("p1", ["test.py"], repo=str(tmp_path))
-        assert result["status"] == "error"
-        assert "Git error simulated" in result.get("message", "")
+        # New format: status is 'failed' (not 'error') when all repos failed
+        assert result["status"] in ("failed", "error")
+        # New format: error message is in results[0].message
+        if "results" in result and result["results"]:
+            msg = result["results"][0].get("message", "")
+        else:
+            msg = result.get("message", "")
+        assert "Git error simulated" in msg
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
