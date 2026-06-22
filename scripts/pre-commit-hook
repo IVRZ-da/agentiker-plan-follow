@@ -523,44 +523,93 @@ def check_changelog(staged_files: list[str]) -> bool:
 # ── 🔴 Selective Testing ──────────────────────────────
 
 MODULE_TEST_MAP = {
-    "__init__.py": ["test_plan_follow"],
+    # Core modules
+    "__init__.py": ["test_plan_follow", "test_init"],
     "plan_core.py": ["test_plan_follow"],
     "plan_tools.py": ["test_plan_follow"],
     "plan_hooks.py": ["test_plan_follow"],
     "plan_todo.py": ["test_plan_follow"],
-    "plan_review.py": ["test_plan_follow"],
+    "plan_review.py": ["test_plan_follow", "test_review_integration"],
     "plan_roadmap.py": ["test_roadmap"],
-    "plan_templates.py": ["test_plan_follow"],
-    "plan_coverage.py": ["test_plan_follow"],
+    "plan_templates.py": ["test_templates", "test_plan_follow"],
+    "plan_coverage.py": ["test_coverage", "test_plan_follow"],
     "coord_state.py": ["test_coord_state"],
-    "review_profiles.py": ["test_plan_follow"],
+    "review_profiles.py": ["test_plan_follow", "test_review_integration"],
+    "plan_peer_review.py": ["test_peer_review", "test_review_integration"],
+    "_fmt.py": ["test_fmt"],
+    # tools/ subpackage
+    "tools/base.py": ["test_plan_follow"],
+    "tools/task.py": ["test_plan_follow"],
+    "tools/auto.py": ["test_plan_follow"],
+    "tools/review.py": ["test_plan_follow", "test_review_integration"],
+    "tools/status.py": ["test_plan_follow"],
+    "tools/plan_mgmt.py": ["test_plan_follow"],
+    "tools/coordination.py": ["test_plan_follow"],
+    "tools/health.py": ["test_plan_follow"],
+    "tools/validation.py": ["test_plan_follow"],
+    "tools/roadmap_data.py": ["test_roadmap"],
+    "tools/state.py": ["test_plan_follow"],
+    "tools/resolver.py": ["test_plan_follow"],
+    "tools/config.py": ["test_plan_follow"],
+    # Config / infrastructure
     "conftest.py": [],
+    "pyproject.toml": ["all"],
+    "plugin.yaml": ["all"],
+    "scripts/pre-commit-hook": [],
 }
+
+# Threshold: wenn mehr als N Module geändert, volle Test-Suite
+# Erhöht von 2 auf 6 — typische Commits ändern 3-5 Module
+MODULE_CHANGE_THRESHOLD = 6
 
 
 def determine_test_files(staged_files: list[str]) -> list[str]:
-    """Determine which test files to run based on changed modules."""
+    """Determine which test files to run based on changed modules.
+
+    - If a test file itself changed → run only that test file
+    - If ≤ MODULE_CHANGE_THRESHOLD modules changed → run matching tests
+    - If > MODULE_CHANGE_THRESHOLD modules changed → run all tests
+    """
+    staged_tests = [f for f in staged_files if f.startswith("tests/") and f.endswith(".py")]
     changed_modules = set()
+
+    # First pass: check if test files themselves changed
+    if staged_tests:
+        # Run only the changed test files
+        return staged_tests
+
+    # Second pass: map source modules to test files
     for f in staged_files:
+        f = f.replace("\\", "/")
         for module in MODULE_TEST_MAP:
-            if f.endswith(module) or f.startswith(module.rstrip(".py")):
+            if f == module or f.endswith("/" + module):
                 changed_modules.add(module)
 
     if not changed_modules:
         return []  # No code changes — skip tests
 
-    # If more than 2 modules changed, run all tests
-    if len(changed_modules) > 2:
+    # If threshold exceeded, run all tests
+    if len(changed_modules) > MODULE_CHANGE_THRESHOLD:
         return ["all"]
 
     test_files = []
     for mod in changed_modules:
         for tf in MODULE_TEST_MAP.get(mod, []):
+            if tf == "all":
+                return ["all"]
             test_file = f"tests/{tf}.py"
             if os.path.exists(os.path.join(REPO_ROOT, test_file)):
                 test_files.append(test_file)
 
-    return test_files or ["all"]
+    # Deduplicate while preserving order
+    seen = set()
+    unique_test_files = []
+    for tf in test_files:
+        if tf not in seen:
+            seen.add(tf)
+            unique_test_files.append(tf)
+
+    return unique_test_files or ["all"]
 
 
 def run_tests(test_files: list[str]) -> bool:
