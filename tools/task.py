@@ -355,16 +355,26 @@ def _advance_linear(plan: dict) -> None:
 
 
 def update_task(task_id: str, changes: dict) -> Optional[dict]:
-    """Update a task's properties (files, verify, depends_on)."""
+    """Update a task's properties (files, verify, depends_on, name, review_profile).
+
+    Returns the updated task dict if any keys were changed, or None if no
+    supported keys matched (silent-ignore prevention).
+    """
+    if not isinstance(changes, dict):
+        return None
     plan = _get_active_plan()
     if not plan:
         return None
     task = plan["tasks"].get(task_id)
     if not task:
         return None
+    updated = False
     for key in ("files", "verify", "depends_on", "name", "review_profile"):
         if key in changes:
             task[key] = changes[key]
+            updated = True
+    if not updated:
+        return None
     _save_plan(plan)
     return task
 

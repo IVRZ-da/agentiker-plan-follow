@@ -368,6 +368,7 @@ PER_TOOL_SCHEMAS = {
                         "enum": VALID_REVIEW_PROFILES,
                     },
                 },
+                "additionalProperties": False,
             },
         },
         "required": ["task_id", "changes"],

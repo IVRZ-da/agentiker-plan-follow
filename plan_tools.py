@@ -228,8 +228,12 @@ def plan_update_tool(args: dict, **kwargs) -> str:
         return fmt_err("changes is required (at least one field)")
 
     result = plan_core.update_task(task_id, changes)
-    if not result:
-        return fmt_err(f"Task '{task_id}' not found or no active plan.")
+    if result is None:
+        return fmt_err(
+            f"Task '{task_id}' not found, no changes applied, "
+            f"or 'changes' contains no supported keys. "
+            f"Supported keys: files, verify, depends_on, name, review_profile"
+        )
 
     return fmt_ok({"status": "updated", "task_id": task_id})
 
