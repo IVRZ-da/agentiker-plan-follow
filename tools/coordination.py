@@ -30,7 +30,7 @@ def _retry_with_backoff(fn, max_attempts: int = 3) -> Any:
             last_exc = e
             if attempt < max_attempts - 1:
                 wait = 2 ** attempt  # 1, 2, 4 seconds
-                logger.debug(f"Honcho retry {attempt+1}/{max_attempts} in {wait}s: {e}")
+                logger.debug("Honcho retry %s/%s in %ss: %s", attempt + 1, max_attempts, wait, e)
                 time.sleep(wait)
     if last_exc is not None:
         raise last_exc
@@ -52,6 +52,7 @@ def _dispatch_honcho_tool(tool_name: str, args: dict) -> Optional[dict]:
             return json.loads(result)
         return result
     except Exception:
+        logger.debug("Honcho dispatch failed (best-effort)")
         return None
 
 
@@ -96,7 +97,7 @@ def _save_plan_state_to_honcho(plan_id: str, task_id: str, status: str):
     try:
         _retry_with_backoff(_do_save)
     except Exception as e:
-        logger.warning(f"Honcho save failed after retries (non-fatal): {e}")
+        logger.warning("Honcho save failed after retries (non-fatal): %s", e)
 
 
 def _load_plan_state_from_honcho() -> Optional[str]:
@@ -156,7 +157,7 @@ def _load_plan_state_from_honcho() -> Optional[str]:
     try:
         return _retry_with_backoff(_do_load)
     except Exception as e:
-        logger.warning(f"Honcho load failed after retries (non-fatal): {e}")
+        logger.warning("Honcho load failed after retries (non-fatal): %s", e)
         return None
 
 
@@ -204,6 +205,7 @@ def _git_commit_if_active(plan: dict) -> None:
             cwd=resolve_plans_dir(), capture_output=True, text=True, timeout=30,
         )
     except Exception:
+        logger.debug("Auto Git-commit failed (best-effort)")
         pass  # Silent skip — Git-Fehler blockieren nicht
 
 
@@ -223,6 +225,7 @@ def _auto_lock_task_files(task: dict) -> None:
         for f in files:
             acquire_lock(f, get_session_id())
     except Exception:
+        logger.debug("Auto lock failed (best-effort)")
         pass  # Best-effort
 
 
@@ -236,4 +239,5 @@ def _auto_unlock_task_files(task: dict) -> None:
         for f in files:
             release_lock(f, get_session_id())
     except Exception:
+        logger.debug("Auto unlock failed (best-effort)")
         pass  # Best-effort

@@ -70,7 +70,7 @@ class TestExpandTemplate:
         result = expand_template("deploy")
         # Default values from TEMPLATE_DEFAULTS
         deploy_task = result["tasks"][3]  # [p0, d1, d2, d3, d4] → d3
-        assert "medusa-staging" in deploy_task["verify"]
+        assert "app-service" in deploy_task["verify"]
 
     def test_parameter_override(self):
         from plan_follow.plan_templates import expand_template
@@ -78,7 +78,7 @@ class TestExpandTemplate:
         result = expand_template("deploy", params={"service": "medusa-custom"})
         deploy_task = result["tasks"][3]  # [p0, d1, d2, d3, d4] → d3
         assert "medusa-custom" in deploy_task["verify"]
-        assert "medusa-staging" not in deploy_task["verify"]
+        assert "app-service" not in deploy_task["verify"]
 
 
 # ─── _substitute_params ───────────────────────────────────────────────────────

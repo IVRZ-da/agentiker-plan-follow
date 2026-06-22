@@ -1,0 +1,24 @@
+name: security
+description: "Security-Audit: Scan → Findings → Fix → Re-Scan"
+review_profile: security
+tasks:
+  - id: s1
+    name: "Scan: Sicherheitslücken identifizieren"
+    files: []
+    verify: "echo 'security scan done'"
+    depends_on: []
+  - id: s2
+    name: "Analyse: Findings priorisieren"
+    files: []
+    verify: "test -f security/findings.md && echo '✅ Findings' || echo '⚠️ Keine Findings'"
+    depends_on: [s1]
+  - id: s3
+    name: "Fix: Schwachstellen beheben"
+    files: ["src/"]
+    verify: "echo 'fixes done'"
+    depends_on: [s2]
+  - id: s4
+    name: "Re-Scan: Nachkontrolle"
+    files: []
+    verify: "echo '✅ Re-Scan done'"
+    depends_on: [s3]

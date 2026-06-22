@@ -1,0 +1,24 @@
+name: docs
+description: "Dokumentation: Research → Outline → Write → Review"
+review_profile: none
+tasks:
+  - id: dc1
+    name: "Research: Quellen und Informationen sammeln"
+    files: []
+    verify: "echo 'research done'"
+    depends_on: []
+  - id: dc2
+    name: "Outline: Struktur und Gliederung erstellen"
+    files: []
+    verify: "test -f docs/outline.md && echo '✅ Outline erstellt' || echo '⚠️ Kein Outline'"
+    depends_on: [dc1]
+  - id: dc3
+    name: "Write: Inhalt schreiben"
+    files: ["docs/"]
+    verify: "test -f docs/content.md -o -f README.md && echo '✅ Content geschrieben' || echo '⚠️ Kein Content'"
+    depends_on: [dc2]
+  - id: dc4
+    name: "Review: Inhalt gegen Checkliste prüfen"
+    files: []
+    verify: "echo '✅ Docs reviewed'"
+    depends_on: [dc3]

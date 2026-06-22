@@ -12,6 +12,7 @@ from .base import (
     _load_plan,
     _save_plan,
     get_session_id,
+    logger,
     reset_tool_metrics,
 )
 from .coordination import (
@@ -105,6 +106,7 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
             cwd=os.getcwd(),
         )
     except Exception:
+        logger.debug("Honcho session registration failed (best-effort)")
         pass  # Best-effort
 
     # Honcho persistence (save plan state for cross-session recovery)
@@ -256,6 +258,7 @@ def complete_task(task_id: str) -> dict:
         from .coord_state import update_session
         update_session(get_session_id(), plan_id=plan["plan_id"])
     except Exception:
+        logger.debug("Honcho session registration failed (best-effort)")
         pass  # Best-effort
 
     result = {

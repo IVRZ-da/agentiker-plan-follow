@@ -351,7 +351,7 @@ def auto_review(
         }
 
     except Exception as e:
-        logger.error(f"auto_review failed: {e}")
+        logger.error("auto_review failed: %s", e)
         return {
             "status": "error",
             "message": f"Auto-review failed: {e}",

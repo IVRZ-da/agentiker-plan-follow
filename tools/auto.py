@@ -28,7 +28,7 @@ def auto_verify_task(verify_cmd: str, timeout: int = 120) -> dict:
     import subprocess
     try:
         result = subprocess.run(
-            verify_cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+            ["bash", "-c", verify_cmd], capture_output=True, text=True, timeout=timeout,
         )
         std_out = result.stdout[-1000:] if result.stdout else ""
         std_err = result.stderr[-1000:] if result.stderr else ""
@@ -44,50 +44,137 @@ def auto_verify_task(verify_cmd: str, timeout: int = 120) -> dict:
         return {"status": "failed", "message": str(e)}
 
 
-def auto_commit(task_id: str, files: list[str], repo: str = "") -> dict:
-    """Git-commit only the task's files.
+def _commit_in_repo(repo: str, task_id: str, files: list[str]) -> dict:
+    """Git-add + commit in a single repo.
 
-    Args:
-        task_id: Task identifier for the commit message.
-        files: List of file paths to add.
-        repo: Git repository path.
-
-    Returns:
-        Dict with status (committed/skipped/failed) and output.
+    Returns dict with status (committed/skipped/failed/error).
     """
-    if not repo or not os.path.isdir(os.path.join(repo, ".git")):
-        return {"status": "skipped", "message": "No git repo configured."}
-    if not files:
-        return {"status": "skipped", "message": "No files to commit."}
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        return {"status": "skipped", "repo": repo, "message": "No .git in repo."}
 
     import subprocess
     try:
-        # Add files
         for f in files:
             subprocess.run(
                 ["git", "add", "--", f],
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
-
-        # Check if anything changed
         diff = subprocess.run(
             ["git", "diff", "--cached", "--stat"],
             cwd=repo, capture_output=True, text=True, timeout=10,
         )
         if not diff.stdout.strip():
-            return {"status": "skipped", "message": "No changes to commit."}
+            return {"status": "skipped", "repo": repo, "message": "No changes to commit."}
 
-        # Commit
         result = subprocess.run(
             ["git", "commit", "-m", f"plan: {task_id} — auto-commit"],
             cwd=repo, capture_output=True, text=True, timeout=30,
         )
         return {
             "status": "committed" if result.returncode == 0 else "failed",
+            "repo": repo,
             "output": (result.stdout[:300] + result.stderr[:300]),
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "repo": repo, "message": str(e)}
+
+
+def auto_commit(task_id: str, files: list[str], repo: str = "",
+                repos: list[str] | None = None) -> dict:
+    """Git-commit task files across one or more repositories.
+
+    Supports multi-repo via ``repos`` list. Falls back to single ``repo``
+    for backward compatibility.
+
+    Args:
+        task_id: Task identifier for the commit message.
+        files: List of file paths to add.
+        repo: Single git repo path (legacy).
+        repos: Multiple git repo paths.
+
+    Returns:
+        Dict with results per repo.
+    """
+    if not files:
+        return {"status": "skipped", "message": "No files to commit."}
+
+    target_repos: list[str] = []
+    if repos:
+        target_repos = list(repos)
+    elif repo:
+        target_repos = [repo]
+
+    if not target_repos:
+        return {"status": "skipped", "message": "No git repo configured."}
+
+    results = []
+    for r in target_repos:
+        results.append(_commit_in_repo(r, task_id, files))
+
+    failed = [r for r in results if r.get("status") in ("failed", "error")]
+    committed = [r for r in results if r.get("status") == "committed"]
+    skipped = [r for r in results if r.get("status") == "skipped"]
+
+    if not results:
+        return {"status": "skipped", "message": "No repos configured."}
+    if committed:
+        return {
+            "status": "committed",
+            "committed": len(committed),
+            "skipped": len(skipped),
+            "failed": len(failed),
+            "results": results,
+        }
+    if failed:
+        return {
+            "status": "failed",
+            "message": f"{len(failed)} repo(s) failed",
+            "results": results,
+        }
+    return {"status": "skipped", "results": results}
+
+
+def auto_push(repos: list[str], remote: str = "origin",
+              branch: str | None = None) -> dict:
+    """Git-push to remote for one or more repos.
+
+    Args:
+        repos: List of git repo paths.
+        remote: Remote name (default: origin).
+        branch: Branch to push (default: current branch).
+
+    Returns:
+        Dict with results per repo.
+    """
+    import subprocess
+    results = []
+    for repo in repos:
+        if not os.path.isdir(os.path.join(repo, ".git")):
+            results.append({"status": "skipped", "repo": repo,
+                            "message": "No .git in repo."})
+            continue
+        try:
+            if branch is None:
+                br = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    cwd=repo, capture_output=True, text=True, timeout=10,
+                )
+                branch = br.stdout.strip() or "main"
+
+            result = subprocess.run(
+                ["git", "push", remote, branch],
+                cwd=repo, capture_output=True, text=True, timeout=60,
+            )
+            results.append({
+                "status": "pushed" if result.returncode == 0 else "failed",
+                "repo": repo,
+                "remote": remote,
+                "branch": branch,
+                "output": (result.stdout[:300] + result.stderr[:300]),
+            })
+        except Exception as e:
+            results.append({"status": "error", "repo": repo, "message": str(e)})
+    return {"results": results}
 
 
 # ─── Drift Detection ─────────────────────────────────────────────────────────
@@ -135,7 +222,7 @@ def check_drift() -> list:
                 changed = [f.strip() for f in result.stdout.split("\n") if f.strip()]
                 unplanned.extend(f for f in changed if f not in allowed_files)
         except Exception as e:
-            logger.warning(f"Drift check failed for repo {repo}: {e}")
+            logger.warning("Drift check failed for repo %s: %s", repo, e)
             continue
 
     return unplanned

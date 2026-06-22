@@ -1,0 +1,19 @@
+name: go-setup
+description: "Go-Entwicklung: Build → Test → Vet"
+review_profile: unit-test
+tasks:
+  - id: g1
+    name: "Build: go build ./..."
+    files: ["*.go", "go.mod", "go.sum"]
+    verify: "go build ./..."
+    depends_on: []
+  - id: g2
+    name: "Test: go test ./..."
+    files: ["*_test.go"]
+    verify: "go test ./..."
+    depends_on: [g1]
+  - id: g3
+    name: "Vet: go vet ./..."
+    files: ["*.go"]
+    verify: "go vet ./..."
+    depends_on: [g2]

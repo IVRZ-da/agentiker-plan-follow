@@ -367,7 +367,7 @@ def measure_coverage(
             "threshold": threshold,
         }
     except Exception as e:
-        logger.warning(f"Coverage measurement failed: {e}")
+        logger.warning("Coverage measurement failed: %s", e)
         return {
             "success": False,
             "error": str(e),

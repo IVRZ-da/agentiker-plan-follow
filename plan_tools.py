@@ -95,7 +95,7 @@ def plan_create_tool(args: dict, **kwargs) -> str:
                 # Alle CRITICAL-Findings gefixt — Plan speichern
                 plan_core._save_plan(updated)
     except Exception as e:
-        logger.warning(f"Auto peer review failed (non-blocking): {e}")
+        logger.warning("Auto peer review failed (non-blocking): %s", e)
 
     # ─── TTS Flag: Plan Created ──────────────────────────────────────────
     try:
@@ -106,7 +106,7 @@ def plan_create_tool(args: dict, **kwargs) -> str:
             plan["tts_flags"]["plan_created"] = True
             plan_core._save_plan(plan)
     except Exception as e:
-        logger.warning(f"TTS flag setting failed (non-blocking): {e}")
+        logger.warning("TTS flag setting failed (non-blocking): %s", e)
 
     response = {
         "status": "created",
@@ -194,9 +194,12 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
 
         # Auto-Commit after completion
         if auto_commit_enabled:
-            plan = plan_core._get_active_plan()
-            repo = plan.get("repo", "") if plan else ""
-            commit_result = plan_core.auto_commit(task_id, current.get("files", []), repo)
+            plan_obj = plan_core._get_active_plan()
+            repo_single = plan_obj.get("repo", "") if plan_obj else ""
+            repo_list = plan_obj.get("repos", []) if plan_obj else None
+            commit_result = plan_core.auto_commit(
+                task_id, current.get("files", []), repo_single, repo_list,
+            )
             result["auto_commit"] = commit_result
 
         # ─── TTS Flag: Task Completed ────────────────────────────────────
@@ -210,7 +213,7 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
                 plan["tts_flags"]["task_completed"].append(task_id)
                 plan_core._save_plan(plan)
         except Exception as e:
-            logger.warning(f"TTS flag for task completion failed: {e}")
+            logger.warning("TTS flag for task completion failed: %s", e)
 
     return fmt_ok(result)
 
@@ -692,3 +695,27 @@ def plan_git_init_tool(args: dict, **kwargs) -> str:
         })
     except Exception as e:
         return fmt_err(f"Git init failed: {e}")
+
+
+def plan_git_push_tool(args: dict, **kwargs) -> str:
+    """Git-push to remote for the task's repos.
+
+    Parameters:
+    - remote (str, optional): Remote name (default: origin)
+    - branch (str, optional): Branch to push (default: current branch)
+    """
+    from . import plan_core
+
+    plan = plan_core._get_active_plan()
+    if not plan:
+        return fmt_err("No active plan.")
+
+    repos = plan_core._get_repos(plan)
+    if not repos:
+        return fmt_err("No repos configured in plan.")
+
+    remote = args.get("remote", "origin")
+    branch = args.get("branch", None)
+
+    result = plan_core.auto_push(repos, remote, branch)
+    return fmt_ok(result)

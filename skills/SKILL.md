@@ -1,6 +1,6 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.4.3) — 24 plan tools + 2 hooks + 7 templates + review gate + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
+description: "Plugin-provided skill (v1.5.1) — 24 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
 version: 1.4.3
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]

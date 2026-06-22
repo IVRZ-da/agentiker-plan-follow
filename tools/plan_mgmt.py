@@ -10,6 +10,7 @@ from .base import (
     _plan_path,
     _save_plan,
     get_session_id,
+    logger,
 )
 from .coordination import (
     _auto_unlock_task_files,
@@ -56,6 +57,7 @@ def abort_plan(task_id: str = "") -> dict:
         from .coord_state import unregister_session
         unregister_session(get_session_id())
     except Exception:
+        logger.debug("Cross-session coordination failed (best-effort)")
         pass  # Best-effort
 
     return {"status": "aborted", "plan_id": plan["plan_id"], "message": msg}
@@ -85,6 +87,7 @@ def delete_plan(plan_id: str) -> dict:
         from .coord_state import unregister_session
         unregister_session(get_session_id())
     except Exception:
+        logger.debug("Cross-session coordination failed (best-effort)")
         pass  # Best-effort
 
     return {"status": "deleted", "plan_id": plan_id, "message": f"Plan '{plan_id}' deleted."}

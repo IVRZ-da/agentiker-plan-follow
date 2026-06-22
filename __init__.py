@@ -32,7 +32,7 @@ TOOL_DESCRIPTIONS = {
         "TEMPLATE IS REQUIRED — manual tasks are not allowed. "
         "Parameters:\n"
         "- goal (str, required): The goal of the plan\n"
-        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|fix)\n"
+        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|docs|go-setup|infrastructure|security\n"
         "- params (dict, optional): Template parameter substitution for {{placeholders}}\n"
         "- repo (str, optional): Git repo path for drift detection\n"
         "- parallel_groups (dict, optional): Parallel task groups. "
@@ -290,7 +290,7 @@ PER_TOOL_SCHEMAS = {
             },
             "template": {
                 "type": "string",
-                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "fix"],
+                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "go-setup", "infrastructure", "security"],
                 "description": "Template-Name (required — kein Template = kein Plan). Erzeugt automatisch Tasks aus der Vorlage.",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},

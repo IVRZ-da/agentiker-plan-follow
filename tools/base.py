@@ -73,7 +73,7 @@ def record_drift_warning(message: str):
     """Record a proactive drift warning from the post_tool_call hook."""
     if message not in STATE.drift_warnings:
         STATE.drift_warnings.append(message)
-        logger.info(f"Drift warning recorded: {message}")
+        logger.info("Drift warning recorded: %s", message)
 
 
 def get_tool_metrics() -> dict:
@@ -128,7 +128,7 @@ def _recover_plan_from_disk() -> Optional[str]:
             if pid and _plan_path(pid).exists():
                 plan = _load_plan(pid)
                 if plan:
-                    logger.info(f"Disk-Recovery (Index): Plan '{pid}' loaded from index")
+                    logger.info("Disk-Recovery (Index): Plan '%s' loaded from index", pid)
                     return pid
         except (json.JSONDecodeError, KeyError, OSError):
             pass
@@ -145,7 +145,7 @@ def _recover_plan_from_disk() -> Optional[str]:
             data = json.loads(f.read_text(encoding="utf-8"))
             if data.get("current_task"):
                 pid = data.get("plan_id", f.stem)
-                logger.info(f"Disk-Recovery (Active): Plan '{pid}' loaded from active JSON")
+                logger.info("Disk-Recovery (Active): Plan '%s' loaded from active JSON", pid)
                 return pid
         except (json.JSONDecodeError, OSError):
             continue
@@ -156,7 +156,7 @@ def _recover_plan_from_disk() -> Optional[str]:
             continue
         try:
             pid = json.loads(f.read_text(encoding="utf-8")).get("plan_id", f.stem)
-            logger.info(f"Disk-Recovery (Fallback): Plan '{pid}' loaded from fallback JSON")
+            logger.info("Disk-Recovery (Fallback): Plan '%s' loaded from fallback JSON", pid)
             return pid
         except (json.JSONDecodeError, OSError):
             continue

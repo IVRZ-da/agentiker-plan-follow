@@ -2,6 +2,13 @@
 
 ## 1.5.3 (2026-06-22)
 
+### Bug-Hunt Fixes: shell=True, Silent Catches, f-Strings
+
+- **P0 Security:** `tools/auto.py:30` — `shell=True` in `subprocess.run()` durch `["bash", "-c", cmd]` ersetzt (Command Injection Risk)
+- **P2 Error-Handling:** logger.debug() in 10 bare `except Exception: pass` Blöcken hinzugefügt (task.py, coordination.py, plan_mgmt.py)
+- **P3 Code-Quality:** 20× f-Strings in logging durch lazy `%s`-Formatierung ersetzt (9 Dateien)
+- **P3 Versioning:** plugin.yaml auf v1.5.3 synchronisiert
+
 ### plan_roadmap: +5 Subcommands (update/edit-phase/add-phase/remove-phase/delete)
 
 - **`update`** — Roadmap-Metadaten (goal) aktualisieren

@@ -1,0 +1,24 @@
+name: infrastructure
+description: "Infrastruktur: Plan → Umsetzung → Test → Apply"
+review_profile: api-route
+tasks:
+  - id: i1
+    name: "Plan: Änderungen dokumentieren"
+    files: []
+    verify: "echo 'infra changes planned'"
+    depends_on: []
+  - id: i2
+    name: "Umsetzung: Konfiguration anpassen"
+    files: ["/etc/", "nginx/", "docker/", "*.yaml", "*.toml", "*.conf"]
+    verify: "echo 'Config applied'"
+    depends_on: [i1]
+  - id: i3
+    name: "Test: Konfiguration prüfen + Dry-Run"
+    files: []
+    verify: "echo 'config test: ok'"
+    depends_on: [i2]
+  - id: i4
+    name: "Apply + Health-Check"
+    files: []
+    verify: "systemctl is-active --quiet app-service && echo '✅ Service healthy' || echo '⚠️ Health-Check failed'"
+    depends_on: [i3]

@@ -395,7 +395,7 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
 
         return _build_banner(lines)
     except Exception as e:
-        logger.warning(f"Task banner injection failed: {e}")
+        logger.warning("Task banner injection failed: %s", e)
 
     return None  # Nothing to inject
 

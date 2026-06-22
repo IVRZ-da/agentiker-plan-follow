@@ -78,7 +78,7 @@ def _load_roadmap(name: str) -> Optional[dict]:
         # Fallback: simple hand-rolled parser (same as plan_templates)
         return _parse_roadmap_yaml_simple(content)
     except Exception:
-        logger.warning(f"Roadmap '{name}' could not be loaded")
+        logger.warning("Roadmap '%s' could not be loaded", name)
         return None
 
 
@@ -105,10 +105,10 @@ def _save_roadmap(name: str, data: dict) -> bool:
             content = json.dumps(data, indent=2, ensure_ascii=False)
 
         path.write_text(content, encoding="utf-8")
-        logger.info(f"Roadmap '{name}' saved to {path}")
+        logger.info("Roadmap '%s' saved to %s", name, path)
         return True
     except Exception as e:
-        logger.warning(f"Roadmap '{name}' could not be saved: {e}")
+        logger.warning("Roadmap '%s' could not be saved: %s", name, e)
         return False
 
 
