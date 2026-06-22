@@ -55,6 +55,8 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     # ─── Auto Peer Review (immer aktiv — kein Feature-Toggle) ────────────
     # Nach plan_create() wird der Plan automatisch gegen die 8-Punkte-Checkliste
     # geprüft. Findings werden via apply_findings() eingearbeitet.
+    # Wenn nach apply_findings noch CRITICAL-Findings übrig sind, wird der
+    # Plan NICHT erstellt (blockierend).
     peer_review_findings = []
     try:
         plan = plan_core._get_active_plan()
@@ -64,6 +66,33 @@ def plan_create_tool(args: dict, **kwargs) -> str:
                 peer_review_findings = findings
                 # Apply automatic fixes (safe: verify commands, files, profiles)
                 updated = plan_peer_review.apply_findings(plan, findings)
+
+                # ─── Post-Apply-Validierung ────────────────────────────
+                # Prüft ob nach apply_findings noch CRITICAL-Findings übrig sind.
+                # Das passiert wenn z.B. verify-Commands weder leer noch echo
+                # noch ein echter Testbefehl sind (kann nicht automatisch gefixt werden).
+                # Solche Pläne werden blockiert — der Agent muss manuell fixen.
+                remaining = plan_peer_review.run_peer_review(updated)
+                remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
+                if remaining_critical:
+                    logger.warning(
+                        f"Plan '{plan_id}' blocked: {len(remaining_critical)} "
+                        f"critical findings survived auto-fix."
+                    )
+                    return fmt_ok({
+                        "error": "Plan could not be created — critical issues remain after auto-fix.",
+                        "plan_id": plan_id,
+                        "status": "blocked",
+                        "original_findings": peer_review_findings,
+                        "remaining_findings": remaining_critical,
+                        "suggestion": (
+                            "Fix die verbleibenden CRITICAL-Findings manuell "
+                            "(z.B. verify-Commands setzen, Dateien deklarieren) "
+                            "und dann plan_create() erneut aufrufen."
+                        ),
+                    })
+
+                # Alle CRITICAL-Findings gefixt — Plan speichern
                 plan_core._save_plan(updated)
     except Exception as e:
         logger.warning(f"Auto peer review failed (non-blocking): {e}")

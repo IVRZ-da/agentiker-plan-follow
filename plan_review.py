@@ -197,30 +197,45 @@ def validate_review_result(result: dict) -> dict[str, Any]:
 def read_task_files(task: dict) -> dict[str, str]:
     """Read all files from a task's file list.
 
+    Supports glob patterns (*.ts, src/**/*.py) and plain paths.
+    Non-existent files return empty content silently.
+
     Args:
         task: Task dict with 'files' list.
 
     Returns:
         Dict mapping file path → file content (empty string if unreadable).
     """
+    import glob as glob_mod
+
     files_content: dict[str, str] = {}
-    for file_path in task.get("files", []):
-        path = Path(file_path)
-        if not path.is_absolute():
-            alt = Path.cwd() / file_path
-            if alt.exists():
-                path = alt
-        if not path.exists():
-            files_content[file_path] = ""
-            continue
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-            lines = content.split("\n")
-            if len(lines) > 500:
-                content = "\n".join(lines[:500]) + f"\n... (Datei gekürzt, {len(lines)} Zeilen)"
-            files_content[str(path)] = content
-        except (OSError, IOError) as e:
-            files_content[file_path] = f"<Error reading: {e}>"
+    for file_pattern in task.get("files", []):
+        # Expand glob pattern
+        matches = glob_mod.glob(file_pattern, recursive=True)
+        if not matches:
+            # Try relative to CWD
+            matches = glob_mod.glob(str(Path.cwd() / file_pattern), recursive=True)
+        if not matches:
+            # No matches — try as literal path
+            matches = [file_pattern]
+
+        for file_path in matches:
+            path = Path(file_path)
+            if not path.is_absolute():
+                alt = Path.cwd() / file_path
+                if alt.exists():
+                    path = alt
+            if not path.exists():
+                files_content[file_path] = ""
+                continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+                lines = content.split("\n")
+                if len(lines) > 500:
+                    content = "\n".join(lines[:500]) + f"\n... (Datei gekürzt, {len(lines)} Zeilen)"
+                files_content[str(path)] = content
+            except (OSError, IOError) as e:
+                files_content[file_path] = f"<Error reading: {e}>"
     return files_content
 
 

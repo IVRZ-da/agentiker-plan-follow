@@ -92,10 +92,10 @@ class TestPlanCreateAutoPeerReview:
                 f"Expected created/warning status, got: {parsed}"
 
     def test_findings_show_in_response(self):
-        """If peer review finds issues, they should appear in plan_create response."""
+        """If peer review finds issues that survive auto-fix, plan is blocked."""
         from plan_follow.plan_tools import plan_create_tool
 
-        # Simulate findings
+        # Simulate findings that cannot be auto-fixed (no fix in apply_findings)
         fake_findings = [
             {"id": "F1", "severity": "critical", "check": "files",
              "description": "No files declared", "task_id": "p1"},
@@ -111,10 +111,11 @@ class TestPlanCreateAutoPeerReview:
                     "template": "fix",
                 })
                 parsed = json.loads(result) if isinstance(result, str) else {}
-                assert "peer_review" in parsed, \
-                    f"Expected peer_review in response, got keys: {parsed.keys() if isinstance(parsed, dict) else 'N/A'}"
-                assert parsed["status"] == "warning", \
-                    f"Expected warning status for critical findings, got: {parsed['status']}"
+                # Findings that survive auto-fix block the plan
+                assert parsed["status"] == "blocked", \
+                    f"Expected blocked status when critical findings survive fix, got: {parsed}"
+                assert "remaining_findings" in parsed, \
+                    f"Expected remaining_findings in blocked response, got keys: {parsed.keys()}"
 
 
 class TestPlanCompleteTTS:

@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.2 (2026-06-22)
+
+### TDD + Peer Review Fixes
+
+- **MEANINGLESS_VERIFY_PATTERNS erweitert** — fängt jetzt ALLE echo-Befehle,
+  Shell-Kommentare (`#...`), `true`, `false`, `:` als No-Op. Die fixen
+  `echo '❌...'` und `echo '✅...'` aus dem `fix`-Template werden erkannt.
+- **apply_findings** — ersetzt meaningless verify nicht mehr durch `# TODO...`,
+  sondern durch `exit 1 # FIXME:...` der `auto_verify` blockt.
+- **Templates verify-Commands** — `fix`, `bugfix`, `feature` haben echte
+  RED/GREEN-Semantik: `{{test_command}} && exit 1` (RED: Test muss failen)
+  und `{{test_command}} \|\| exit 1` (GREEN: Test muss passen).
+- **Default-Werte** — `npm test` → `python3 -m pytest`, `npm run lint` → `ruff check`
+- **review_profile propagiert** — vom Template auf alle Tasks (außer p0).
+  Dadurch wird der Review Gate in plan_complete() aktiv.
+- **Post-Apply-Validierung** — nach `apply_findings` wird erneut geprüft ob
+  CRITICAL-Findings übrig sind. Falls ja: Plan wird blockiert (status: `blocked`).
+- **create_plan id-Fix** — Tasks speichern jetzt `"id"` im Dict. Ohne das
+  konnte der Peer Review Tasks nicht identifizieren.
+- **read_task_files Glob-Expansion** — `read_task_files()` expandiert
+  Glob-Patterns (`*spec.ts`, `src/**/*.py`) via `glob.glob()`.
+- **files-Check demoted** — von CRITICAL auf IMPORTANT (operative Tasks
+  wie Deploy haben keine Datei-Deklarationen).
+- **Tests:** 611 passed, 6 neue Tests für erweiterte Patterns + apply_findings.
+
 ## 1.5.1 (2026-06-22)
 
 ### Breaking — Template-Zwang

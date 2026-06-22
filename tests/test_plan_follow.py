@@ -642,7 +642,9 @@ class TestPlanTemplates:
             "template": "deploy",
             "repo": "/tmp",
         }))
-        assert result["status"] in ("created", "warning")
+        # deploy template with defaults should pass peer review (all verify commands are real)
+        assert result["status"] in ("created", "warning"), \
+            f"Unexpected status: {result.get('status')} — {result.get('remaining_findings', result.get('error', ''))}"
         assert result["template"] == "deploy"
 
     def test_create_plan_with_template_no_goal(self):
@@ -1538,10 +1540,10 @@ class TestAutoVerify:
 
     def test_complete_with_auto_verify_flag(self, sample_tasks):
         from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
-        # Override verify to a command that passes in any environment
+        # Use a real command that passes the peer review (not echo)
         tasks = [
             {"id": "p1", "name": "Validate", "files": ["lib/val.ts"],
-             "verify": "echo ok", "depends_on": []},
+             "verify": "test -d /tmp && echo 'ok' || exit 1", "depends_on": []},
             {"id": "p2", "name": "Form", "files": [], "verify": "",
              "depends_on": ["p1"]},
         ]

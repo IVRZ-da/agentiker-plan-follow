@@ -189,6 +189,75 @@ class TestVerifyCheck:
             for f in findings
         ), f"Unexpected verify finding for safe grep: {findings}"
 
+    def test_verify_echo_x_emoji_flags(self):
+        """"echo '❌ Test failed...'" should flag (fix template RED pattern)."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p1", verify="echo '❌ Test failed — Bug reproduziert'"),
+        ])
+        findings = run_peer_review(plan)
+        assert any(
+            f["check"] == "verify" and f["task_id"] == "p1"
+            for f in findings
+        ), f"Expected verify finding for ❌ echo, got: {findings}"
+
+    def test_verify_emoji_checkmark_flags(self):
+        """"echo '✅ Test passed'" should flag (fix template GREEN pattern)."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p1", verify="echo '✅ Test passed — Bug gefixt'"),
+        ])
+        findings = run_peer_review(plan)
+        assert any(
+            f["check"] == "verify" and f["task_id"] == "p1"
+            for f in findings
+        ), f"Expected verify finding for ✅ echo, got: {findings}"
+
+    def test_verify_comment_only_flags(self):
+        """"# TODO: something" as sole command should flag (no-op in shell)."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p1", verify="# TODO: Add a meaningful verify command"),
+        ])
+        findings = run_peer_review(plan)
+        assert any(
+            f["check"] == "verify" and f["task_id"] == "p1"
+            for f in findings
+        ), f"Expected verify finding for comment-only, got: {findings}"
+
+    def test_verify_true_flags(self):
+        """"true" as sole command should flag (always exit 0)."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p1", verify="true"),
+        ])
+        findings = run_peer_review(plan)
+        assert any(
+            f["check"] == "verify" and f["task_id"] == "p1"
+            for f in findings
+        ), f"Expected verify finding for 'true', got: {findings}"
+
+    def test_verify_real_test_not_flags(self):
+        """Real test commands (npm test, pytest, go test) should NOT flag."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p1", verify="npm test"),
+            make_task("p2", verify="pytest tests/ -x -q"),
+            make_task("p3", verify="go test ./..."),
+            make_task("p4", verify="python3 -m pytest tests/ -v"),
+            make_task("p5", verify="npx jest --passWithNoTests"),
+            make_task("p6", verify="tsc --noEmit"),
+        ])
+        findings = run_peer_review(plan)
+        meaningless_ids = {f["task_id"] for f in findings if f["check"] == "verify"}
+        assert not meaningless_ids, \
+            f"Real test commands should not flag, got: {meaningless_ids}"
+
     def test_verify_ends_with_or_true(self):
         """`cmd || true` masks errors — should flag."""
         from plan_follow.plan_peer_review import run_peer_review
@@ -340,7 +409,7 @@ class TestApplyFindings:
     """Test that apply_findings() correctly applies fix suggestions."""
 
     def test_apply_verify_fix(self):
-        """apply_findings should update a task's verify command."""
+        """apply_findings should replace meaningless echo with exit 1."""
         from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
@@ -349,10 +418,10 @@ class TestApplyFindings:
         findings = run_peer_review(plan)
         updated = apply_findings(plan, findings)
 
-        # After fix, p1's verify should no longer be 'echo done'
+        # After fix, p1's verify should be exit 1 (not a TODO comment)
         p1 = updated["tasks"]["p1"]
-        assert p1["verify"] != "echo 'done'", \
-            f"Verify should have been fixed: {p1}"
+        assert "exit 1" in p1["verify"], \
+            f"Verify should contain exit 1 to fail auto-verify, got: {p1['verify']}"
 
     def test_apply_empty_files_fix(self):
         """apply_findings should set a default file list for empty files."""

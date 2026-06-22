@@ -44,7 +44,7 @@ PEER_REVIEW_CHECKS: list[dict[str, Any]] = [
     {
         "id": "files",
         "name": "file declarations",
-        "severity": CRITICAL,
+        "severity": IMPORTANT,
         "description": "Prüft ob alle zu ändernden Dateien deklariert sind.",
     },
     {
@@ -70,9 +70,14 @@ PEER_REVIEW_CHECKS: list[dict[str, Any]] = [
 VALID_PROFILES = {"none", "unit-test", "api-route", "ui-component", "security", "full"}
 
 # Patterns for meaningless verify commands
+# A verify command MUST actually test something (exit code != 0 on failure).
+# echo, #-comments, true, false, : as SOLE command are meaningless.
 MEANINGLESS_VERIFY_PATTERNS = [
-    re.compile(r"^\s*echo\s+['\"]?(done|ok|success)['\"]?\s*$", re.IGNORECASE),
-    re.compile(r"^\s*echo\s+['\"]?(erfolgreich|fertig)['\"]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*echo\s+.*$", re.IGNORECASE),        # echo '❌...' / echo '✅...' / echo 'done'
+    re.compile(r"^\s*#\s+.*$"),                            # Shell comment-only
+    re.compile(r"^\s*:\s*$"),                              # bash no-op (:)
+    re.compile(r"^\s*true\s*$", re.IGNORECASE),            # literal true (always exit 0)
+    re.compile(r"^\s*false\s*$", re.IGNORECASE),           # literal false (always exit 1)
 ]
 
 # Dangerous patterns: grep without fallback
@@ -186,7 +191,7 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
                 f"Task '{tid}' ('{t.get('name', '')}') has an empty verify command. "
                 f"Add a command that verifies the task's result.",
                 task_id=tid,
-                fix={"verify": ""},  # agent should provide meaningful command
+                fix={"verify": "exit 1 # FIXME: Ersetze durch echten verify-Command"},
             )
             continue
 
@@ -194,10 +199,11 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
         if any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS):
             _add(
                 "verify", CRITICAL,
-                f"Task '{tid}' ('{t.get('name', '')}') verify is just 'echo done/ok' — "
-                f"it doesn't verify anything meaningful.",
+                f"Task '{tid}' ('{t.get('name', '')}') verify command "
+                f"'{verify}' doesn't verify anything meaningful — "
+                f"ersetzte durch echten Testlauf (z.B. npm test, pytest, go test, tsc --noEmit).",
                 task_id=tid,
-                fix={"verify": "# TODO: Add a meaningful verify command"},
+                fix={"verify": "exit 1 # FIXME: Ersetze durch echten verify-Command (npm test, pytest, go test, etc.)"},
             )
             continue
 
@@ -228,7 +234,7 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
         files = t.get("files", []) or []
         if not files:
             _add(
-                "files", CRITICAL,
+                "files", IMPORTANT,
                 f"Task '{tid}' ('{t.get('name', '')}') has no files declared. "
                 f"Drift-Check and auto_commit won't work without files.",
                 task_id=tid,

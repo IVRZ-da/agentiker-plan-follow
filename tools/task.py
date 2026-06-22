@@ -43,6 +43,7 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
     tasks_dict = {}
     for t in tasks:
         tasks_dict[t["id"]] = {
+            "id": t["id"],  # preserve for peer review identification
             "status": "pending",
             "name": t.get("name", ""),
             "files": t.get("files", []),

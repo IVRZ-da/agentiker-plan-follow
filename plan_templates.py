@@ -33,19 +33,22 @@ TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
         "service": "medusa-staging",
         "verify_url": "http://localhost:9000/health",
     },
+    "fix": {
+        "test_command": "python3 -m pytest",
+    },
     "bugfix": {
-        "test_command": "npm test",
-        "lint_command": "npm run lint",
+        "test_command": "python3 -m pytest",
+        "lint_command": "ruff check",
     },
     "feature": {
-        "typecheck_command": "tsc --noEmit",
-        "test_command": "npm test",
-        "lint_command": "npm run lint",
+        "typecheck_command": "python3 -m pyright",
+        "test_command": "python3 -m pytest",
+        "lint_command": "ruff check",
     },
     "refactoring": {
-        "test_coverage_command": "npm test -- --coverage",
-        "typecheck_command": "tsc --noEmit",
-        "lint_command": "npm run lint",
+        "test_coverage_command": "python3 -m pytest --cov",
+        "typecheck_command": "python3 -m pyright",
+        "lint_command": "ruff check",
     },
 }
 
@@ -66,8 +69,8 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "bugfix": {
         "description": "Bug-Fix mit TDD: RED → GREEN → REFACTOR",
         "tasks": [
-            {"id": "b1", "name": "RED: Failenden Test schreiben", "files": ["*spec.ts"],
-             "verify": "{{test_command}} -- --grep 'new test'", "depends_on": []},
+            {"id": "b1", "name": "RED: Failenden Test schreiben", "files": ["*_test.go", "*spec.ts", "*test.py", "*_test.py"],
+             "verify": "{{test_command}} && exit 1 || echo '✅ RED: Test failed as expected'", "depends_on": []},
             {"id": "b2", "name": "GREEN: Fix implementieren", "files": ["src/"],
              "verify": "{{test_command}}", "depends_on": ["b1"]},
             {"id": "b3", "name": "REFACTOR: Code aufräumen", "files": ["src/"],
@@ -80,8 +83,8 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "tasks": [
             {"id": "f1", "name": "Spec schreiben / Types definieren", "files": ["src/"],
              "verify": "{{typecheck_command}}", "depends_on": []},
-            {"id": "f2", "name": "RED: Tests schreiben", "files": ["*spec.ts"],
-             "verify": "{{test_command}} -- --grep 'new feature'", "depends_on": ["f1"]},
+            {"id": "f2", "name": "RED: Tests schreiben", "files": ["*_test.go", "*spec.ts", "*test.py", "*_test.py"],
+             "verify": "{{test_command}} && exit 1 || echo '✅ RED: Test failed as expected'", "depends_on": ["f1"]},
             {"id": "f3", "name": "GREEN: Implementierung", "files": ["src/"],
              "verify": "{{test_command}}", "depends_on": ["f2"]},
             {"id": "f4", "name": "Dokumentation", "files": ["README.md", "docs/"],
@@ -125,10 +128,10 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "fix": {
         "description": "Schneller Bug-Fix mit TDD: RED → GREEN",
         "tasks": [
-            {"id": "f1", "name": "RED: Test schreiben der den Bug zeigt", "files": ["*spec.ts", "*_test.go", "*test.py"],
-             "verify": "echo '❌ Test failed — Bug reproduziert'", "depends_on": []},
+            {"id": "f1", "name": "RED: Test schreiben der den Bug zeigt", "files": ["*_test.go", "*spec.ts", "*test.py", "*_test.py"],
+             "verify": "{{test_command}} && exit 1 || echo '✅ RED: Test failed as expected'", "depends_on": []},
             {"id": "f2", "name": "GREEN: Bug fixen bis Test grün", "files": ["src/"],
-             "verify": "echo '✅ Test passed — Bug gefixt'", "depends_on": ["f1"]},
+             "verify": "{{test_command}} || exit 1", "depends_on": ["f1"]},
         ],
         "review_profile": "unit-test",
     },
@@ -263,6 +266,17 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
         result["tasks"][1]["depends_on"] = [p0_task["id"]]
     if template.get("repo_hint"):
         result["repo_hint"] = template["repo_hint"]
+
+    # ─── review_profile auf Tasks propagieren ──────────────────────────
+    # Setze das template-eigene review_profile auf alle Tasks die keins haben.
+    # p0 wird ausgeschlossen (ist Admin-Task, kein Code-Task).
+    tpl_review = result.get("review_profile", "none")
+    if tpl_review and tpl_review != "none":
+        for i, task in enumerate(result["tasks"]):
+            if task.get("id") == "p0":
+                continue  # p0 ist Admin-Task, kein review nötig
+            if not task.get("review_profile") or task["review_profile"] == "none":
+                result["tasks"][i]["review_profile"] = tpl_review
 
     # Merge default params with user-provided params (user wins)
     merged_params = dict(TEMPLATE_DEFAULTS.get(name, {}))
