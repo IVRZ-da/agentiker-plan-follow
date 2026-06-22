@@ -57,10 +57,13 @@ def has_any(files: list[str], *suffixes: str) -> bool:
     return any(f.endswith(suf) for f in files for suf in suffixes)
 
 
-def run_cmd(cmd: list[str], timeout: int = 30, cwd: str | None = None) -> subprocess.CompletedProcess:
+def run_cmd(cmd: list[str], timeout: int = 30, cwd: str | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     """Run a command and return the CompletedProcess. Handles errors gracefully."""
+    kwargs = {"capture_output": True, "text": True, "timeout": timeout, "cwd": cwd or REPO_ROOT}
+    if env is not None:
+        kwargs["env"] = env
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd or REPO_ROOT)
+        return subprocess.run(cmd, **kwargs)
     except FileNotFoundError:
         return subprocess.CompletedProcess(cmd, 127, "", f"Command not found: {cmd[0]}")
     except subprocess.TimeoutExpired:
@@ -626,7 +629,7 @@ def run_tests(test_files: list[str]) -> bool:
         args.extend(test_files)
 
     env = {**os.environ, "PYTHONPATH": os.path.expanduser("~/.hermes/plugins")}
-    r = run_cmd(args, timeout=120, cwd=REPO_ROOT)
+    r = run_cmd(args, timeout=120, cwd=REPO_ROOT, env=env)
 
     if r.returncode == 0:
         summary = [l for l in r.stdout.strip().split("\n") if "passed" in l]

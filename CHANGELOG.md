@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.5.3 (2026-06-22)
+
+### plan_roadmap: +5 Subcommands (update/edit-phase/add-phase/remove-phase/delete)
+
+- **`update`** — Roadmap-Metadaten (goal) aktualisieren
+- **`edit-phase`** — Phase-Eigenschaften ändern (name, priority, effort, impact, tasks, status)
+- **`add-phase`** — Neue Phase an Roadmap anhängen
+- **`remove-phase`** — Phase aus Roadmap entfernen
+- **`delete`** — Ganze Roadmap löschen
+- `_delete_roadmap()` in `tools/roadmap_data.py`
+- 18 neue Tests (59 total, 0 failed)
+- Companion Skill SKILL.md mit Subcommands-Tabelle aktualisiert
+
 ## 1.5.2 (2026-06-22)
 
 ### TDD + Peer Review Fixes

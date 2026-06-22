@@ -198,3 +198,26 @@ def _parse_roadmap_yaml_simple(content: str) -> Optional[dict]:
         pass
 
     return None
+
+
+def _delete_roadmap(name: str) -> tuple[bool, str]:
+    """Delete a roadmap file.
+
+    Args:
+        name: Roadmap name (without .yaml).
+
+    Returns:
+        (True, message) on success, (False, error_message) on failure.
+    """
+    if ".." in name or name.startswith("/"):
+        return False, f"Ungültiger Roadmap-Name: '{name}' (path traversal blocked)"
+    if name.endswith(".yaml"):
+        name = name[:-5]
+    path = resolve_roadmaps_dir() / f"{name}.yaml"
+    if not path.exists():
+        return False, f"Roadmap '{name}' nicht gefunden."
+    try:
+        path.unlink()
+        return True, f"Roadmap '{name}' gelöscht."
+    except Exception as e:
+        return False, f"Konnte Roadmap '{name}' nicht löschen: {e}"

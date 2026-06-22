@@ -666,3 +666,285 @@ class TestActiveRoadmap:
 
         # Cleanup
         Path(f.name).unlink(missing_ok=True)
+
+
+# ─── New Commands: update, edit-phase, add-phase, remove-phase, delete ─────
+
+
+class TestNewCommands:
+    """Tests für die neuen plan_roadmap Subcommands."""
+
+    def test_cmd_update_metadata(self, sample_roadmap_data):
+        """update aktualisiert Roadmap-Metadaten (goal)."""
+        name = "test-update"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "update",
+            "goal": "Neues Ziel",
+        })
+        assert "goal" in result.lower() or "ziel" in result.lower() or "updated" in result.lower()
+        loaded = _load_roadmap(name)
+        assert loaded["goal"] == "Neues Ziel"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_update_with_name(self, sample_roadmap_data):
+        """update mit name= lädt und aktualisiert die genannte Roadmap."""
+        name = "test-update-name"
+        _save_roadmap(name, sample_roadmap_data)
+        plan_roadmap_handler({
+            "cmd": "update",
+            "name": name,
+            "goal": "Updated via name",
+        })
+        loaded = _load_roadmap(name)
+        assert loaded["goal"] == "Updated via name"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_name(self, sample_roadmap_data):
+        """edit-phase ändert den Namen einer Phase."""
+        name = "test-edit-name"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "name": "Blog umbenannt",
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert phase["name"] == "Blog umbenannt"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_priority(self, sample_roadmap_data):
+        """edit-phase ändert die Priorität einer Phase."""
+        name = "test-edit-prio"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "priority": "low",
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert phase["priority"] == "low"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_effort(self, sample_roadmap_data):
+        """edit-phase ändert effort."""
+        name = "test-edit-effort"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "effort": "5 Tage",
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert phase["effort"] == "5 Tage"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_impact(self, sample_roadmap_data):
+        """edit-phase ändert impact."""
+        name = "test-edit-impact"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "impact": "Branding",
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert phase["impact"] == "Branding"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_tasks(self, sample_roadmap_data):
+        """edit-phase ersetzt die Tasks-Liste."""
+        name = "test-edit-tasks"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "tasks": ["Neuer Task 1", "Neuer Task 2", "Neuer Task 3"],
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert len(phase["tasks"]) == 3
+        assert "Neuer Task 1" in phase["tasks"]
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_status(self, sample_roadmap_data):
+        """edit-phase kann auch den Status setzen (wie set)."""
+        name = "test-edit-status"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+            "status": "completed",
+        })
+        loaded = _load_roadmap(name)
+        phase = [p for p in loaded["phases"] if p["id"] == "blog"][0]
+        assert phase["status"] == "completed"
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_not_found(self, sample_roadmap_data):
+        """edit-phase auf nicht-existente Phase gibt Fehler."""
+        name = "test-edit-nf"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "ghost",
+            "name": "Neu",
+        })
+        assert "nicht gefunden" in result
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_edit_phase_no_params(self, sample_roadmap_data):
+        """edit-phase ohne Properties gibt Hinweis."""
+        name = "test-edit-noparams"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "edit-phase",
+            "phase": "blog",
+        })
+        assert "keine" in result.lower() or "nichts" in result.lower() or "angeben" in result.lower()
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_add_phase(self, sample_roadmap_data):
+        """add-phase fügt eine neue Phase hinzu."""
+        name = "test-add-phase"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        new_phase = {
+            "id": "neue-phase",
+            "name": "Neue Phase",
+            "priority": "medium",
+            "effort": "1 Tag",
+            "impact": "Test",
+            "status": "pending",
+        }
+        result = plan_roadmap_handler({
+            "cmd": "add-phase",
+            "phase_data": new_phase,
+        })
+        assert "hinzugefügt" in result.lower() or "added" in result.lower() or "neu" in result.lower()
+        loaded = _load_roadmap(name)
+        assert len(loaded["phases"]) == 4
+        phase_ids = [p["id"] for p in loaded["phases"]]
+        assert "neue-phase" in phase_ids
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_add_phase_no_data(self, sample_roadmap_data):
+        """add-phase ohne phase_data gibt Fehler."""
+        name = "test-add-no-data"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "add-phase",
+        })
+        assert "phase_data" in result.lower() or "bitte" in result.lower()
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_remove_phase(self, sample_roadmap_data):
+        """remove-phase entfernt eine Phase."""
+        name = "test-remove-phase"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "remove-phase",
+            "phase": "leadmagnet",
+        })
+        assert "entfernt" in result.lower() or "removed" in result.lower()
+        loaded = _load_roadmap(name)
+        assert len(loaded["phases"]) == 2
+        phase_ids = [p["id"] for p in loaded["phases"]]
+        assert "leadmagnet" not in phase_ids
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_remove_phase_not_found(self, sample_roadmap_data):
+        """remove-phase auf nicht-existente Phase gibt Fehler."""
+        name = "test-remove-nf"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "remove-phase",
+            "phase": "ghost",
+        })
+        assert "nicht gefunden" in result
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_remove_phase_no_id(self, sample_roadmap_data):
+        """remove-phase ohne phase= gibt Hinweis."""
+        name = "test-remove-no-id"
+        _save_roadmap(name, sample_roadmap_data)
+        set_active_roadmap(name)
+        result = plan_roadmap_handler({
+            "cmd": "remove-phase",
+        })
+        assert "phase" in result.lower()
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        if path.exists():
+            path.unlink()
+
+    def test_cmd_delete_roadmap(self, sample_roadmap_data):
+        """delete entfernt die gesamte Roadmap-Datei."""
+        name = "test-delete"
+        _save_roadmap(name, sample_roadmap_data)
+        path = ROADMAPS_DIR / f"{name}.yaml"
+        assert path.exists()
+        result = plan_roadmap_handler({
+            "cmd": "delete",
+            "name": name,
+        })
+        assert "gelöscht" in result.lower() or "deleted" in result.lower()
+        assert not path.exists()
+
+    def test_cmd_delete_roadmap_not_found(self):
+        """delete auf nicht-existente Roadmap gibt Fehler."""
+        result = plan_roadmap_handler({
+            "cmd": "delete",
+            "name": "nonexistent-roadmap",
+        })
+        assert "nicht gefunden" in result.lower() or "not found" in result.lower()
+
+    def test_cmd_delete_no_name(self):
+        """delete ohne name= gibt Hinweis."""
+        result = plan_roadmap_handler({
+            "cmd": "delete",
+        })
+        assert "name" in result.lower()

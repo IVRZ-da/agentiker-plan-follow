@@ -35,7 +35,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `plan_duedate(task_id, due)` | Fälligkeit setzen/anzeigen |
 | `plan_archive(plan_id)` | Plan archivieren |
 | `plan_restore(plan_id)` | Archivierten Plan wiederherstellen |
-| `plan_roadmap(cmd, name, phases)` | Roadmap YAML-Management (6 Subcommands) |
+| `plan_roadmap(cmd, action, name, phase, status, goal, phases, phase_data, priority, effort, impact, tasks)` | Roadmap YAML-Management (11 Subcommands) — siehe Subcommands-Tabelle unten |
 | `plan_session()` | Cross-Session Status + History anzeigen |
 | `plan_lock(action, path, session_id)` | File-Lock-Management (acquire/release/list/check) |
 | `plan_notify(action, to, message)` | Notifications senden/empfangen/listen |
@@ -64,6 +64,24 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `ui-component` | React/UI: A11y + SSR + State + Forms + Mobile |
 | `security` | Secrets + Injection + XSS + Auth |
 | `full` | Alle Checks kombiniert |
+
+## Roadmap Subcommands (11)
+
+`plan_roadmap(action=..., ...)` — strategic phase overviews.
+
+| Aktion | Parameter | Funktion |
+|--------|-----------|----------|
+| `status` | — | Übersicht mit allen Phasen + Fortschritt |
+| `show` | `phase` | Detail einer Phase anzeigen |
+| `to_plan` | `phase` | Phase in plan_create-Tasks konvertieren |
+| `set` | `phase`, `status` | Phase-Status ändern (pending/in_progress/completed/blocked) |
+| `list` | — | Alle Roadmaps auflisten |
+| `create` | `name`, `goal`, `phases` | Neue Roadmap erstellen |
+| `update` | `name`, `goal` | Roadmap-Ziel aktualisieren |
+| `edit-phase` | `phase`, `name`, `priority`, `effort`, `impact`, `tasks`, `status` | Phase-Eigenschaften ändern |
+| `add-phase` | `phase_data` (dict) | Neue Phase anhängen |
+| `remove-phase` | `phase` | Phase entfernen |
+| `delete` | `name` | Ganze Roadmap löschen |
 
 ## Hooks (2)
 
@@ -112,7 +130,7 @@ plan_follow/
 ├── plan_hooks.py        — pre_llm_call + post_tool_call
 ├── plan_peer_review.py  — Auto Peer Review (8-Punkt-Checkliste + apply_findings)
 ├── plan_review.py       — Review-Dispatch, Prompt-Builder, Coverage-Check, auto_review()
-├── plan_roadmap.py      — Roadmap YAML-CLI (6 Subcommands: status/show/to_plan/set/list/create)
+├── plan_roadmap.py      — Roadmap YAML-CLI (11 Subcommands: status/show/to_plan/set/list/create/update/edit-phase/add-phase/remove-phase/delete)
 ├── plan_templates.py    — Template-Engine (7 Built-in + User-Templates + YAML-Parser)
 ├── plan_todo.py         — Todo-Liste aus Plan-Tasks (ersetzt built-in todo)
 ├── plan_coverage.py     — pytest-cov Wrapper + Mutation Testing (mutmut)

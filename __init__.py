@@ -165,20 +165,30 @@ TOOL_DESCRIPTIONS = {
     "plan_roadmap": (
         "Manage roadmaps — strategic phase overviews. "
         "Parameters:\n"
-        "- action (str, required): One of: status, show, to_plan, set, list, create\n"
+        "- action (str, required): One of: status, show, to_plan, set, list, create, update, edit-phase, add-phase, remove-phase, delete\n"
         "- name (str, optional): Roadmap name (without .yaml). Auto-selects most recent if omitted.\n"
-        "- phase (str, optional): Phase ID for show/to_plan/set commands.\n"
-        "- status (str, optional): New status for 'set' command (pending|in_progress|completed|blocked).\n"
-        "- goal (str, optional): Goal for 'create' command.\n"
-        "- phases (array, optional): Phase list for 'create' command.\n"
+        "- phase (str, optional): Phase ID for show/to_plan/set/edit-phase/remove-phase commands.\n"
+        "- status (str, optional): New status for 'set'/'edit-phase' command (pending|in_progress|completed|blocked).\n"
+        "- goal (str, optional): Roadmap-Ziel für 'create'/'update'.\n"
+        "- phases (array, optional): Phase list for 'create'.\n"
+        "- phase_data (dict, optional): Phase JSON-Objekt für 'add-phase'.\n"
+        "- priority (str, optional): Neue Priorität für 'edit-phase' (high|medium|low).\n"
+        "- effort (str, optional): Neuer Aufwand für 'edit-phase'.\n"
+        "- impact (str, optional): Neuer Impact für 'edit-phase'.\n"
+        "- tasks (array, optional): Tasks-Liste für 'edit-phase'.\n"
         "Also accepts cmd= as alias for action= (deprecated).\n"
         "Subcommands:\n"
-        "  status  → Show roadmap overview with all phases\n"
-        "  show    → Show detail of a single phase (requires phase=)\n"
-        "  to_plan → Convert phase to plan_create tasks (requires phase=)\n"
-        "  set     → Update phase status (requires phase= + status=)\n"
-        "  list    → List all available roadmaps\n"
-        "  create  → Create a new roadmap (requires name= + phases=)\n"
+        "  status      → Show roadmap overview with all phases\n"
+        "  show        → Show detail of a single phase (requires phase=)\n"
+        "  to_plan     → Convert phase to plan_create tasks (requires phase=)\n"
+        "  set         → Update phase status (requires phase= + status=)\n"
+        "  list        → List all available roadmaps\n"
+        "  create      → Create a new roadmap (requires name= + phases=)\n"
+        "  update      → Update roadmap metadata (name=, goal=)\n"
+        "  edit-phase  → Update phase properties (phase= + name/priority/effort/impact/tasks/status)\n"
+        "  add-phase   → Add a new phase (phase_data= as JSON dict, name= as roadmap name)\n"
+        "  remove-phase → Remove a phase (phase=, name= as roadmap name)\n"
+        "  delete      → Delete entire roadmap (name=)\n"
         "Example: plan_roadmap(action='status') → zeigt Phasen-Übersicht"
     ),
     "plan_session": (
@@ -471,26 +481,42 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["status", "show", "to_plan", "set", "list", "create"],
-                "description": "Aktion: status (Übersicht), show (Phase), to_plan (→ plan_create), set (Status ändern), list (alle Roadmaps), create (neu)",
+                "enum": ["status", "show", "to_plan", "set", "list", "create", "update", "edit-phase", "add-phase", "remove-phase", "delete"],
+                "description": "Aktion: status, show, to_plan, set, list, create, update, edit-phase, add-phase, remove-phase, delete",
             },
             "cmd": {
                 "type": "string",
-                "enum": ["status", "show", "to_plan", "set", "list", "create"],
+                "enum": ["status", "show", "to_plan", "set", "list", "create", "update", "edit-phase", "add-phase", "remove-phase", "delete"],
                 "description": "Alias für 'action' (deprecated, nutze action= für Konsistenz mit plan_lock/plan_notify)",
             },
             "name": {"type": "string", "description": "Roadmap-Name (ohne .yaml). Auto-select bei Weglassung."},
-            "phase": {"type": "string", "description": "Phase-ID für show/to_plan/set"},
+            "phase": {"type": "string", "description": "Phase-ID für show/to_plan/set/edit-phase/remove-phase"},
             "status": {
                 "type": "string",
                 "enum": ["pending", "in_progress", "completed", "blocked"],
-                "description": "Neuer Status für 'set'",
+                "description": "Neuer Status für 'set'/'edit-phase'",
             },
-            "goal": {"type": "string", "description": "Roadmap-Ziel für 'create'"},
+            "goal": {"type": "string", "description": "Roadmap-Ziel für 'create'/'update'"},
             "phases": {
                 "type": "array",
                 "description": "Phasen-Liste für 'create'",
                 "items": {"type": "object"},
+            },
+            "phase_data": {
+                "type": "object",
+                "description": "Phase als JSON-Objekt für 'add-phase'",
+            },
+            "priority": {
+                "type": "string",
+                "enum": ["high", "medium", "low"],
+                "description": "Neue Priorität für 'edit-phase'",
+            },
+            "effort": {"type": "string", "description": "Neuer Aufwand für 'edit-phase'"},
+            "impact": {"type": "string", "description": "Neuer Impact für 'edit-phase'"},
+            "tasks": {
+                "type": "array",
+                "description": "Tasks-Liste für 'edit-phase'",
+                "items": {"type": "string"},
             },
         },
         "required": [],

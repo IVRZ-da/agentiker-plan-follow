@@ -24,7 +24,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from .tools.roadmap_data import _list_roadmaps, _load_roadmap, _save_roadmap
+from .tools.roadmap_data import _delete_roadmap, _list_roadmaps, _load_roadmap, _save_roadmap
 
 logger = logging.getLogger("plan_follow")
 
@@ -305,17 +305,19 @@ def plan_roadmap_handler(args: dict, **kwargs: Any) -> str:
         return f"Konnte Roadmap '{name}' nicht speichern."
 
     # Remaining commands need an active roadmap
-    name = args.get("name", "")
-    if name:
-        if not set_active_roadmap(name):
-            avail = [r["name"] for r in _list_roadmaps()]
-            return f"Roadmap '{name}' nicht gefunden. Verfuegbar: {avail}"
-    elif _active_roadmap_name is None:
-        roadmaps = _list_roadmaps()
-        if not roadmaps:
-            return "Keine Roadmaps verfuegbar. Lege eine unter ~/.hermes/roadmaps/ an."
-        if not set_active_roadmap(roadmaps[0]["name"]):
-            return f"Konnte Roadmap '{roadmaps[0]['name']}' nicht laden"
+    # Note: for edit-phase, "name" is a phase property, not a roadmap selector
+    if cmd not in ("edit-phase",):
+        roadmap_name = args.get("name", "")
+        if roadmap_name:
+            if not set_active_roadmap(roadmap_name):
+                avail = [r["name"] for r in _list_roadmaps()]
+                return f"Roadmap '{roadmap_name}' nicht gefunden. Verfuegbar: {avail}"
+        elif _active_roadmap_name is None:
+            roadmaps = _list_roadmaps()
+            if not roadmaps:
+                return "Keine Roadmaps verfuegbar. Lege eine unter ~/.hermes/roadmaps/ an."
+            if not set_active_roadmap(roadmaps[0]["name"]):
+                return f"Konnte Roadmap '{roadmaps[0]['name']}' nicht laden"
 
     rname, rdata = _active_roadmap_name, _active_roadmap
     if rdata is None:
@@ -361,5 +363,72 @@ def plan_roadmap_handler(args: dict, **kwargs: Any) -> str:
             return f"Phase '{phase_id}' -> {new_status}"
         return f"Fehler: {msg}"
 
+    elif cmd == "update":
+        goal = args.get("goal", "")
+        if goal:
+            rdata["goal"] = goal
+            _save_roadmap(rname or "", rdata)
+            return f"Roadmap-Ziel aktualisiert: {goal}"
+        return "Bitte goal= angeben."
+
+    elif cmd == "edit-phase":
+        phase_id = args.get("phase", "")
+        if not phase_id:
+            return "Bitte phase=<id> angeben."
+        phase = _get_phase(rdata, phase_id)
+        if phase is None:
+            return f"Phase '{phase_id}' nicht gefunden."
+
+        changed = []
+        editable = {"name", "priority", "effort", "impact", "status"}
+        for key in editable:
+            val = args.get(key)
+            if val is not None:
+                phase[key] = val
+                changed.append(f"{key}={val}")
+
+        tasks = args.get("tasks")
+        if tasks is not None:
+            phase["tasks"] = tasks
+            changed.append(f"tasks=({len(tasks)} items)")
+
+        if not changed:
+            return "Keine Eigenschaften zum Ändern angegeben. Nutze: name, priority, effort, impact, tasks, status"
+
+        _save_roadmap(rname or "", rdata)
+        return f"Phase '{phase_id}' aktualisiert: {', '.join(changed)}"
+
+    elif cmd == "add-phase":
+        phase_data = args.get("phase_data")
+        if not phase_data:
+            return "Bitte phase_data= (dict) angeben."
+        phases = rdata.setdefault("phases", [])
+        phases.append(phase_data)
+        _save_roadmap(rname or "", rdata)
+        return f"Phase '{phase_data.get('id', '?')}' hinzugefügt ({len(phases)} Phasen)."
+
+    elif cmd == "remove-phase":
+        phase_id = args.get("phase", "")
+        if not phase_id:
+            return "Bitte phase=<id> angeben."
+        phases = rdata.get("phases", [])
+        found = [p for p in phases if p.get("id") == phase_id]
+        if not found:
+            return f"Phase '{phase_id}' nicht gefunden."
+        rdata["phases"] = [p for p in phases if p.get("id") != phase_id]
+        _save_roadmap(rname or "", rdata)
+        return f"Phase '{phase_id}' entfernt ({len(rdata['phases'])} Phasen verbleibend)."
+
+    elif cmd == "delete":
+        target = args.get("name", "")
+        if not target:
+            return "Bitte name=<roadmap-name> angeben."
+        success, msg = _delete_roadmap(target)
+        if success:
+            if rname == target:
+                reset_active_roadmap()
+            return msg
+        return f"Fehler: {msg}"
+
     else:
-        return f"Unbekannter Befehl '{cmd}'. Verfuegbar: status, show, to_plan, set, list, create"
+        return f"Unbekannter Befehl '{cmd}'. Verfuegbar: status, show, to_plan, set, list, create, update, edit-phase, add-phase, remove-phase, delete"
