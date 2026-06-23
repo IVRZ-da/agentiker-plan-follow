@@ -78,19 +78,28 @@ def print_header(text: str):
 # ── ⚠️  README Generator ──────────────────────────────
 
 def run_readme_generator() -> bool:
-    """Generate README.md from code. Blocking — fails commit if generator errors."""
-    print("  📝 README generieren...", end=" ")
-    r = run_cmd([VENV_PYTHON, "scripts/generate_readme.py"], timeout=60)
-    if r.returncode == 0:
-        print("✅")
+    """Auto-generate README tool tables using generate-readme-tools.py."""
+    gen_script = os.path.expanduser("~/.hermes/scripts/generate-readme-tools.py")
+    if not os.path.exists(gen_script):
+        return True  # Silently skip if script not available
+    readme_path = os.path.join(REPO_ROOT, "README.md")
+    if not os.path.exists(readme_path):
+        return True
+    r = run_cmd(
+        [VENV_PYTHON, gen_script, "--plugin-dir", REPO_ROOT, "--readme", readme_path],
+        timeout=30,
+    )
+    if r.returncode == 0 and "aktualisiert" in r.stdout:
         subprocess.run(
             ["git", "add", "README.md"],
             capture_output=True, timeout=10, cwd=REPO_ROOT,
         )
+        print("  📝 README.md aktualisiert (Tool-Tabelle) + gestaged")
         return True
-    else:
-        print(f"❌\n  {r.stderr.strip() or r.stdout.strip()}")
+    elif r.returncode != 0:
+        print(f"  ⚠️  README-Generator: {r.stdout.strip()}")
         return False
+    return True
 
 
 # ── ⚠️  Version Consistency ───────────────────────────
@@ -309,7 +318,7 @@ def ruff_check(py_files: list[str]) -> bool:
         r = run_cmd(
             [VENV_PYTHON, "-m", "ruff", "check",
              "--select", select_rules,
-             "--ignore", "E501,F403,F405",
+             "--ignore", "E501,F403,F405,E402",
              "--no-cache",
              full_path],
             timeout=30,

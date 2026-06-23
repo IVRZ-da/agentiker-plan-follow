@@ -888,6 +888,56 @@ def _register_skill(ctx: PluginContext) -> None:
         )
 
 
+def _ensure_deps() -> None:
+    """Auto-install fehlender Dependencies beim ersten Plugin-Start."""
+    import importlib
+    import logging
+    import subprocess
+    import sys
+
+    logger = logging.getLogger(__name__)
+
+    missing: list[str] = []
+    for pkg_name, import_name in [
+        ("PyYAML", "yaml"),
+        ("rich", "rich"),
+    ]:
+        try:
+            importlib.import_module(import_name)
+        except ImportError:
+            missing.append(pkg_name)
+
+    if not missing:
+        return
+
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install"] + missing,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("✅ Dependencies auto-installiert: %s", missing)
+        return
+    except Exception:
+        pass
+
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "--user"] + missing,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("✅ Dependencies via --user installiert: %s", missing)
+        return
+    except Exception as e:
+        logger.error(
+            "❌ Auto-Install fehlgeschlagen: %s. Manuell: %s -m pip install %s",
+            e,
+            sys.executable,
+            " ".join(missing),
+        )
+
+
 def _inject_steering_hints() -> None:
     """Add usage hints to existing tool descriptions (like code_intel does).
     Also deregisters the built-in `todo` tool since plan_todo replaces it.
@@ -913,6 +963,7 @@ def _inject_steering_hints() -> None:
 
 def register(ctx: PluginContext) -> None:
     """Plugin entry point."""
+    _ensure_deps()
     _register_tools(ctx)
     _register_hooks(ctx)
     _register_skill(ctx)
