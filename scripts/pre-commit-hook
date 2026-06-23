@@ -156,7 +156,21 @@ def check_merge_conflicts(staged_files: list[str]) -> bool:
     for sf in staged_files:
         if not sf.strip():
             continue
-        r = run_cmd(["git", "show", f":{sf}"], timeout=10)
+        # Skip binary files (images, coverage data, lockfiles, etc.)
+        _binary_exts = (".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg",
+                        ".woff", ".woff2", ".ttf", ".eot", ".otf",
+                        ".coverage", ".pyc", ".so", ".dll", ".dylib",
+                        ".zip", ".tar", ".gz", ".bz2", ".7z", ".xz",
+                        ".pdf", ".doc", ".xls", ".ppt",
+                        ".lock", ".yarn-integrity", ".cache")
+        _binary_names = (".coverage",)
+        if sf.endswith(_binary_exts) or sf in _binary_names:
+            continue
+        try:
+            r = run_cmd(["git", "show", f":{sf}"], timeout=10)
+        except UnicodeDecodeError:
+            # Binary file that git can't decode as text
+            continue
         if r.returncode != 0:
             continue
         content_bytes = r.stdout.encode('utf-8', errors='replace') if not isinstance(r.stdout, bytes) else r.stdout
@@ -662,14 +676,14 @@ def check_coverage() -> bool:
         if cov_line:
             print(f"  ✅ {cov_line[0].strip()}")
         else:
-            print(f"  ✅ Coverage >=90%")
+            print("  ✅ Coverage >=90%")
         return True
     else:
         cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
         if cov_line:
             print(f"  ❌ {cov_line[0].strip()} — Coverage zu niedrig!")
         else:
-            print(f"  ❌ Coverage <90% — Tests oder Coverage verbessern!")
+            print("  ❌ Coverage <90% — Tests oder Coverage verbessern!")
         print("  Commit abgebrochen — Coverage erhöhen vor erneutem Commit.")
         return False
 
@@ -785,7 +799,7 @@ def main():
     if not check_coverage():
         return 1
 
-    print(f"\n✅ Alle 13 Pre-Commit-Checks bestanden")
+    print("\n✅ Alle 13 Pre-Commit-Checks bestanden")
     elapsed = __import__("time").time() - (start_time if "start_time" in dir() else __import__("time").time())
     print(f"⏱️  Dauer: {elapsed:.1f}s")
     return 0
