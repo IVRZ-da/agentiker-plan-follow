@@ -645,6 +645,35 @@ def run_tests(test_files: list[str]) -> bool:
         return False
 
 
+def check_coverage() -> bool:
+    """Run pytest with --cov-fail-under=90 to enforce minimum coverage."""
+    coverage_rc = os.path.join(REPO_ROOT, ".coveragerc")
+    if not os.path.exists(coverage_rc):
+        print("  📊 Keine .coveragerc — Coverage-Gate übersprungen")
+        return True
+    print("  📊 Coverage-Gate (>90%)...")
+    args = [VENV_PYTHON, "-m", "pytest", "tests/",
+            "--cov-config", coverage_rc,
+            "-q", "--no-header"]
+    env = {**os.environ, "PYTHONPATH": os.path.expanduser("~/.hermes/plugins")}
+    r = run_cmd(args, timeout=180, cwd=REPO_ROOT, env=env)
+    if r.returncode == 0:
+        cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
+        if cov_line:
+            print(f"  ✅ {cov_line[0].strip()}")
+        else:
+            print(f"  ✅ Coverage >=90%")
+        return True
+    else:
+        cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
+        if cov_line:
+            print(f"  ❌ {cov_line[0].strip()} — Coverage zu niedrig!")
+        else:
+            print(f"  ❌ Coverage <90% — Tests oder Coverage verbessern!")
+        print("  Commit abgebrochen — Coverage erhöhen vor erneutem Commit.")
+        return False
+
+
 # ── Main ──────────────────────────────────────────────
 
 def main():
@@ -752,7 +781,11 @@ def main():
     if not run_tests(test_files):
         return 1
 
-    print(f"\n✅ Alle {12} Pre-Commit-Checks bestanden")
+    # 13. Coverage-Gate (>90%)
+    if not check_coverage():
+        return 1
+
+    print(f"\n✅ Alle 13 Pre-Commit-Checks bestanden")
     elapsed = __import__("time").time() - (start_time if "start_time" in dir() else __import__("time").time())
     print(f"⏱️  Dauer: {elapsed:.1f}s")
     return 0

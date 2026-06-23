@@ -64,6 +64,70 @@ TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
     },
 }
 
+
+def _auto_detect_project_defaults(repo: str = "") -> dict[str, str]:
+    """Auto-detect project type and return appropriate default commands.
+
+    Checks for project marker files in the repo directory (or CWD).
+    Returns a dict with test_command, lint_command, build_command, etc.
+    """
+    import os
+
+    base = repo or os.getcwd()
+
+    # Check for project markers
+    markers = {
+        "package.json": {
+            "test_command": "npm test",
+            "lint_command": "npx tsc --noEmit",
+            "typecheck_command": "npx tsc --noEmit",
+            "build_command": "npm run build",
+        },
+        "go.mod": {
+            "test_command": "go test ./...",
+            "lint_command": "go vet ./...",
+            "typecheck_command": "go vet ./...",
+            "build_command": "go build ./...",
+        },
+        "Cargo.toml": {
+            "test_command": "cargo test",
+            "lint_command": "cargo clippy",
+            "typecheck_command": "cargo check",
+            "build_command": "cargo build",
+        },
+        "pyproject.toml": {
+            "test_command": "python3 -m pytest",
+            "lint_command": "ruff check",
+            "typecheck_command": "python3 -m pyright",
+            "build_command": "python3 -m build",
+        },
+        "setup.py": {
+            "test_command": "python3 -m pytest",
+            "lint_command": "ruff check",
+            "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+            "build_command": "python3 -m build",
+        },
+        "composer.json": {
+            "test_command": "vendor/bin/phpunit",
+            "lint_command": "vendor/bin/phpcs",
+            "build_command": "composer install --no-dev",
+        },
+    }
+
+    for marker, defaults in markers.items():
+        marker_path = os.path.join(base, marker)
+        if os.path.exists(marker_path):
+            logger.info("Projekt-Auto-Detect: %s gefunden → %s Defaults", marker, defaults.get("test_command"))
+            return defaults
+
+    logger.debug("Projekt-Auto-Detect: Kein Marker gefunden in %s — Python-Defaults", base)
+    return {
+        "test_command": "python3 -m pytest",
+        "lint_command": "ruff check",
+        "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+        "build_command": "echo 'build: nicht konfiguriert'",
+    }
+
 BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "deploy": {
         "description": "Deployment: Build → Test → Deploy → Verify",
@@ -186,6 +250,12 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         ],
         "review_profile": "security",
     },
+    "multi": {
+        "description": "Multi-Step Plan mit benutzerdefinierten Tasks. Tasks werden via params.tasks definiert.",
+        "tasks": [],
+        "review_profile": "unit-test",
+        "_multi": True,
+    },
 }
 
 
@@ -245,6 +315,81 @@ def get_template_names() -> list[str]:
     return sorted(_get_all_templates().keys())
 
 
+def get_template_detail(name: str) -> Optional[dict]:
+    """Get details for a specific template (built-in or user)."""
+    templates = _get_all_templates()
+    tpl = templates.get(name)
+    if not tpl:
+        return None
+    return {
+        "name": name,
+        "description": tpl.get("description", ""),
+        "task_count": len(tpl.get("tasks", [])),
+        "review_profile": tpl.get("review_profile", "none"),
+        "is_user": name in _load_user_templates(),
+        "source": tpl.get("_source", "built-in"),
+    }
+
+
+def save_user_template(name: str, tasks: list[dict],
+                       description: str = "", review_profile: str = "none") -> dict:
+    """Save a user-defined template to TEMPLATES_DIR/{name}.yaml.
+
+    Args:
+        name: Template name (alphanumeric + hyphens only).
+        tasks: List of task dicts with id, name, files, verify, depends_on.
+        description: Optional description.
+        review_profile: Optional review profile.
+
+    Returns:
+        Dict with status and path.
+    """
+    if not TEMPLATES_DIR.exists():
+        TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Build YAML content manually to avoid dependency on pyyaml dump formatting
+    lines = [f"name: {name}"]
+    if description:
+        lines.append(f"description: {description}")
+    lines.append(f"review_profile: {review_profile}")
+    lines.append("tasks:")
+    for t in tasks:
+        tid = t.get("id", "")
+        tname = t.get("name", "")
+        tfiles = t.get("files", [])
+        tverify = t.get("verify", "")
+        tdepends = t.get("depends_on", [])
+        lines.append(f"  - id: {tid}")
+        lines.append(f"    name: {tname}")
+        lines.append(f"    files: {tfiles}")
+        lines.append(f"    verify: '{tverify}'")
+        lines.append(f"    depends_on: {tdepends}")
+
+    filepath = TEMPLATES_DIR / f"{name}.yaml"
+    filepath.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info("User-Template '%s' gespeichert als %s", name, filepath)
+    return {"status": "saved", "name": name, "path": str(filepath), "task_count": len(tasks)}
+
+
+def delete_user_template(name: str) -> dict:
+    """Delete a user-defined template file.
+
+    Args:
+        name: Template name (must be a user template, not built-in).
+
+    Returns:
+        Dict with status.
+    """
+    if name in BUILTIN_TEMPLATES:
+        return {"status": "error", "message": f"'{name}' is a built-in template and cannot be deleted."}
+    filepath = TEMPLATES_DIR / f"{name}.yaml"
+    if not filepath.exists():
+        return {"status": "error", "message": f"User template '{name}' not found at {filepath}."}
+    filepath.unlink()
+    logger.info("User-Template '%s' gelöscht", name)
+    return {"status": "deleted", "name": name}
+
+
 # ─── Parameter Substitution ───────────────────────────────────────────────────
 
 def _substitute_params(value: Any, params: dict[str, str]) -> Any:
@@ -268,7 +413,7 @@ def _substitute_params(value: Any, params: dict[str, str]) -> Any:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-TEMPLATE_NAMES = ["deploy", "fix", "bugfix", "feature", "refactoring", "research", "analysis"]
+TEMPLATE_NAMES = ["deploy", "fix", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "infrastructure", "go-setup", "security", "multi"]
 
 
 def expand_template(name: str, goal: str = "", params: Optional[dict] = None) -> dict:
@@ -295,6 +440,24 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
         "review_profile": template.get("review_profile", "none"),
         "description": template.get("description", ""),
     }
+
+    # ─── Multi-Template: Tasks aus params.tasks übernehmen ────────────────
+    # Das multi-Template erlaubt beliebig viele Tasks via params={"tasks": [...]}.
+    # Jeder Task braucht id, name, files, verify, depends_on, review_profile.
+    if template.get("_multi") and params and "tasks" in params:
+        if isinstance(params["tasks"], list) and len(params["tasks"]) > 0:
+            result["tasks"] = copy.deepcopy(params["tasks"])
+            merged_params = dict(TEMPLATE_DEFAULTS.get(name, {}))
+            if params:
+                merged_params.update({k: v for k, v in params.items() if k != "tasks"})
+            # Substitute placeholders in multi-tasks too
+            if merged_params:
+                for i, task in enumerate(result["tasks"]):
+                    for field in ("id", "name", "verify", "files", "depends_on", "review_profile"):
+                        if field in task:
+                            result["tasks"][i][field] = _substitute_params(task[field], merged_params)
+            # Continue to p0 insertion below
+        return {"error": "multi-Template erfordert params.tasks als Liste mit mindestens einem Task"}
 
     # ─── Auto p0: Peer-Review-Task vor alle anderen Tasks ────────────────
     # JEDER Plan hat einen p0-review Task als Task 0. Der Review prüft den
@@ -339,8 +502,13 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
             if not task.get("review_profile") or task["review_profile"] == "none":
                 result["tasks"][i]["review_profile"] = tpl_review
 
-    # Merge default params with user-provided params (user wins)
+    # Merge default params + auto-detect + user-provided params (user wins)
     merged_params = dict(TEMPLATE_DEFAULTS.get(name, {}))
+    # Auto-detect project type (checked via CWD, wird durch params überschrieben)
+    auto_defaults = _auto_detect_project_defaults()
+    for k, v in auto_defaults.items():
+        if k not in merged_params:
+            merged_params[k] = v
     if params:
         merged_params.update(params)
 

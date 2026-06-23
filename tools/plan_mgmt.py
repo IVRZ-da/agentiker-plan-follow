@@ -86,14 +86,16 @@ def delete_plan(plan_id: str) -> dict:
     if not path.exists():
         return {"status": "error", "message": f"Plan '{plan_id}' not found."}
 
-    if STATE.active_plan_id == plan_id:
+    was_active = STATE.active_plan_id == plan_id
+
+    if was_active:
         STATE.active_plan = None
         STATE.active_plan_id = None
 
     path.unlink()
 
-    # Fix B: Clear index if deleted plan was the active one
-    if STATE.active_plan_id is None:
+    # Clear index if deleted plan was the active one
+    if was_active:
         try:
             _clear_plans_index()
         except Exception:

@@ -1,0 +1,14 @@
+[run]
+source =
+    plan_follow
+    plan_follow.tools
+    plan_follow.mcp_server
+    plan_follow.plan_suggest
+    plan_follow.plan_decompose
+    plan_follow.plan_sync
+
+[report]
+fail_under = 90
+precision = 2
+show_missing = True
+skip_covered = False

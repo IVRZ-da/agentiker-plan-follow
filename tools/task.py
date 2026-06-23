@@ -27,7 +27,7 @@ from .status import _format_progress
 
 
 def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optional[dict] = None,
-                repos: Optional[list[str]] = None) -> str:
+                repos: Optional[list[str]] = None, plan_id_override: str = "") -> str:
     """Create a new plan and persist it. Returns plan_id.
 
     Args:
@@ -37,9 +37,14 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
         parallel_groups: Optional dict of groups.
         repos: Optional list of git repo paths for drift detection across
             multiple repositories.
+        plan_id_override: Optional custom plan_id. If provided, used instead
+            of auto-generated from goal.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-    plan_id = f"{now[:10]}-{goal.lower().replace(' ', '-')[:40]}"
+    if plan_id_override:
+        plan_id = plan_id_override
+    else:
+        plan_id = f"{now[:10]}-{goal.lower().replace(' ', '-')[:40]}"
 
     tasks_dict = {}
     for t in tasks:
@@ -361,6 +366,9 @@ def _advance_linear(plan: dict) -> None:
 def update_task(task_id: str, changes: dict) -> Optional[dict]:
     """Update a task's properties (files, verify, depends_on, name, review_profile).
 
+    Also supports updating plan-level properties (parallel_groups) by passing
+    parallel_groups in changes — these are applied to the plan, not the task.
+
     Returns the updated task dict if any keys were changed, or None if no
     supported keys matched (silent-ignore prevention).
     """
@@ -373,10 +381,19 @@ def update_task(task_id: str, changes: dict) -> Optional[dict]:
     if not task:
         return None
     updated = False
+
+    # Task-level updates
     for key in ("files", "verify", "depends_on", "name", "review_profile"):
         if key in changes:
             task[key] = changes[key]
             updated = True
+
+    # Plan-level updates (applied to plan, not task)
+    for key in ("parallel_groups",):
+        if key in changes:
+            plan[key] = changes[key]
+            updated = True
+
     if not updated:
         return None
     _save_plan(plan)

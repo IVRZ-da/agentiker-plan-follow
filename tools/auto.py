@@ -1,13 +1,163 @@
-"""auto.py — Auto-Verify, Auto-Commit, Drift for plan_follow tools/ subpackage."""
+"""auto.py — Auto-Verify, Auto-Commit, Auto-Advance, Review-Dispatch for plan_follow tools/ subpackage."""
 
 from __future__ import annotations
 
 import os
+from typing import Any, Optional
 
 from .base import (
     _get_active_plan,
     logger,
 )
+
+
+# ─── Re-exports from plan_review ──────────────────────────────────────────────
+
+def dispatch_review(
+    profile_name: str, task: dict, depth: str = "normal"
+) -> dict[str, Any]:
+    """Prepare review data for a task.
+
+    Delegates to plan_follow.plan_review.dispatch_review.
+
+    Args:
+        profile_name: Review profile name (unit-test, api-route, etc.)
+        task: Task dict from the plan (must include 'files', 'id', 'name')
+        depth: Review depth ('quick', 'normal', 'deep')
+
+    Returns:
+        Dict with 'status' key:
+          - 'ready' — review can proceed
+          - 'skipped' — no profile or no files
+          - 'error' — invalid state
+    """
+    from ..plan_review import dispatch_review as _dispatch
+
+    return _dispatch(profile_name, task, depth)
+
+
+# ─── Auto-Advance ─────────────────────────────────────────────────────────────
+
+def _find_next_linear(tasks: dict, completed_task_id: str) -> Optional[str]:
+    """Find the next pending task with satisfied dependencies (linear mode).
+
+    Returns task ID or None if all tasks are complete.
+    Does NOT modify the task dicts — pure read-only logic.
+    """
+    ordered = list(tasks.keys())
+    completed_idx = ordered.index(completed_task_id)
+
+    for i in range(completed_idx + 1, len(ordered)):
+        tid = ordered[i]
+        tdef = tasks[tid]
+        if tdef.get("status") != "pending":
+            continue
+        deps = tdef.get("depends_on", [])
+        if all(tasks.get(d, {}).get("status") == "completed" for d in deps):
+            return tid
+    return None
+
+
+def _find_next_parallel(tasks: dict, groups: dict,
+                         completed_task_id: str) -> Optional[str]:
+    """Find the next task in parallel group mode.
+
+    Returns task ID or None if all groups are done.
+    Does NOT modify the plan dict — pure read-only logic.
+    """
+    # Find which group the completed task belongs to (could be in_progress or completed)
+    current_group_id = None
+    for gid, group in groups.items():
+        if completed_task_id in group.get("tasks", []):
+            current_group_id = gid
+            break
+
+    if not current_group_id:
+        return None
+
+    current_group = groups[current_group_id]
+
+    # Are all tasks in this group complete?
+    all_done = all(
+        tasks.get(tid, {}).get("status") == "completed"
+        for tid in current_group.get("tasks", [])
+    )
+
+    if not all_done:
+        # Find next incomplete task in this group
+        for tid in current_group.get("tasks", []):
+            t = tasks.get(tid)
+            if t and t.get("status") != "completed":
+                return tid
+        return None
+
+    # Current group fully done — find next pending group
+    found_current = False
+    for gid, group in groups.items():
+        if gid == current_group_id:
+            found_current = True
+            continue
+        if found_current and group.get("status") == "pending":
+            # Return first task of next group
+            for tid in group.get("tasks", []):
+                t = tasks.get(tid)
+                if t and t.get("status") == "pending":
+                    return tid
+            break
+
+    return None
+
+
+def auto_advance(plan: dict, completed_task_id: str) -> dict[str, Any]:
+    """Determine the next task after completing the current one.
+
+    Pure read-only function — does NOT modify the plan dict.
+    Examines the plan's task structure to find the next task
+    that should become 'in_progress'.
+
+    Args:
+        plan: The plan dictionary (must have 'tasks').
+        completed_task_id: ID of the task that was just completed.
+
+    Returns:
+        Dict with:
+          - 'status': 'advanced' | 'completed' | 'error'
+          - 'next_task': task ID or None
+          - 'message': human-readable message
+    """
+    if not plan:
+        return {"status": "error", "next_task": None,
+                "message": "No plan provided."}
+    if not completed_task_id:
+        return {"status": "error", "next_task": None,
+                "message": "No completed task ID provided."}
+
+    tasks = plan.get("tasks", {})
+    if not tasks:
+        return {"status": "error", "next_task": None,
+                "message": "Plan has no tasks."}
+
+    if completed_task_id not in tasks:
+        return {"status": "error", "next_task": None,
+                "message": f"Task '{completed_task_id}' not found in plan."}
+
+    groups = plan.get("parallel_groups")
+    if groups:
+        next_task = _find_next_parallel(tasks, groups, completed_task_id)
+    else:
+        next_task = _find_next_linear(tasks, completed_task_id)
+
+    if next_task:
+        return {
+            "status": "advanced",
+            "next_task": next_task,
+            "message": f"Advanced to task '{next_task}'.",
+        }
+    return {
+        "status": "completed",
+        "next_task": None,
+        "message": "All tasks completed.",
+    }
 
 # ─── Auto-Verify & Auto-Commit ─────────────────────────────────────────────────
 
@@ -462,3 +612,8 @@ def check_drift() -> list:
             continue
 
     return unplanned
+
+
+# ─── Alias ─────────────────────────────────────────────────────────────────────
+
+auto_commit_task = auto_commit

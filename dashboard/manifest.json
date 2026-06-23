@@ -1,0 +1,17 @@
+{
+  "name": "plan-follow-dashboard",
+  "version": "0.1.0",
+  "label": "📋 Plans",
+  "icon": "list-checks",
+  "tabs": [
+    {
+      "id": "plans",
+      "label": "Alle Pläne",
+      "route": "/api/plugins/plan-follow-dashboard/plans",
+      "after": "agentiker-panel"
+    }
+  ],
+  "shellSlots": {
+    "sidebar": true
+  }
+}

@@ -31,9 +31,11 @@ TOOL_DESCRIPTIONS = {
         "Create a new structured plan with enforceable tasks. "
         "TEMPLATE IS REQUIRED — manual tasks are not allowed. "
         "Parameters:\n"
-        "- goal (str, required): The goal of the plan\n"
-        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|docs|go-setup|infrastructure|security\n"
-        "- params (dict, optional): Template parameter substitution for {{placeholders}}\n"
+        "- goal (str, required): The goal of the plan. Used for plan_id if plan_id not provided.\n"
+        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|docs|infrastructure|go-setup|security|multi)\n"
+        "- params (dict, optional): Template parameter substitution for {{placeholders}}. "
+        "Use params={'tasks': [...]} for the 'multi' template to define custom tasks.\n"
+        "- plan_id (str, optional): Custom plan ID. If provided, used instead of auto-generated ID from goal.\n"
         "- repo (str, optional): Git repo path for drift detection\n"
         "- parallel_groups (dict, optional): Parallel task groups. "
         "Keys are group IDs, values are {'tasks': ['id1', 'id2', ...]}. "
@@ -52,6 +54,7 @@ TOOL_DESCRIPTIONS = {
         "- task_id (str, required): The task ID to complete\n"
         "- skip_review (bool, optional): Skip review gate (default: false)\n"
         "- auto_verify (bool, optional): Run the task's verify command automatically (default: false)\n"
+        "- auto_retry (int, optional): Auto-retry verify up to N times on failure (default: 0)\n"
         "- auto_commit (bool, optional): Git-commit task files after completion (default: false)\n"
         "Before completing, checks review gate, runs auto-verify (if enabled), and checks git diff for drift. "
         "Returns verification results and the next task to work on."
@@ -79,7 +82,8 @@ TOOL_DESCRIPTIONS = {
         "Update a task's properties without aborting the plan. "
         "Parameters:\n"
         "- task_id (str, required): The task ID to update\n"
-        "- changes (dict, required): Fields to update (files, verify, depends_on, name, review_profile)\n"
+        "- changes (dict, required): Fields to update (files, verify, depends_on, name, review_profile, parallel_groups)\n"
+        "parallel_groups is a plan-level change — updates the parallel group structure. "
         "Use this for 'living document' scenario when new information surfaces."
     ),
     "plan_auto_review": (
@@ -106,6 +110,72 @@ TOOL_DESCRIPTIONS = {
     "plan_review_profiles": (
         "Show all available review profiles with their names, descriptions, and checks. "
         "Use this to see what each profile validates before selecting one for a task."
+    ),
+    "plan_review_save_result": (
+        "Save a review result for a task. "
+        "Parameters:\n"
+        "- task_id (str, required): The task ID\n"
+        "- status (str, optional): 'passed' (default) or 'failed'\n"
+        "- issues (list, optional): List of issue dicts\n"
+        "- summary (str, optional): Review summary text\n"
+        "Persists the result so plan_complete() can pass the review gate. "
+        "Call this AFTER running a review via delegate_task."
+    ),
+    "plan_template": (
+        "Manage user-defined plan templates. "
+        "Parameters:\n"
+        "- action (str, required): 'list', 'detail', 'save', or 'delete'\n"
+        "- name (str, optional): Template name (required for detail/save/delete)\n"
+        "- tasks (list, optional): List of task dicts (required for save)\n"
+        "- description (str, optional): Template description (for save)\n"
+        "- review_profile (str, optional): Review profile (for save, default: none)\n"
+        "User templates are stored as YAML in ~/.hermes/plans/templates/."
+    ),
+    "plan_suggest": (
+        "Suggest a plan decomposition for a goal by analyzing the project. "
+        "Parameters:\n"
+        "- goal (str, required): The goal to generate suggestions for.\n"
+        "- project_root (str, optional): Project root path.\n"
+        "Scans project type, frameworks, and matching patterns to suggest "
+        "an appropriate template and task list. Use the output with plan_create()."
+    ),
+    "plan_time": (
+        "Track time spent on tasks. "
+        "Parameters:\n"
+        "- action (str, required): 'start', 'stop', 'status', or 'history'\n"
+        "- task_id (str, optional): Task ID\n"
+        "- plan_id (str, optional): Plan ID\n"
+        "Use start when beginning a task, stop when completing. "
+        "History shows all tracked time entries."
+    ),
+    "plan_simulate": (
+        "Simulate a plan to find critical path and parallelization opportunities. "
+        "Parameters:\n"
+        "- plan_id (str, optional): Plan ID to simulate (defaults to active plan).\n"
+        "Analyzes the dependency graph, finds the critical path (longest chain), "
+        "and suggests optimal parallelization. "
+        "Use this BEFORE plan_create to optimize task ordering."
+    ),
+    "plan_sync": (
+        "Sync plans with external systems. "
+        "Parameters:\n"
+        "- action (str, required): 'github', 'export', or 'import'\n"
+        "- plan_id (str, optional): Plan ID (defaults to active plan)\n"
+        "- repo (str, optional): GitHub repo (owner/repo, for github action)\n"
+        "- markdown (str, optional): Markdown content (for import action)\n"
+        "Sync creates GitHub Issues from plan tasks. "
+        "Export produces Markdown. Import parses Markdown back to a plan."
+    ),
+    "plan_decompose": (
+        "Manage hierarchical task decomposition (compound tasks with sub-tasks). "
+        "Parameters:\n"
+        "- action (str, required): 'expand', 'collapse', 'status', 'create', or 'delegate'\n"
+        "- task_id (str, optional): Task ID for expand/collapse/status/delegate\n"
+        "- name (str, optional): Compound task name for create\n"
+        "- subtasks (list, optional): Sub-task definitions for create\n"
+        "- delegate: Prepares a task for execution by a subagent via delegate_task.\n"
+        "Compound tasks aggregate sub-task status. "
+        "Expanded sub-tasks become top-level tasks with '_parent_task' marker."
     ),
     "plan_list": (
         "List all plans (including completed and aborted ones), newest first. "
@@ -303,6 +373,13 @@ PLAN_TOOLS = [
     ("plan_review", plan_tools.plan_review_tool),
     ("plan_auto_review", plan_tools.plan_auto_review_tool),
     ("plan_review_profiles", plan_tools.plan_review_profiles_tool),
+    ("plan_review_save_result", plan_tools.plan_review_save_result_tool),
+    ("plan_template", plan_tools.plan_template_tool),
+    ("plan_suggest", plan_tools.plan_suggest_tool),
+    ("plan_time", plan_tools.plan_time_tool),
+    ("plan_simulate", plan_tools.plan_simulate_tool),
+    ("plan_sync", plan_tools.plan_sync_tool),
+    ("plan_decompose", plan_tools.plan_decompose_tool),
     ("plan_list", plan_tools.plan_list_tool),
     ("plan_abort", plan_tools.plan_abort_tool),
     ("plan_delete", plan_tools.plan_delete_tool),
@@ -488,6 +565,70 @@ PER_TOOL_SCHEMAS = {
     "plan_review_profiles": {
         "type": "object",
         "properties": {},
+    },
+    "plan_review_save_result": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "string", "description": "Task ID"},
+            "status": {"type": "string", "description": "'passed' or 'failed'", "default": "passed"},
+            "issues": {"type": "array", "items": {"type": "object"}, "description": "List of issue dicts"},
+            "summary": {"type": "string", "description": "Review summary text"},
+        },
+        "required": ["task_id"],
+    },
+    "plan_template": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "list, detail, save, or delete"},
+            "name": {"type": "string", "description": "Template name (required for detail/save/delete)"},
+            "tasks": {"type": "array", "description": "Task dicts for save action"},
+            "description": {"type": "string", "description": "Template description"},
+            "review_profile": {"type": "string", "description": "Review profile for template"},
+        },
+        "required": ["action"],
+    },
+    "plan_suggest": {
+        "type": "object",
+        "properties": {
+            "goal": {"type": "string", "description": "The goal to generate suggestions for"},
+            "project_root": {"type": "string", "description": "Optional project root path"},
+        },
+        "required": ["goal"],
+    },
+    "plan_time": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "start, stop, status, or history"},
+            "task_id": {"type": "string", "description": "Task ID"},
+            "plan_id": {"type": "string", "description": "Plan ID"},
+        },
+        "required": ["action"],
+    },
+    "plan_simulate": {
+        "type": "object",
+        "properties": {
+            "plan_id": {"type": "string", "description": "Plan ID (optional — defaults to active plan)"},
+        },
+    },
+    "plan_sync": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "github, export, or import"},
+            "plan_id": {"type": "string", "description": "Plan ID"},
+            "repo": {"type": "string", "description": "GitHub repo (owner/repo)"},
+            "markdown": {"type": "string", "description": "Markdown content for import"},
+        },
+        "required": ["action"],
+    },
+    "plan_decompose": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "description": "expand, collapse, status, create, or delegate"},
+            "task_id": {"type": "string", "description": "Task ID"},
+            "name": {"type": "string", "description": "Compound task name for create"},
+            "subtasks": {"type": "array", "description": "Sub-task definitions for create"},
+        },
+        "required": ["action"],
     },
     "plan_list": {
         "type": "object",

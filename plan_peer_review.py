@@ -186,24 +186,38 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
         verify = t.get("verify", "").strip()
 
         if not verify:
+            # Auto-detect project type for a meaningful verify command
+            try:
+                from .plan_templates import _auto_detect_project_defaults
+                auto = _auto_detect_project_defaults()
+                auto_verify = auto.get("test_command", "python3 -m pytest")
+            except Exception:
+                auto_verify = "python3 -m pytest"
             _add(
                 "verify", CRITICAL,
                 f"Task '{tid}' ('{t.get('name', '')}') has an empty verify command. "
-                f"Add a command that verifies the task's result.",
+                f"Auto-generiert: '{auto_verify}'.",
                 task_id=tid,
-                fix={"verify": "exit 1 # FIXME: Ersetze durch echten verify-Command"},
+                fix={"verify": auto_verify},
             )
             continue
 
         # Check for meaningless echo commands
         if any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS):
+            # Auto-detect project type for a meaningful verify command
+            try:
+                from .plan_templates import _auto_detect_project_defaults
+                auto = _auto_detect_project_defaults()
+                auto_verify = auto.get("test_command", "python3 -m pytest")
+            except Exception:
+                auto_verify = "python3 -m pytest"
             _add(
                 "verify", CRITICAL,
                 f"Task '{tid}' ('{t.get('name', '')}') verify command "
                 f"'{verify}' doesn't verify anything meaningful — "
-                f"ersetzte durch echten Testlauf (z.B. npm test, pytest, go test, tsc --noEmit).",
+                f"ersetzt durch '{auto_verify}'.",
                 task_id=tid,
-                fix={"verify": "exit 1 # FIXME: Ersetze durch echten verify-Command (npm test, pytest, go test, etc.)"},
+                fix={"verify": auto_verify},
             )
             continue
 

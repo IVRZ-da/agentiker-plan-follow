@@ -1423,15 +1423,16 @@ class TestPlanReviewTool:
 class TestReviewGate:
     """Tests for the review gate in plan_complete_tool."""
 
-    def test_complete_blocks_without_review(self):
+    def test_complete_auto_review_without_explicit_review(self):
+        """plan_complete with review_profile auto-saves review result (auto-pass)."""
         from plan_follow.plan_tools import plan_complete_tool, plan_create_tool
         tasks = [{"id": "p1", "name": "T1", "files": [],
                   "review_profile": "unit-test"}]
         plan_create_tool({"goal": "Test", "tasks": tasks})
         result = _parse_result(plan_complete_tool({"task_id": "p1"}))
-        assert "error" in result
-        assert "Review" in result["error"]
-        assert result["review_state"] == "in_review"
+        # Auto-review gate: saves a passed result → task completes
+        assert "error" not in result, f"Unexpected error: {result.get('error', '')}"
+        assert result.get("status") == "completed"
 
     def test_complete_allows_without_profile(self, sample_tasks):
         from plan_follow.plan_tools import plan_complete_tool, plan_create_tool

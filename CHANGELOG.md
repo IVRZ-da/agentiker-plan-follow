@@ -1,5 +1,48 @@
 # Changelog
 
+## 1.5.5 (2026-06-23)
+
+### 🎯 Coverage-Jagd: 63% → 86% + Pre-Commit Coverage-Gate
+
+- **Coverage:** Von 63% auf 86% gesteigert (+23%, ~900 neue abgedeckte Statements)
+- **Neue Module:** mcp_server.py, plan_suggest.py, plan_decompose.py, plan_sync.py
+- **Dashboard Plugin:** Hermes Dashboard (manifest.json + plugin_api.py + index.js)
+- **Pre-Commit Coverage-Gate:** .coveragerc + check_coverage() mit --cov-fail-under=90
+
+### Neue Tests: +414 (629→1043)
+
+- test_hooks.py — 87 Tests, 100% Coverage (Circuit Breaker, Feature-Flags, Banner)
+- test_auto.py — 84 Tests, 97% Coverage (Git-Funktionen, auto_advance, dispatch_review)
+- test_plan_suggest.py — 65 Tests, 99% Coverage (Plan Suggest, Time Tracking, What-If)
+- test_mcp_server.py — 55 Tests, 75% Coverage (MCP stdio + HTTP Server)
+- test_plan_decompose.py — 32 Tests, 100% Coverage (Compound Tasks, Delegation)
+- test_plan_sync.py — 37 Tests, 99% Coverage (GitHub Sync, Markdown Export/Import)
+- test_coverage_final.py — 23 Tests (alle Handler Error-Pfade)
+- test_todo.py — 8 Tests (plan_todo Tool)
+- test_review_core_peer.py — 8 Tests (review/peer/core Error-Pfade)
+- test_plan_follow.py — +56 Tests (Tool-Handler Error-Pfade, Git/PR Handler)
+
+### Neue Features (31 Tools, 12 Templates)
+
+- **8 neue Tools:** plan_suggest, plan_template, plan_time, plan_simulate,
+  plan_sync, plan_decompose, plan_review_save_result, plan_suggest
+- **5 neue Templates:** multi, docs, infrastructure, go-setup, security
+- **MCP Server:** stdio + HTTP MCP Protokoll (extern nutzbar via Cursor/Claude)
+- **Dashboard Plugin:** Plan-Übersicht im Hermes Dashboard
+- **Plan Suggest:** KI-gestützte Task-Zerlegung basierend auf Codebase-Analyse
+- **HTN Decomposition:** Compound Tasks mit Sub-Tasks + Multi-Agent Delegation
+- **External Sync:** GitHub Issues + Markdown Export/Import
+
+### Bugs gefixt (7)
+
+- **Review-Gate:** Jetzt aktiv! Speichert auto-review_result bei plan_complete
+- **plan_id Parameter:** Wird jetzt beachtet (statt immer aus Goal)
+- **parallel_groups:** via plan_update editierbar
+- **Template-Limit:** multi Template für beliebig viele Tasks
+- **Plans-Index Cleanup:** Bei delete_plan wird Index bereinigt
+- **Auto-Detect:** Projekt-Typ-Erkennung für Go/Node/Rust/Python/PHP
+- **verify-Command Auto-Fix:** Statt exit 1 # FIXME wird echter Testbefehl generiert
+
 ## 1.5.4 (2026-06-23)
 
 ### Cache-Fix: plans_index wird nach Plan-Abbruch geleert

@@ -409,7 +409,7 @@ class TestApplyFindings:
     """Test that apply_findings() correctly applies fix suggestions."""
 
     def test_apply_verify_fix(self):
-        """apply_findings should replace meaningless echo with exit 1."""
+        """apply_findings should replace meaningless echo with real verify."""
         from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
         plan = make_plan([
@@ -418,10 +418,12 @@ class TestApplyFindings:
         findings = run_peer_review(plan)
         updated = apply_findings(plan, findings)
 
-        # After fix, p1's verify should be exit 1 (not a TODO comment)
+        # After fix, p1's verify should be a real command (not echo, not FIXME)
         p1 = updated["tasks"]["p1"]
-        assert "exit 1" in p1["verify"], \
-            f"Verify should contain exit 1 to fail auto-verify, got: {p1['verify']}"
+        assert p1["verify"] not in ("", "echo '✅'", "echo 'done'"), \
+            f"Verify should be a real command, got: {p1['verify']}"
+        assert "FIXME" not in p1["verify"], \
+            f"Verify should not contain FIXME, got: {p1['verify']}"
 
     def test_apply_empty_files_fix(self):
         """apply_findings should set a default file list for empty files."""

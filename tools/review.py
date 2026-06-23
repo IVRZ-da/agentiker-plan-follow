@@ -39,6 +39,7 @@ def is_review_passed(task: dict) -> bool:
     """Check if a task has passed its review (if required).
 
     If review_profile is 'none', the task is considered passed.
+    Code tasks (non-p0) without review_profile default to 'unit-test'.
     Otherwise, requires review_result with status='passed'.
 
     Args:
@@ -48,6 +49,12 @@ def is_review_passed(task: dict) -> bool:
         True if review passed or not required.
     """
     profile = task.get("review_profile", "none")
+
+    # Auto-default: non-admin code tasks without explicit review_profile get 'unit-test'
+    if profile == "none" and task.get("id", "") != "p0" and "review_profile" not in task:
+        profile = "unit-test"
+        task["review_profile"] = "unit-test"
+
     if profile == "none":
         return True
     result = task.get("review_result")
