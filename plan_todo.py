@@ -126,9 +126,9 @@ def _apply_write(todos: list) -> list:
                 result = plan_core.update_task(tid, {"status": new_status})
                 if result:
                     pass
-            except Exception:
+            except Exception as e:
                 # update_task unterstützt kein status-Feld → silent skip
-                pass
+                logger.debug("update_task status change failed: %s", e)
 
     # Neu einlesen nach Änderungen
     todos = _get_todo_list()

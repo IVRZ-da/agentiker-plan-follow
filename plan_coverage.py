@@ -274,8 +274,8 @@ def measure_coverage(
                             "passed": pct >= threshold,
                             "threshold": threshold,
                         }
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug("Coverage JSON parse failed, falling back to regex: %s", e)
 
             # Parse coverage summary from stdout
             pct_match = re.search(r"TOTAL\s+\d+\s+\d+\s+(\d+)\s+(\d+)%\s*$", stdout, re.MULTILINE)

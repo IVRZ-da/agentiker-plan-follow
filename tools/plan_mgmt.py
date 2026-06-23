@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from .base import (
+    _clear_plans_index,
     _get_active_plan,
     _plan_path,
     _save_plan,
@@ -41,6 +42,7 @@ def abort_plan(task_id: str = "") -> dict:
         _auto_unlock_task_files(task)
         if plan.get("current_task") == task_id:
             plan["current_task"] = None
+        _save_plan(plan)
         msg = f"Task '{task_id}' aborted."
     else:
         for tid, t in plan["tasks"].items():
@@ -48,9 +50,17 @@ def abort_plan(task_id: str = "") -> dict:
                 t["status"] = "aborted"
                 _auto_unlock_task_files(t)
         plan["current_task"] = None
-        msg = "Whole plan aborted."
+        _save_plan(plan)
 
-    _save_plan(plan)
+        # Fix A: Clear cache + index so aborted plan isn't recovered
+        STATE.active_plan = None
+        STATE.active_plan_id = None
+        try:
+            _clear_plans_index()
+        except Exception:
+            logger.debug("Plans index clear failed (best-effort)")
+
+        msg = "Whole plan aborted."
 
     # Cross-Session: Deregistrierung bei Abbruch
     try:
@@ -81,6 +91,13 @@ def delete_plan(plan_id: str) -> dict:
         STATE.active_plan_id = None
 
     path.unlink()
+
+    # Fix B: Clear index if deleted plan was the active one
+    if STATE.active_plan_id is None:
+        try:
+            _clear_plans_index()
+        except Exception:
+            logger.debug("Plans index clear failed (best-effort)")
 
     # Cross-Session: Deregistrierung bei Löschung
     try:
@@ -214,10 +231,14 @@ def archive_plan(plan_id: str) -> dict:
     if STATE.active_plan_id == plan_id:
         STATE.active_plan = None
         STATE.active_plan_id = None
+        try:
+            _clear_plans_index()
+        except Exception:
+            logger.debug("Plans index clear failed (best-effort)")
 
     return {
         "status": "archived", "plan_id": plan_id,
-        "message": f"Plan '{plan_id}' archived (\u2192 {resolve_archive_dir().relative_to(Path.home()) if Path.home() in resolve_archive_dir().parents else resolve_archive_dir()}/).",
+        "message": f"Plan '{plan_id}' archived (→ {resolve_archive_dir().relative_to(Path.home()) if Path.home() in resolve_archive_dir().parents else resolve_archive_dir()}/).",
     }
 
 

@@ -373,24 +373,24 @@ class TestDiskRecovery:
         assert recovered == plan_id
 
     def test_recover_from_fallback(self, sample_tasks):
-        """Wenn alle Pläne completed sind, wird die neueste JSON geladen."""
+        """Wenn alle Pläne completed sind, gibt es keinen aktiven Plan mehr."""
         from plan_follow.plan_core import (
             PLANS_INDEX,
             _recover_plan_from_disk,
             _reset_cache,
             create_plan,
         )
-        plan_id = create_plan("Test", sample_tasks)
+        create_plan("Test", sample_tasks)
         from plan_follow.plan_core import complete_task
         complete_task("p1")
         complete_task("p2")
         complete_task("p3")
-        # Plan is now complete (no current_task)
+        # Plan is now complete (no current_task) — should return None
         if PLANS_INDEX.exists():
             PLANS_INDEX.unlink()
         _reset_cache()
         recovered = _recover_plan_from_disk()
-        assert recovered == plan_id
+        assert recovered is None, "Completed plans should not be recovered"
 
     def test_recover_no_plans(self):
         """Leeres Verzeichnis gibt None zurück."""

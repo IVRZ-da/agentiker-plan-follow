@@ -322,8 +322,8 @@ def _build_tts_banner() -> list[str]:
         if not tts_flags:
             active_plan.pop("tts_flags", None)
         plan_core._save_plan(active_plan)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("TTS flag save failed (non-blocking): %s", e)
     return lines
 
 
@@ -540,5 +540,5 @@ def on_post_tool_call(**kwargs: Any) -> None:
         entry = f"[{iso}] {tool_name} | {status} | {duration}ms\n"
         with open(log_file, "a") as f:
             f.write(entry)
-    except Exception:
-        pass  # Best-effort logging only
+    except Exception as e:
+        logger.warning("Session log write failed: %s", e)

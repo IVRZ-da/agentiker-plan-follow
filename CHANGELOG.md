@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.4 (2026-06-23)
+
+### Cache-Fix: plans_index wird nach Plan-Abbruch geleert
+
+- **Fix A:** `abort_plan()` (ganzer Plan) — STATE + plans_index.json werden geleert, sodass abgebrochene Pläne nicht in neuen Sessions wiederhergestellt werden
+- **Fix B:** `delete_plan()` — plans_index.json wird bereinigt wenn der gelöschte Plan aktiv war
+- **Fix C:** `_recover_plan_from_disk()` — Schritt 3 (Fallback auf neueste JSON) entfernt. Nur Pläne mit `current_task` werden noch wiederhergestellt. Keine inaktiven/abgeschlossenen Pläne mehr.
+- **Erweiterung:** `archive_plan()` — leert ebenfalls plans_index.json beim Archivieren des aktiven Plans
+- **Neue Hilfsfunktion:** `_clear_plans_index()` in base.py — entfernt `active_plan_id` aus Index
+
+### Tests
+- `test_recover_from_fallback` an neues Verhalten angepasst (completed plans → None statt Fallback)
+- 629 Tests, alle grün
+
 ## 1.5.3 (2026-06-22)
 
 ### Bug-Hunt Fixes: shell=True, Silent Catches, f-Strings

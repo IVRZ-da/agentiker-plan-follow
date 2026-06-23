@@ -724,7 +724,7 @@ def _register_tools(ctx: PluginContext) -> None:
             handler=handler,
             description=TOOL_DESCRIPTIONS.get(name, ""),
         )
-    logger.info("plan_follow: 24 tools registered (plan_create/current/complete/verify/status/todo/update/review/auto_review/review_profiles/list/abort/delete/select/validate/duedate/archive/restore/roadmap/session/lock/notify/history/git_init)")
+    logger.info("plan_follow: %d tools registered", len(PLAN_TOOLS))
 
 
 def _register_hooks(ctx: PluginContext) -> None:

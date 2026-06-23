@@ -110,24 +110,41 @@ def _update_plans_index(plan: dict) -> None:
         logger.warning("plans_index.json could not be written")
 
 
+def _clear_plans_index() -> None:
+    """Remove active plan entry from plans_index.json."""
+    index = {}
+    if resolve_plans_index().exists():
+        try:
+            index = json.loads(resolve_plans_index().read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            pass
+    index.pop("active_plan_id", None)
+    index.pop("active_goal", None)
+    index.pop("active_since", None)
+    index["last_updated"] = datetime.now(timezone.utc).isoformat()
+    try:
+        resolve_plans_index().write_text(json.dumps(index, indent=2), encoding="utf-8")
+    except OSError:
+        logger.warning("plans_index.json could not be written")
+
+
 def _recover_plan_from_disk() -> Optional[str]:
     """Find the most recent active plan on disk.
 
     Search order:
-    1. plans_index.json → active_plan_id (exact match, fastest)
+    1. plans_index.json → active_plan_id, only if plan has a current_task
     2. Newest .json with current_task set (actively in progress)
-    3. Newest .json overall (fallback — any plan)
 
-    Returns plan_id or None.
+    Returns plan_id or None (no in-progress plan on disk).
     """
-    # 1. Index file
+    # 1. Index file — only if the plan has a valid current_task
     if resolve_plans_index().exists():
         try:
             index = json.loads(resolve_plans_index().read_text(encoding="utf-8"))
             pid = index.get("active_plan_id")
             if pid and _plan_path(pid).exists():
                 plan = _load_plan(pid)
-                if plan:
+                if plan and plan.get("current_task"):
                     logger.info("Disk-Recovery (Index): Plan '%s' loaded from index", pid)
                     return pid
         except (json.JSONDecodeError, KeyError, OSError):
@@ -150,17 +167,7 @@ def _recover_plan_from_disk() -> Optional[str]:
         except (json.JSONDecodeError, OSError):
             continue
 
-    # 3. Neueste JSON allgemein
-    for f in json_files:
-        if f.name == "plans_index.json":
-            continue
-        try:
-            pid = json.loads(f.read_text(encoding="utf-8")).get("plan_id", f.stem)
-            logger.info("Disk-Recovery (Fallback): Plan '%s' loaded from fallback JSON", pid)
-            return pid
-        except (json.JSONDecodeError, OSError):
-            continue
-
+    # No in-progress plan found — return None so _get_active_plan() stays empty
     return None
 
 
