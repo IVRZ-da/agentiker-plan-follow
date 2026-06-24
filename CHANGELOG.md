@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.5 (2026-06-23)
+
+### 🔄 Version korrigiert auf 0.x.x-Schema
+
+- **Version:** 1.5.5 → 0.5.5 (Versionierung auf 0.00.01-Schema umgestellt)
+- **VERSION-Datei:** Angelegt als Single-Source-of-Truth
+- **Plugin.yaml:** An 0.5.5 angeglichen
+- **Hintergrund:** Major-Version wurde auf 0 gesetzt, da das Plugin noch in aktiver Entwicklung ist.
+  Zukünftig nur +0.0.01 Schritte (0.5.5 → 0.5.6 → ... → 0.5.99 → 0.6.00)
+
 ## 1.5.5 (2026-06-23)
 
 ### 🎯 Coverage-Jagd: 63% → 86% + Pre-Commit Coverage-Gate

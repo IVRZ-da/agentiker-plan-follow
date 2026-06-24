@@ -1,17 +1,17 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.5.1) — 38 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
-version: 1.4.3
+description: "Plugin-provided skill (v0.5.5) — 38 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
+version: 0.5.5
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
 related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
 ---
 
-# Plan-Follow Skill v1.4.2
+# Plan-Follow Skill v0.5.5
 
-**Plugin-provided skill (plan_follow plugin, v1.4.2).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
+**Plugin-provided skill (plan_follow plugin, v0.5.5).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
 
-Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
+Seit v0.5.5 (Modul-Split ursprünglich in v1.4.2): `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
 ## Tools (38)
 
@@ -129,7 +129,7 @@ Injiziert in JEDEN Turn einen Banner mit:
 - **Coverage Enforcement:** `plan_coverage.py` misst pytest-cov Coverage + Mutation Testing (mutmut)
 - **Git-Integration:** Auto-Commit in PLANS_DIR `.git`, plan_history zeigt Git-Log
 
-## Architektur (seit v1.4.2)
+## Architektur
 
 ```
 plan_follow/
