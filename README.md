@@ -139,14 +139,16 @@ plugins:
 Dependencies installieren:
 
 ```bash
-# Ins Hermes-Venv installieren
-~/.hermes/hermes-agent/venv/bin/pip install -e /home/jo/.hermes/plugins/plan_follow/
+# Ins Hermes-Venv installieren (vom Plugin-Ordner aus)
+cd ~/.hermes/plugins/agentiker-plan-follow
+~/.hermes/hermes-agent/venv/bin/pip install -e .
 
 # Oder via Script
 ./scripts/install-deps.sh
 
 # Mit Dashboard-Unterstützung:
-pip install -e /home/jo/.hermes/plugins/plan_follow/[dashboard]
+cd ~/.hermes/plugins/agentiker-plan-follow
+pip install -e ".[dashboard]"
 ```
 
 **Dependencies:** `rich>=13.0`, `PyYAML>=6.0`, `fastapi>=0.133.0` (optional für Dashboard)
@@ -200,7 +202,7 @@ pip install -e /home/jo/.hermes/plugins/plan_follow/[dashboard]
 ## 🧪 Development
 
 ```bash
-cd /home/jo/.hermes/plugins/plan_follow
+cd ~/.hermes/plugins/agentiker-plan-follow
 
 # Tests ausführen
 python3 -m pytest tests/ -q --tb=short
