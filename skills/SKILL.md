@@ -1,6 +1,6 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.5.1) — 24 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
+description: "Plugin-provided skill (v1.5.1) — 38 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
 version: 1.4.3
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
@@ -13,7 +13,7 @@ related_skills: [requesting-code-review, code-intel-code-review, plan-peer-revie
 
 Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
-## Tools (31)
+## Tools (38)
 
 | Tool | Funktion |
 |------|----------|
@@ -38,16 +38,18 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `plan_roadmap(cmd, action, name, phase, status, goal, phases, phase_data, priority, effort, impact, tasks)` | Roadmap YAML-Management (11 Subcommands) |
 | `plan_session()` | Cross-Session Status + History anzeigen |
 | `plan_lock(action, path, session_id)` | File-Lock-Management (acquire/release/list/check) |
-| `plan_notify(action, to, message)` | Notifications senden/empfangen/listen |
-| `plan_history(plan_id, lines)` | Git-History eines Plans anzeigen |
-| `plan_git_init(message)` | Git-Repo für PLANS_DIR initialisieren |
-| `plan_git_push(remote, branch)` | Push committed changes to remote |
-| `plan_git_status()` | Git-Status: Branch, Dirty, Ahead/Behind |
-| `plan_git_sync(remote, branch, push)` | Pull → Add → Commit → Push |
-| `plan_git_stash(action, message)` | Stash push/pop/list |
-| `plan_git_branch(action, name)` | Branch current/list/create/switch/delete |
-| `plan_git_tag(action, tag_name, message)` | Tag create/list/delete |
-| `plan_pr_create(title, body, head, base, owner, repo_name)` | PR via Forgejo API erstellen |
+|| `plan_notify(action, to, message)` | Notifications senden/empfangen/listen |
+|| `plan_history(plan_id, lines)` | Git-History eines Plans anzeigen |
+|| `plan_git_init(message)` | Git-Repo für PLANS_DIR initialisieren |
+|| `plan_git_push(remote, branch)` | Push committed changes to remote |
+|| `plan_git_status()` | Git-Status: Branch, Dirty, Ahead/Behind |
+|| `plan_git_sync(remote, branch, push)` | Pull → Add → Commit → Push |
+|| `plan_git_stash(action, message)` | Stash push/pop/list |
+|| `plan_git_branch(action, name)` | Branch current/list/create/switch/delete |
+|| `plan_git_tag(action, tag_name, message)` | Tag create/list/delete |
+|| `plan_pr_create(title, body, head, base, owner, repo_name)` | PR via Forgejo API erstellen |
+
+## Templates (7)
 
 ## Templates (7)
 

@@ -309,7 +309,7 @@ def run_http(host: str = "127.0.0.1", port: int = 8123):
         host: Bind address.
         port: Port number.
     """
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
     class MCPHandler(BaseHTTPRequestHandler):
         def do_POST(self):

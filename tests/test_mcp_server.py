@@ -59,7 +59,7 @@ sys.modules["hermes_cli"] = hermes_cli_mock
 sys.modules["hermes_cli.plugins"] = hermes_cli_mock.plugins
 
 # ─── Now we can safely import the module under test ──────────────────────
-from plan_follow import mcp_server as mcp
+from plan_follow import mcp_server as mcp  # noqa: E402
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Fixtures & Helpers
@@ -546,7 +546,7 @@ class TestRunFunctions:
     def test_run_http_smoke(self):
         """run_http starts and can be stopped via KeyboardInterrupt."""
         from http.server import HTTPServer
-        from threading import Thread, Event
+        from threading import Event, Thread
 
         started = Event()
 
@@ -743,7 +743,7 @@ def test_run_stdio_eof_error():
 # MCPHandler is defined inside run_http(), so we can't access it as mcp.MCPHandler.
 # We define our own handler that uses the same module-level functions.
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 
 class _HTTPTestHandler(BaseHTTPRequestHandler):
@@ -834,8 +834,8 @@ def test_run_http_list_tools():
 def test_run_http_bad_json_body():
     """HTTP POST with bad JSON body returns 500 error (covers do_POST except handler)."""
     import threading
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     server = HTTPServer(("127.0.0.1", 0), _HTTPTestHandler)
     port = server.server_address[1]

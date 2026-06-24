@@ -393,8 +393,7 @@ def plan_template_tool(args: dict, **kwargs) -> str:
     - save name=X tasks=Y: Save a user template
     - delete name=X: Delete a user template
     """
-    from .plan_templates import (get_template_names, get_template_detail,
-                                  save_user_template, delete_user_template)
+    from .plan_templates import delete_user_template, get_template_detail, get_template_names, save_user_template
     cmd = args.get("action", "list")
 
     if cmd == "list":
@@ -508,7 +507,7 @@ def plan_sync_tool(args: dict, **kwargs) -> str:
     - repo (str, optional): GitHub repo (owner/repo, for github action)
     - markdown (str, optional): Markdown content (for import action)
     """
-    from .plan_sync import sync_to_github, export_to_markdown, import_from_markdown
+    from .plan_sync import export_to_markdown, import_from_markdown, sync_to_github
     action = args.get("action", "")
     if not action:
         return fmt_err("action is required (github, export, import)")
@@ -564,7 +563,7 @@ def plan_decompose_tool(args: dict, **kwargs) -> str:
     - name (str, optional): Compound task name for create
     - subtasks (list, optional): Sub-task definitions for create
     """
-    from .plan_decompose import expand_task, collapse_task, get_subtask_status, create_compound_task
+    from .plan_decompose import collapse_task, create_compound_task, expand_task, get_subtask_status
     action = args.get("action", "")
     if not action:
         return fmt_err("action is required (expand, collapse, status, create)")
