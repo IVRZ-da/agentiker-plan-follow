@@ -579,6 +579,9 @@ MODULE_TEST_MAP = {
     "tools/config.py": ["test_plan_follow"],
     # Config / infrastructure
     "conftest.py": [],
+    "hooks/__init__.py": ["test_plan_follow"],
+    "hooks/base.py": ["test_plan_follow"],
+    "hooks/breaker.py": ["test_plan_follow"],
     "pyproject.toml": ["all"],
     "plugin.yaml": ["all"],
     "scripts/pre-commit-hook": [],
@@ -596,7 +599,8 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
     - If ≤ MODULE_CHANGE_THRESHOLD modules changed → run matching tests
     - If > MODULE_CHANGE_THRESHOLD modules changed → run all tests
     """
-    staged_tests = [f for f in staged_files if f.startswith("tests/") and f.endswith(".py")]
+    staged_tests = [f for f in staged_files if f.startswith("tests/") and f.endswith(".py")
+                    and not f.endswith("conftest.py") and not f.endswith("__init__.py")]
     changed_modules = set()
 
     # First pass: check if test files themselves changed

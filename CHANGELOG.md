@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.6 (2026-06-24)
+
+### 🚀 Hook-System Upgrade
+
+- **Smart Banner**: Keyword-Gate + Adaptive Frequency → ~70% weniger Overhead
+- **on_session_end**: Plan persistieren, Locks freigeben, Session-Log finalisieren
+- **Modularisierung**: hooks/base.py + hooks/breaker.py, plan_hooks.py als Facade
+- **Cache-Optimierung**: TTL 60s→300s/600s, Altersmarkierung, invalidate_hook_cache()
+- **Health-Banner**: Zeigt "(Stand: vor X Min)" statt nur "DEGRADED"
+- **Tests**: 1028 Tests, reset_banner_state Fixture, 2 Review-Banner-Tests angepasst
+
 ## 0.5.5 (2026-06-23)
 
 ### 🔄 Version korrigiert auf 0.x.x-Schema

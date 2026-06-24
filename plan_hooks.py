@@ -1,10 +1,13 @@
-"""plan_hooks.py — pre_llm_call hook for plan-follow plugin.
+"""plan_hooks.py — pre_llm_call hook for plan-follow plugin (Facade).
 
 Injects into EVERY user message before the LLM processes it:
 1. Current task banner (if a plan is active) — ALWAYS first
 2. Drift warnings (if unplanned changes detected)
 3. Review status (required / passed / failed)
 4. Health check warnings (at the END, never blocks the banner)
+
+Core logic lives in hooks/ subpackage. This module re-exports everything
+from hooks/ and adds the banner-builders that haven't been split out yet.
 """
 
 import logging
@@ -12,67 +15,34 @@ import time
 from typing import Any, Optional
 
 from . import plan_core
+from .hooks.base import (
+    _BANNER_COMPACT_EVERY_N_TURNS,
+    _BANNER_FULL_EVERY_N_TURNS,
+    _HEALTH_CACHE_KEY,
+    _HEALTH_CACHE_TTL,
+    _banner_turn_counter,
+    _build_banner,
+    _build_compact_banner,
+    _cached_or_fresh,
+    _get_last_user_message,
+    _has_plan_keywords,
+    _hook_cache,
+    _last_task_id,
+)
+from .hooks.breaker import (
+    _BREAKER_CRITICAL_PREFIXES,
+    _BREAKER_TTL,  # noqa: F401 — Re-Export für Tests
+    _breaker_state,  # noqa: F401 — Re-Export für Tests
+    _build_breaker_banner,
+    _check_breaker,  # noqa: F401 — Re-Export für Tests
+    _set_breaker,
+)
 from .plan_roadmap import _get_phase_progress
 
 logger = logging.getLogger("plan_follow")
 
-# ─── TTL Cache ─────────────────────────────────────────────────────────────────
-# Cache health_check and drift results so they don't fire on EVERY LLM turn.
-_hook_cache: dict = {}
-_HOOK_CACHE_TTL = 60  # seconds
 
-# ─── Circuit Breaker ──────────────────────────────────────────────────────────────
-# Tracked tool failures that should stop work. Set by post_tool_call on error,
-# displayed in pre_llm_call banner, auto-expires after _BREAKER_TTL seconds.
-_breaker_state: dict[str, dict] = {}  # {tool_name: {"error": str, "ts": float}}
-_BREAKER_TTL = 300  # 5 min auto-clear
-_BREAKER_CRITICAL_PREFIXES = (
-    "honcho_", "mcp_firecrawl_", "analysis_", "bug_hunt_",
-    "research_", "code_", "plan_",
-)
-
-
-def _check_breaker() -> dict[str, dict]:
-    """Return active breaker entries (auto-expired ones removed)."""
-    now = time.monotonic()
-    expired = [t for t, info in list(_breaker_state.items()) if now - info["ts"] > _BREAKER_TTL]
-    for t in expired:
-        _breaker_state.pop(t, None)
-    return dict(_breaker_state)
-
-
-def _set_breaker(tool_name: str, error_msg: str) -> None:
-    """Record a circuit-breaker hit for a critical tool."""
-    _breaker_state[tool_name] = {"error": error_msg[:80], "ts": time.monotonic()}
-
-
-def _cached_or_fresh(key: str, fetcher, ttl: int = _HOOK_CACHE_TTL):
-    """Generic TTL cache: returns cached value or calls fetcher()."""
-    cached = _hook_cache.get(key)
-    if cached:
-        val, ts = cached
-        if time.monotonic() - ts < ttl:
-            return val
-        del _hook_cache[key]
-    try:
-        val = fetcher()
-        if val is not None:
-            _hook_cache[key] = (val, time.monotonic())
-        return val
-    except Exception:
-        return None
-
-
-def _build_banner(lines: list) -> Optional[str]:
-    """Wrap lines in PLAN banner or return None if empty."""
-    if not lines:
-        return None
-    full = [
-        "╔═══════════════════════════════════════════╗",
-    ]
-    full.extend(lines)
-    full.append("╚═══════════════════════════════════════════╝")
-    return "[PLAN] " + "\n[PLAN] ".join(full)
+# ─── Banner-Builder (noch nicht in hooks/ ausgelagert) ─────────────────────
 
 
 def _build_task_header(current: dict) -> list[str]:
@@ -310,7 +280,6 @@ def _build_tts_banner() -> list[str]:
             lines.append(f"║   in {task_name}]                            ║")
             to_clear.append(rfid)
 
-        # Clear shown flags
         if "plan_created" in to_clear:
             tts_flags.pop("plan_created", None)
         for item in to_clear:
@@ -360,34 +329,26 @@ def _build_review_banner(current: dict) -> list[str]:
     return lines
 
 
-def _build_breaker_banner() -> list[str]:
-    """Build circuit-breaker warning lines (shown BEFORE health banner)."""
-    active = _check_breaker()
-    if not active:
-        return []
-    lines = [
-        "║  🚫 CIRCUIT BREAKER ACTIVE                ║",
-    ]
-    for tool, info in list(active.items())[:3]:
-        lines.append(f"║    • {tool}: {info['error'][:50]}")
-    if len(active) > 3:
-        lines.append(f"║    ... und {len(active) - 3} weitere")
-    lines.append("║  → Nur lesende Analyse                 ║")
-    lines.append("║  → Johannes entscheiden lassen          ║")
-    return lines
-
-
 def _build_health_banner() -> list[str]:
     """Build health check lines (cached, non-blocking, at end)."""
     lines = []
     try:
         from .tools.health import health_check as _health_check
 
-        health = _cached_or_fresh("health", _health_check)
+        health = _cached_or_fresh(_HEALTH_CACHE_KEY, _health_check, ttl=_HEALTH_CACHE_TTL)
         if health and health.get("status") == "degraded":
             issues = health.get("issues", [])
             if issues:
-                lines.append("║  ⚠️  SYSTEM HEALTH DEGRADED           ║")
+                age_str = ""
+                cached = _hook_cache.get(_HEALTH_CACHE_KEY)
+                if cached:
+                    _, ts = cached
+                    age_sec = int(time.monotonic() - ts)
+                    if age_sec > 60:
+                        age_str = f" (Stand: vor {age_sec // 60} Min)"
+                    elif age_sec > 10:
+                        age_str = f" (Stand: vor {age_sec} Sek)"
+                lines.append(f"║  ⚠️  SYSTEM HEALTH DEGRADED{age_str:46s}║")
                 for issue in issues[:3]:
                     lines.append(f"║    • {issue[:55]}")
                 if len(issues) > 3:
@@ -401,50 +362,69 @@ def _build_health_banner() -> list[str]:
 def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     """Pre-LLM-call hook: inject plan context into user message.
 
-    Registered via PluginContext.register_hook(\"pre_llm_call\", ...).
-    Builds banner from sub-functions, then returns formatted string.
-    ALWAYS returns None if no active plan (nothing to inject).
+    Uses Smart Banner logic:
+    - Full banner: on plan changes, plan keywords, or every N turns
+    - Compact banner: every N turns even without changes
+    - None: rapid turns with no plan relevance
     """
+    global _banner_turn_counter, _last_task_id, _banner_last_task_id
+
     try:
         current = plan_core.get_current_task_cached()
         if not current:
             return None
 
-        # Build banner sections sequentially
-        lines = _build_task_header(current)
-        git_lines = _build_git_banner()
-        if git_lines:
-            lines.append("║                                       ║")
-            lines.extend(git_lines)
-        lines.extend(_build_roadmap_banner())
-        drift_lines = _build_drift_banner()
-        if drift_lines:
-            lines.append("║                                       ║")
-            lines.extend(drift_lines)
-        lines.extend(_build_due_banner())
-        coord_lines = _build_coordination_banner()
-        if coord_lines:
-            lines.append("║                                       ║")
-            lines.extend(coord_lines)
-        lines.extend(_build_tts_banner())
-        review_lines = _build_review_banner(current)
-        if review_lines:
-            lines.append("║                                       ║")
-            lines.extend(review_lines)
-        health_lines = _build_health_banner()
-        if health_lines:
-            lines.append("║                                       ║")
-            lines.extend(health_lines)
-        breaker_lines = _build_breaker_banner()
-        if breaker_lines:
-            lines.append("║                                       ║")
-            lines.extend(breaker_lines)
+        _banner_turn_counter += 1
+        task_id = current.get("task_id", "")
 
-        return _build_banner(lines)
+        task_changed = (task_id != _last_task_id)
+        keywords_found = _has_plan_keywords(_get_last_user_message(kwargs))
+        force_refresh = (_banner_turn_counter % _BANNER_FULL_EVERY_N_TURNS == 0)
+        compact_turn = (_banner_turn_counter % _BANNER_COMPACT_EVERY_N_TURNS == 0)
+
+        needs_full_banner = task_changed or keywords_found or force_refresh
+        _last_task_id = task_id
+
+        if needs_full_banner:
+            _banner_last_task_id = task_id
+            lines = _build_task_header(current)
+            git_lines = _build_git_banner()
+            if git_lines:
+                lines.append("║                                       ║")
+                lines.extend(git_lines)
+            lines.extend(_build_roadmap_banner())
+            drift_lines = _build_drift_banner()
+            if drift_lines:
+                lines.append("║                                       ║")
+                lines.extend(drift_lines)
+            lines.extend(_build_due_banner())
+            coord_lines = _build_coordination_banner()
+            if coord_lines:
+                lines.append("║                                       ║")
+                lines.extend(coord_lines)
+            lines.extend(_build_tts_banner())
+            review_lines = _build_review_banner(current)
+            if review_lines:
+                lines.append("║                                       ║")
+                lines.extend(review_lines)
+            health_lines = _build_health_banner()
+            if health_lines:
+                lines.append("║                                       ║")
+                lines.extend(health_lines)
+            breaker_lines = _build_breaker_banner()
+            if breaker_lines:
+                lines.append("║                                       ║")
+                lines.extend(breaker_lines)
+            return _build_banner(lines)
+
+        if compact_turn:
+            return _build_compact_banner(current)
+
+        return None
+
     except Exception as e:
         logger.warning("Task banner injection failed: %s", e)
-
-    return None  # Nothing to inject
+        return None
 
 
 # ─── post_tool_call Hook (Observability) ───────────────────────────────────────
@@ -452,9 +432,6 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
 
 def on_post_tool_call(**kwargs: Any) -> None:
     """Observe tool calls for metrics and auto-drift-tracking.
-
-    Registered via PluginContext.register_hook("post_tool_call", ...).
-    Return value is ignored (observer pattern).
 
     Records:
     - Per-task tool call counters (category, duration, count)
@@ -465,17 +442,14 @@ def on_post_tool_call(**kwargs: Any) -> None:
     status = kwargs.get("status", "")
     error = kwargs.get("error", "")
 
-    # ─── Circuit Breaker ────────────────────────────────────────────────────
-    # Check BEFORE the early-return filter so firecrawl/honcho failures are caught
+    # Circuit Breaker: catch errors on critical tools
     if status == "error" and tool_name.startswith(_BREAKER_CRITICAL_PREFIXES):
         error_msg = str(error or kwargs.get("result", "Unknown error"))[:80]
         _set_breaker(tool_name, error_msg)
 
-    # Only track plan_follow and code_* tools to avoid noise
     if not tool_name.startswith(("plan_", "code_", "patch", "terminal")):
         return
 
-    # Record metrics (if a plan is active)
     from .plan_core import (
         get_current_task_cached,
         record_drift_warning,
@@ -484,16 +458,10 @@ def on_post_tool_call(**kwargs: Any) -> None:
 
     record_tool_call(tool_name, duration, status)
 
-    # ─── Auto-Drift-Tracking ──────────────────────────────────────────────
-    # When code_*/patch writes to files outside the current task's allowed files,
-    # record a proactive drift warning.
+    # Auto-Drift-Tracking
     if tool_name in (
-        "code_refactor",
-        "patch",
-        "code_replace_body",
-        "code_safe_delete",
-        "code_insert_before",
-        "code_insert_after",
+        "code_refactor", "patch", "code_replace_body",
+        "code_safe_delete", "code_insert_before", "code_insert_after",
         "code_rename",
     ):
         args = kwargs.get("args", {}) or {}
@@ -508,12 +476,10 @@ def on_post_tool_call(**kwargs: Any) -> None:
                         f"which is outside task.files: {allowed}"
                     )
 
-            # ─── Lock Enforcement ───────────────────────────────────────────
-            # Check if file is locked by another session
+            # Lock Enforcement
             if file_path:
                 try:
                     from . import coord_state
-
                     lock_info = coord_state.get_lock(file_path)
                     if lock_info:
                         locker_sid = lock_info.get("session_id", "unknown")
@@ -525,7 +491,7 @@ def on_post_tool_call(**kwargs: Any) -> None:
                                 f"gelockt seit {since[:19]}. Konflikt vermeiden!"
                             )
                 except Exception:
-                    pass  # Best-effort
+                    pass
 
     # Append to session log file
     try:
@@ -542,3 +508,48 @@ def on_post_tool_call(**kwargs: Any) -> None:
             f.write(entry)
     except Exception as e:
         logger.warning("Session log write failed: %s", e)
+
+
+# ─── on_session_end Hook ────────────────────────────────────────────────────────
+
+
+def on_session_end(**kwargs: Any) -> None:
+    """Session end: persist plan state, release locks, write final log entry."""
+    try:
+        # 1. Persist current plan state
+        plan = plan_core._get_active_plan()
+        if plan:
+            plan["_last_session_end"] = __import__("datetime").datetime.now(
+                __import__("zoneinfo").ZoneInfo("UTC")
+            ).isoformat()
+            plan_core._save_plan(plan)
+            logger.info("Plan '%s' state persisted at session end", plan.get("plan_id"))
+
+        # 2. Release all locks held by this session
+        try:
+            from . import coord_state
+            session_id = plan_core.get_session_id()
+            owned = [p for p, lock in coord_state.get_locks().items()
+                     if lock.get("session_id") == session_id]
+            for path in owned:
+                coord_state.release_lock(path)
+            if owned:
+                logger.info("Released %d lock(s) at session end", len(owned))
+        except Exception:
+            pass
+
+        # 3. Finalize session log
+        try:
+            log_dir = plan_core.PLANS_DIR / ".session-logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "tool-calls.log"
+            iso = __import__("datetime").datetime.now(
+                __import__("zoneinfo").ZoneInfo("UTC")
+            ).isoformat()
+            with open(log_file, "a") as f:
+                f.write(f"[{iso}] SESSION_END\n")
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.warning("on_session_end failed (non-blocking): %s", e)

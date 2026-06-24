@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from hermes_cli.plugins import PluginContext
 
 from . import (
+    hooks,  # noqa: F401 — subpackage, geladen für plan_hooks.py Imports
     plan_core,  # noqa: F401
     plan_todo,
     plan_tools,
@@ -869,11 +870,12 @@ def _register_tools(ctx: PluginContext) -> None:
 
 
 def _register_hooks(ctx: PluginContext) -> None:
-    """Register pre_llm_call hook for task injection and post_tool_call for logging."""
-    from .plan_hooks import on_post_tool_call, on_pre_llm_call
+    """Register pre_llm_call, post_tool_call, and on_session_end hooks."""
+    from .plan_hooks import on_post_tool_call, on_pre_llm_call, on_session_end
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
     ctx.register_hook("post_tool_call", on_post_tool_call)
-    logger.info("plan_follow: pre_llm_call + post_tool_call hooks registered")
+    ctx.register_hook("on_session_end", on_session_end)
+    logger.info("plan_follow: pre_llm_call + post_tool_call + on_session_end hooks registered")
 
 
 def _register_skill(ctx: PluginContext) -> None:

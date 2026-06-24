@@ -1625,6 +1625,9 @@ class TestReviewBanner:
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
+        # Set counter to force-refresh via module directly
+        import plan_follow.plan_hooks as hk
+        hk._banner_turn_counter = 4  # next call will be 5 → force_refresh
         output2 = self._call_hook_mocked()
         assert "PASSED" in (output2 or "")
 
@@ -1633,6 +1636,8 @@ class TestReviewBanner:
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "failed", "issues": [{"check": "missing_tests"}]})
+        import plan_follow.plan_hooks as hk
+        hk._banner_turn_counter = 4  # next call will be 5 → force_refresh
         output2 = self._call_hook_mocked()
         assert "FAILED" in (output2 or "").upper()
         assert "missing_tests" in (output2 or "")
@@ -1670,12 +1675,12 @@ class TestReviewBanner:
 
     def test_banner_no_health_warning_when_ok(self):
         """When health is ok, no health section in banner."""
-        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        from plan_follow.plan_hooks import _HEALTH_CACHE_KEY, _hook_cache, on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
-        _hook_cache.pop("health", None)
+        _hook_cache.pop(_HEALTH_CACHE_KEY, None)
         # Cache health as "ok" so _build_health_banner() doesn't call health_check()
-        _hook_cache["health"] = {"status": "ok"}
+        _hook_cache[_HEALTH_CACHE_KEY] = ({"status": "ok"}, __import__("time").monotonic())
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
