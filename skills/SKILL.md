@@ -1,5 +1,5 @@
 ---
-name: plan-follow
+name: agentiker-plan-follow
 description: "Plugin-provided skill (v0.5.5) — 38 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
 version: 0.5.5
 author: Hermes Agent

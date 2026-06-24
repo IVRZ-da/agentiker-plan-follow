@@ -3,7 +3,7 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.build_meta:__legacy__"
 
 [project]
-name = "agentiker-plan-follow-plugin"
+name = "agentiker-plan-follow"
 version = "0.5.5"
 description = "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit"
 authors = [

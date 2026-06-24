@@ -1,10 +1,10 @@
-# 📋 plan_follow — Hermes Plugin
+# 📋 agentiker-plan-follow — Hermes Plugin
 
 > Structured plan creation, task enforcement, review gates, parallel groups, auto-verify, and session isolation for Hermes Agent.
 > 38 tools — plan from spec to completion without leaving the conversation.
 
-[![Version](https://img.shields.io/badge/version-1.5.2-blue.svg)]()
-[![Tests](https://img.shields.io/badge/tests-1027-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.5-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1043-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 [![Coverage](https://img.shields.io/badge/coverage-90%25-brightgreen.svg)]()
 
