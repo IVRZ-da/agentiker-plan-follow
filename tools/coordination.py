@@ -1,4 +1,11 @@
-"""coordination.py — Honcho + Git + Lock integration for plan_follow tools/ subpackage."""
+"""coordination.py — Kanban + Git + Lock integration for plan_follow tools/.
+
+Ersetzt die vorherige Honcho-Integration durch Kanban-DB:
+  - _save_plan_state_to_honcho → Kanban-Task-Update
+  - _load_plan_state_from_honcho → Kanban-Query
+  - _auto_lock/unlock_task_files → coord_state.acquire_lock/release_lock (JSON+fcntl)
+  - _git_commit_if_active → unverändert
+"""
 
 from __future__ import annotations
 
@@ -10,158 +17,115 @@ from .base import (
     logger,
 )
 from .resolver import (
-    resolve_honcho_peer,
-    resolve_honcho_url,
-    resolve_honcho_workspace,
     resolve_plans_dir,
 )
 
-# ─── Honcho Integration (Registry-Dispatch mit Fallback) ──────────────────────
+# ─── Kanban-DB Verfügbarkeit ─────────────────────────────────────────────────
 
-
-def _retry_with_backoff(fn, max_attempts: int = 3) -> Any:
-    """Execute fn with exponential backoff (1s, 2s, 4s). Returns result or raises last exception."""
-    import time
-    last_exc: Optional[Exception] = None
-    for attempt in range(max_attempts):
-        try:
-            return fn()
-        except Exception as e:
-            last_exc = e
-            if attempt < max_attempts - 1:
-                wait = 2 ** attempt  # 1, 2, 4 seconds
-                logger.debug("Honcho retry %s/%s in %ss: %s", attempt + 1, max_attempts, wait, e)
-                time.sleep(wait)
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError("_retry_with_backoff: no exception was caught")
-
-
-def _dispatch_honcho_tool(tool_name: str, args: dict) -> Optional[dict]:
-    """Dispatch a Honcho tool via registry (lose Kopplung). Returns None if tool unavailable."""
+def _kanban_db():
     try:
-        from tools.registry import registry
-        entry = registry.get_entry(tool_name)
-        if entry is None:
-            return None
-        handler = getattr(entry, "handler", None)
-        if not callable(handler):
-            return None
-        result = handler(args)
-        if isinstance(result, str):
-            return json.loads(result)
-        return result
-    except Exception:
-        logger.debug("Honcho dispatch failed (best-effort)")
+        from hermes_cli import kanban_db
+        return kanban_db
+    except ImportError:
         return None
 
 
-def _save_plan_state_to_honcho(plan_id: str, task_id: str, status: str):
-    """Save plan state as Honcho conclusion. Uses registry dispatch, falls back to HTTP.
+def _kanban_profile() -> str:
+    import os
+    return os.environ.get("HERMES_PROFILE", "default")
 
-    Data model (JSON instead of flat string):
+
+# ─── Plan State via Kanban (ersetzt Honcho) ──────────────────────────────────
+
+
+def _save_plan_state_to_kanban(plan_id: str, task_id: str, status: str) -> None:
+    """Save plan state as a Kanban task comment/event.
+
+    Data model (JSON-Body):
         {"source": "plan_follow", "plan_id": "...", "task_id": "...", "status": "..."}
     """
-    # Try registry dispatch first (lose Kopplung)
-    payload = {
-        "source": "plan_follow",
-        "plan_id": plan_id,
-        "task_id": task_id,
-        "status": status,
-    }
-    registry_result = _dispatch_honcho_tool("honcho_conclude", {
-        "conclusion": json.dumps(payload),
-        "target": "memory",
-    })
-    if registry_result is not None:
-        return  # Registry dispatch succeeded
-
-    # Fallback: raw HTTP with exponential backoff
-    import urllib.request
-    def _do_save():
-        data = json.dumps({
-            "conclusions": [{
-                "observer_id": resolve_honcho_peer(),
-                "observed_id": resolve_honcho_peer(),
-                "content": json.dumps(payload),
-                "source": "plan-follow-plugin"
-            }]
-        }).encode()
-        req = urllib.request.Request(
-            f"{resolve_honcho_url()}/v3/workspaces/{resolve_honcho_workspace()}/conclusions",
-            data=data,
-            headers={"Content-Type": "application/json"},
-        )
-        urllib.request.urlopen(req, timeout=5)
+    kdb = _kanban_db()
+    if not kdb:
+        return
 
     try:
-        _retry_with_backoff(_do_save)
+        profile = _kanban_profile()
+        payload = json.dumps({
+            "source": "plan_follow",
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "status": status,
+        })
+        # Append state as comment on the plan_index task
+        tid = f"plan_index:{profile}"
+        kdb.add_comment(tid, payload)
+        logger.debug("Plan state saved to Kanban: %s/%s = %s", plan_id, task_id, status)
     except Exception as e:
-        logger.warning("Honcho save failed after retries (non-fatal): %s", e)
+        logger.debug("Kanban state save failed (non-fatal): %s", e)
+
+
+def _load_plan_state_from_kanban() -> Optional[str]:
+    """Load active plan ID from Kanban markers. Returns plan_id or None."""
+    kdb = _kanban_db()
+    if not kdb:
+        return None
+
+    try:
+        profile = _kanban_profile()
+        conn = kdb.connect()
+        # Query the plan_index task for this profile
+        rows = conn.execute(
+            "SELECT body FROM tasks WHERE "
+            "body LIKE '%\"type\":\"plan_index\"%' "
+            "AND assignee = ? "
+            "ORDER BY created_at DESC LIMIT 1",
+            (profile,)
+        ).fetchall()
+        for row in rows:
+            try:
+                body = json.loads(row[0]) if row[0] else {}
+                if body.get("type") == "plan_index":
+                    return body.get("plan_id")
+            except (json.JSONDecodeError, TypeError):
+                continue
+        # Fallback: check comments on plan_index tasks
+        rows2 = conn.execute(
+            "SELECT c.body FROM task_comments c "
+            "JOIN tasks t ON t.id = c.task_id "
+            "WHERE t.body LIKE '%\"type\":\"plan_index\"%' "
+            "AND t.assignee = ? "
+            "ORDER BY c.created_at DESC LIMIT 5",
+            (profile,)
+        ).fetchall()
+        for row in rows2:
+            try:
+                payload = json.loads(row[0]) if row[0] else {}
+                if isinstance(payload, dict) and payload.get("source") == "plan_follow":
+                    pid = payload.get("plan_id")
+                    if pid:
+                        return pid
+            except (json.JSONDecodeError, TypeError):
+                continue
+    except Exception as e:
+        logger.debug("Kanban state load failed: %s", e)
+
+    return None
+
+
+# ─── Aliase für Abwärtskompatibilität ────────────────────────────────────────
+
+
+def _save_plan_state_to_honcho(plan_id: str, task_id: str, status: str) -> None:
+    """Legacy alias — speichert Plan-State via Kanban."""
+    _save_plan_state_to_kanban(plan_id, task_id, status)
 
 
 def _load_plan_state_from_honcho() -> Optional[str]:
-    """Load active plan ID from Honcho. Returns plan_id or None."""
-    # Try registry dispatch first
-    registry_result = _dispatch_honcho_tool("honcho_search", {
-        "query": "plan_follow:active",
-    })
-    if registry_result is not None:
-        conclusions = registry_result.get("conclusions", []) if isinstance(registry_result, dict) else []
-        for c in conclusions:
-            content = c.get("content", "") if isinstance(c, dict) else ""
-            if isinstance(content, str):
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and parsed.get("source") == "plan_follow" and parsed.get("status") == "active":
-                        return parsed.get("plan_id")
-                except (json.JSONDecodeError, TypeError):
-                    # Legacy format: "plan_follow:<plan_id>:active=true"
-                    if "plan_follow:" in content and "active=true" in content:
-                        parts = content.split(":")
-                        if len(parts) >= 2:
-                            return parts[1]
-        return None
-
-    # Fallback: raw HTTP with exponential backoff
-    import urllib.request
-    def _do_load():
-        req = urllib.request.Request(
-            f"{resolve_honcho_url()}/v3/workspaces/{resolve_honcho_workspace()}/conclusions/query",
-            data=json.dumps({
-                "query": "plan_follow:active",
-                "observer_id": resolve_honcho_peer(),
-                "observed_id": resolve_honcho_peer()
-            }).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        resp = urllib.request.urlopen(req, timeout=5)
-        conclusions = json.loads(resp.read())
-        for c in conclusions:
-            content = c.get("content", "")
-            # Try JSON data model first
-            if isinstance(content, str):
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and parsed.get("source") == "plan_follow" and parsed.get("status") == "active":
-                        return parsed.get("plan_id")
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            # Legacy: "plan_follow:<plan_id>:active=true"
-            if isinstance(content, str) and "plan_follow:" in content and "active=true" in content:
-                parts = content.split(":")
-                if len(parts) >= 2:
-                    return parts[1]
-        return None
-
-    try:
-        return _retry_with_backoff(_do_load)
-    except Exception as e:
-        logger.warning("Honcho load failed after retries (non-fatal): %s", e)
-        return None
+    """Legacy alias — lädt Plan-State via Kanban."""
+    return _load_plan_state_from_kanban()
 
 
-# ─── Git Commit Integration ────────────────────────────────────────────────────
+# ─── Git Commit Integration (unverändert) ────────────────────────────────────
 
 
 def _git_commit_if_active(plan: dict) -> None:
@@ -183,40 +147,34 @@ def _git_commit_if_active(plan: dict) -> None:
 
     import subprocess
     try:
-        # Add only this plan's JSON file
         add = subprocess.run(
             ["git", "add", "--", f"{plan_id}.json"],
             cwd=resolve_plans_dir(), capture_output=True, text=True, timeout=10,
         )
         if add.returncode != 0:
-            return  # Git add failed — silent skip
+            return
 
-        # Check if there's anything to commit
         diff = subprocess.run(
             ["git", "diff", "--cached", "--stat"],
             cwd=resolve_plans_dir(), capture_output=True, text=True, timeout=10,
         )
         if not diff.stdout.strip():
-            return  # No changes — silent skip
+            return
 
-        # Commit
         subprocess.run(
             ["git", "commit", "-m", msg],
             cwd=resolve_plans_dir(), capture_output=True, text=True, timeout=30,
         )
     except Exception:
         logger.debug("Auto Git-commit failed (best-effort)")
-        pass  # Silent skip — Git-Fehler blockieren nicht
+        pass
 
 
-# ─── Auto Lock / Unlock ───────────────────────────────────────────────────────
+# ─── Auto Lock / Unlock (via coord_state — JSON+fcntl) ───────────────────────
 
 
 def _auto_lock_task_files(task: dict) -> None:
-    """Auto-acquire locks for all files in a task on activation.
-
-    Best-effort: if coord_state isn't available, silently skip.
-    """
+    """Auto-acquire locks for all files in a task on activation."""
     files = task.get("files", [])
     if not files:
         return
@@ -226,7 +184,7 @@ def _auto_lock_task_files(task: dict) -> None:
             acquire_lock(f, get_session_id())
     except Exception:
         logger.debug("Auto lock failed (best-effort)")
-        pass  # Best-effort
+        pass
 
 
 def _auto_unlock_task_files(task: dict) -> None:
@@ -240,4 +198,4 @@ def _auto_unlock_task_files(task: dict) -> None:
             release_lock(f, get_session_id())
     except Exception:
         logger.debug("Auto unlock failed (best-effort)")
-        pass  # Best-effort
+        pass

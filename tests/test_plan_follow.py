@@ -2828,111 +2828,28 @@ class TestGetPlanStatusEdgeCases:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Edge Case Tests: _dispatch_honcho_tool fallback (lines 267-275)
+# Edge Case Tests: Kanban State Save/Load (ersetzt Honcho Dispatch)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestDispatchHonchoTool:
-    """Tests for _dispatch_honcho_tool fallback paths (lines 267-275)."""
+class TestKanbanState:
+    """Tests for Kanban-based plan state persistence (replaces Honcho)."""
 
-    def test_dispatch_tool_entry_not_found(self):
-        """When entry is None, return None."""
-        from plan_follow.plan_core import _dispatch_honcho_tool
-        result = _dispatch_honcho_tool("nonexistent_tool_xyz", {})
-        assert result is None
+    def test_save_plan_state_aliases_exist(self):
+        """_save_plan_state_to_honcho should still be importable (legacy alias)."""
+        from plan_follow.plan_core import _save_plan_state_to_honcho
+        assert callable(_save_plan_state_to_honcho)
 
-    def test_dispatch_tool_handler_not_callable(self, monkeypatch):
-        """When entry has no callable handler, return None."""
-        from types import SimpleNamespace
+    def test_load_plan_state_aliases_exist(self):
+        """_load_plan_state_from_honcho should still be importable (legacy alias)."""
+        from plan_follow.plan_core import _load_plan_state_from_honcho
+        assert callable(_load_plan_state_from_honcho)
 
-        from plan_follow.plan_core import _dispatch_honcho_tool
-        from tools.registry import registry
-
-        # Add entry without handler attribute
-        entry = SimpleNamespace(name="honcho_search", schema={})
-        original_get = registry.get_entry
-
-        def mock_get(name):
-            if name == "honcho_search":
-                return entry
-            return original_get(name)
-
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
-        assert result is None
-
-    def test_dispatch_tool_handler_raises(self, monkeypatch):
-        """When handler raises an exception, return None."""
-        from types import SimpleNamespace
-
-        from plan_follow.plan_core import _dispatch_honcho_tool
-        from tools.registry import registry
-
-        def failing_handler(args):
-            raise ValueError("Something went wrong")
-
-        entry = SimpleNamespace(
-            name="honcho_search", schema={}, handler=failing_handler
-        )
-        original_get = registry.get_entry
-
-        def mock_get(name):
-            if name == "honcho_search":
-                return entry
-            return original_get(name)
-
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
-        assert result is None
-
-    def test_dispatch_tool_handler_returns_string(self, monkeypatch):
-        """When handler returns a JSON string, it should be parsed."""
-        import json
-        from types import SimpleNamespace
-
-        from plan_follow.plan_core import _dispatch_honcho_tool
-        from tools.registry import registry
-
-        def handler(args):
-            return json.dumps({"status": "ok", "results": []})
-
-        entry = SimpleNamespace(
-            name="honcho_search", schema={}, handler=handler
-        )
-        original_get = registry.get_entry
-
-        def mock_get(name):
-            if name == "honcho_search":
-                return entry
-            return original_get(name)
-
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
-        assert result is not None
-        assert result["status"] == "ok"
-
-    def test_dispatch_tool_handler_returns_dict(self, monkeypatch):
-        """When handler returns a dict directly, return it unchanged."""
-        from types import SimpleNamespace
-
-        from plan_follow.plan_core import _dispatch_honcho_tool
-        from tools.registry import registry
-
-        def handler(args):
-            return {"status": "ok", "data": "test"}
-
-        entry = SimpleNamespace(
-            name="honcho_search", schema={}, handler=handler
-        )
-        original_get = registry.get_entry
-
-        def mock_get(name):
-            if name == "honcho_search":
-                return entry
-            return original_get(name)
-
-        monkeypatch.setattr(registry, "get_entry", mock_get)
-        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
-        assert result == {"status": "ok", "data": "test"}
+    def test_can_get_session_id(self):
+        """get_session_id should still work after refactoring."""
+        from plan_follow.plan_core import get_session_id
+        sid = get_session_id()
+        assert sid is not None
+        assert len(sid) > 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -653,7 +653,7 @@ class TestCleanupStale:
         import plan_follow.coord_state as _cs
         sessions = _cs.get_sessions()
         sessions["old-session"]["last_seen"] = "2020-01-01T00:00:00"
-        _cs._atomic_write(_cs.SESSIONS_FILE, sessions)
+        _cs._atomic_write_json(_cs.SESSIONS_FILE, sessions)
 
         removed = cleanup_stale_sessions(max_age_minutes=1)
         assert removed >= 1
@@ -675,7 +675,7 @@ class TestCleanupStale:
         locks = _cs.get_locks()
         assert "/old-file.ts" in locks
         locks["/old-file.ts"]["since"] = "2020-01-01T00:00:00"
-        _cs._atomic_write(_cs.LOCKS_FILE, locks)
+        _cs._atomic_write_json(_cs.LOCKS_FILE, locks)
 
         removed = cleanup_stale_locks(max_age_minutes=1)
         assert removed >= 1
