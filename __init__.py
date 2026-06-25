@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from . import (
     hooks,  # noqa: F401 — subpackage, geladen für plan_hooks.py Imports
     plan_core,  # noqa: F401
+    plan_migrate,
     plan_todo,
     plan_tools,
 )
@@ -71,6 +72,7 @@ PLAN_TOOLS = [
     ("plan_git_branch", plan_tools.plan_git_branch_tool),
     ("plan_git_tag", plan_tools.plan_git_tag_tool),
     ("plan_pr_create", plan_tools.plan_pr_create_tool),
+    ("plan_migrate", plan_migrate.plan_migrate_tool),
 ]
 
 # Per-tool schemas for each individual tool

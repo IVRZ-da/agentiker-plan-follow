@@ -444,11 +444,18 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "title": {"type": "string", "description": "PR-Titel (erforderlich)"},
             "body": {"type": "string", "description": "PR-Beschreibung"},
-            "head": {"type": "string", "description": "Quell-Branch (default: aktueller Branch)"},
-            "base": {"type": "string", "description": "Ziel-Branch (default: main)"},
-            "owner": {"type": "string", "description": "Repo-Owner (default: aus Git-Remote)"},
-            "repo_name": {"type": "string", "description": "Repo-Name (default: aus Git-Remote)"},
+            "head": {"type": "string", "description": "Source-Branch (default: current)"},
+            "base": {"type": "string", "description": "Target-Branch (default: main)"},
         },
-        "required": ["title"],
+    },
+    "plan_migrate": {
+        "type": "object",
+        "properties": {
+            "dry_run": {
+                "type": "boolean",
+                "description": "Wenn True (default), nur scannen ohne zu schreiben",
+                "default": True,
+            },
+        },
     },
 }

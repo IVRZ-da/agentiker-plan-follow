@@ -334,4 +334,11 @@ TOOL_DESCRIPTIONS = {
         "Uses BOT_FORGEJO_TOKEN or FORGEJO_TOKEN env var for auth. "
         "Auto-detects repo owner/name from git remote URL."
         ),
+        "plan_migrate": (
+        "Migrate alte JSON-Pläne in Kanban-DB. "
+        "Scannt ~/.hermes/plans/*.json und erzeugt Kanban-Task-Graphen. "
+        "Parameters:\n"
+        "- dry_run (bool, optional): True = nur scannen (default). False = echte Migration.\n"
+        "Returns Report mit gefundenen/migrierten/übersprungenen Plänen."
+        ),
         }
