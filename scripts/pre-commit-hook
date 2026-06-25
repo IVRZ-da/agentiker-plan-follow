@@ -272,6 +272,9 @@ def check_secrets(staged_files: list[str]) -> bool:
         ext = os.path.splitext(sf)[1].lower()
         if ext in ('.png', '.jpg', '.jpeg', '.gif', '.ico', '.svg', '.woff', '.woff2', '.ttf', '.eot', '.pdf', '.zip', '.tar', '.gz', '.lock'):
             continue
+        # Skip coverage database files (binary)
+        if '.coverage' in sf or sf.endswith('.pyc'):
+            continue
 
         r = run_cmd(["git", "show", f":{sf}"], timeout=10)
         if r.returncode != 0 or not r.stdout.strip():
