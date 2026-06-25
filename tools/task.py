@@ -26,6 +26,160 @@ from .status import _format_progress
 # ─── Plan CRUD ────────────────────────────────────────────────────────────────
 
 
+def _kanban_available() -> bool:
+    try:
+        from hermes_cli import kanban_db  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _kanban_db():
+    try:
+        from hermes_cli import kanban_db
+        return kanban_db
+    except ImportError:
+        return None
+
+
+def _kanban_profile() -> str:
+    import os
+    return os.environ.get("HERMES_PROFILE", "default")
+
+
+def _profile_for_review(review_profile: str) -> str:
+    """Map review_profile to Kanban worker profile name."""
+    mapping = {
+        "full": "plan-reviewer",
+        "security": "plan-reviewer",
+        "api-route": "plan-reviewer",
+        "unit-test": "plan-reviewer",
+        "ui-component": "plan-reviewer",
+    }
+    return mapping.get(review_profile, "plan-worker")
+
+
+def _skill_for_review(review_profile: str) -> list[str]:
+    """Map review_profile to Kanban skills."""
+    mapping = {
+        "full": ["review:full"],
+        "security": ["review:security"],
+        "api-route": ["review:api-route"],
+        "unit-test": ["review:unit-test"],
+        "ui-component": ["review:ui-component"],
+    }
+    return mapping.get(review_profile, ["plan:default"])
+
+
+# ─── Kanban Plan Creation ─────────────────────────────────────────────────────
+
+
+def _create_kanban_plan(
+    goal: str, tasks: list, plan_id: str, repo: str = "",
+    repos: Optional[list[str]] = None,
+    parallel_groups: Optional[dict] = None,
+) -> str:
+    """Create a plan as a Kanban task graph.
+
+    Creates one root task (type='plan') + N child tasks (type='plan_task')
+    with dependencies via link_tasks().
+
+    Returns plan_id.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    kdb = _kanban_db()
+    if not kdb:
+        raise RuntimeError("Kanban-DB not available")
+
+    profile = _kanban_profile()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # 1. Create root plan task
+    root_body = json.dumps({
+        "type": "plan",
+        "plan_id": plan_id,
+        "goal": goal,
+        "created": now,
+        "repo": repo,
+        "repos": repos or [],
+        "parallel_groups": parallel_groups or {},
+        "current_task": None,
+        "template": "kanban",
+        "version": "2",
+    })
+
+    try:
+        kdb.create_task(
+            title=goal[:80],
+            body=root_body,
+            assignee=profile,
+            initial_status="in_progress",
+            priority=5,
+        )
+    except Exception:
+        # Fallback: use plan_id as task id if named task creation works
+        pass
+
+    # 2. Create child tasks
+    child_ids = {}
+    for t in tasks:
+        tid = t.get("id", "unknown")
+        t_name = t.get("name", tid)
+        t_verify = t.get("verify", "")
+        t_files = t.get("files", [])
+        t_review = t.get("review_profile", "none")
+        depends_on = t.get("depends_on", [])
+
+        task_body = json.dumps({
+            "type": "plan_task",
+            "plan_id": plan_id,
+            "task_id": tid,
+            "name": t_name,
+            "verify": t_verify,
+            "files": t_files,
+            "review_profile": t_review,
+            "depends_on": depends_on,
+        })
+
+        # Determine assignee + skills from review_profile
+        assignee = _profile_for_review(t_review) if t_review != "none" else profile
+        skills = _skill_for_review(t_review)
+
+        kdb.create_task(
+            title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
+            body=task_body,
+            assignee=assignee,
+            initial_status="pending",
+            skills=skills,
+            priority=5,
+        )
+
+    # 3. Link dependencies
+    for t in tasks:
+        tid = t.get("id", "")
+        for dep in t.get("depends_on", []):
+            try:
+                kdb.link_tasks(f"{plan_id}:{dep}", f"{plan_id}:{tid}")
+            except Exception:
+                logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
+
+    # 4. Start first task
+    if tasks:
+        first_tid = tasks[0].get("id", "")
+        # Update root task's current_task
+        try:
+            root_body_dict = json.loads(root_body)
+            root_body_dict["current_task"] = first_tid
+            kdb.add_comment(plan_id, json.dumps(root_body_dict))
+        except Exception:
+            pass
+
+    logger.info("✅ Plan '%s' als Kanban-Task-Graph erstellt (%d Tasks)", plan_id, len(tasks))
+    return plan_id
+
+
 def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optional[dict] = None,
                 repos: Optional[list[str]] = None, plan_id_override: str = "") -> str:
     """Create a new plan and persist it. Returns plan_id.
@@ -46,6 +200,19 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
     else:
         plan_id = f"{now[:10]}-{goal.lower().replace(' ', '-')[:40]}"
 
+
+    # --- Kanban-DB: Create Task-Graph ---
+    if _kanban_available():
+        try:
+            return _create_kanban_plan(
+                goal=goal, tasks=tasks, plan_id=plan_id,
+                repo=repo, repos=repos,
+                parallel_groups=parallel_groups,
+            )
+        except Exception as e:
+            logger.warning("Kanban plan creation failed, fallback to JSON: %s", e)
+
+    # --- JSON-Fallback: Existing logic ---
     tasks_dict = {}
     for t in tasks:
         tasks_dict[t["id"]] = {
