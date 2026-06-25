@@ -3,7 +3,6 @@
 Run: python -m pytest tests/test_coord_state.py -v
 """
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -307,7 +306,8 @@ These tests import via plan_follow.plan_tools so relative imports work.
     def test_plan_session_with_data(self, sample_session):
         from plan_follow.plan_tools import plan_session_tool
         result = plan_session_tool({}, **{})
-        json.loads(result) if isinstance(result, str) else result
+        # fmt_ok() returns Rich-formatted string, not raw JSON
+        assert "sessions" in result or "active_sessions" in result
 
     def test_plan_lock_tool_acquire(self):
         from plan_follow.plan_tools import plan_lock_tool
@@ -343,7 +343,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
     def test_plan_notify_missing_args(self):
         from plan_follow.plan_tools import plan_notify_tool
         result = plan_notify_tool({}, **{})
-        assert "error" in result
+        assert "Error" in result or "error" in result
 
     def test_plan_history_no_git(self, tmp_path):
         """plan_history should return 'not active' hint when no .git exists."""

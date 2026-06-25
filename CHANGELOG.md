@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7 (2026-06-25)
+- **Monolith-Split:** plan_tools.py (1237 Zeilen, 36 Handler) → tools/handlers_crud.py + handlers_git.py + handlers_review.py + handlers_misc.py
+- **Re-Export Facade:** plan_tools.py re-exportiert alle Handler via `from .tools.handlers_* import ...`
+- **Bug-Hunt Fixes:** coord_state.py fcntl.flock(), Forgejo API Base env-var, MCP Auth, sys.path Cache, NOTIFICATIONS_FILE konsolidiert
+- **Test-Infrastruktur:** _parse_result() unterstützt jetzt Multi-Line-Values, ast.literal_eval, None/True/False-Konvertierung, fmt_err/fmt_info-Erkennung
+
 ## 0.5.6 (2026-06-24)
 - **Hook-System Upgrade:** Smart Banner mit TTL-Cache, on_session_end Hook, Circuit Breaker
 - **Modularisierung:** plan_hooks.py → hooks/base.py + hooks/breaker.py

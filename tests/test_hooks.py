@@ -942,9 +942,11 @@ class TestBuildHealthBanner:
     def test_health_exception_handled(self, monkeypatch, mock_time):
         """Lines 396-397: exception caught."""
         from plan_follow.plan_hooks import _build_health_banner
-        # Make _cached_or_fresh throw to hit the except handler
+        # Make _cached_or_fresh throw to hit the except handler.
+        # Both functions live in plan_follow.hooks.base, so we must mock
+        # the defining module, not the re-export facade.
         monkeypatch.setattr(
-            "plan_follow.plan_hooks._cached_or_fresh",
+            "plan_follow.hooks.base._cached_or_fresh",
             lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("health failed")),
         )
         assert _build_health_banner() == []
