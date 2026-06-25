@@ -12,7 +12,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("plan_follow")
 
@@ -146,6 +145,11 @@ def _migrate_single_plan(
     # ─── Echten Import durchführen ────────────────────────────────────
     profile = _kanban_profile()
     now = datetime.now(timezone.utc).isoformat()
+    conn = kdb.connect(board='plans')
+    import uuid
+    import os
+    session_id = str(uuid.uuid4())
+    workspace_path = repo or os.getcwd()
 
     # 1. Root-Task erstellen
     root_body = json.dumps({
@@ -160,17 +164,27 @@ def _migrate_single_plan(
         "migrated_at": now,
         "template": "migrated",
         "version": "2",
+        "session_id": session_id,
     })
 
+    root_id = None
     try:
-        kdb.create_task(
+        root_id = kdb.create_task(
+            conn,
             title=goal[:80],
             body=root_body,
             assignee=profile,
-            initial_status="in_progress" if current_task else "completed",
+            initial_status="running",
             priority=5,
+            workspace_kind="dir",
+            workspace_path=workspace_path,
+            skills=[],
+            max_runtime_seconds=7200,
+            max_retries=2,
+            session_id=session_id,
         )
     except Exception as e:
+        conn.close()
         return {"plan_id": plan_id, "status": "failed", "error": f"Root-Task: {e}"}
 
     # 2. Child-Tasks (Unter-Tasks des Plans)
@@ -187,9 +201,9 @@ def _migrate_single_plan(
         kb_status = {
             "completed": "done",
             "in_progress": "running",
-            "pending": "pending",
+            "pending": "todo",
             "aborted": "blocked",
-        }.get(t_status, "pending")
+        }.get(t_status, "blocked")
 
         task_body = json.dumps({
             "type": "plan_task",
@@ -204,12 +218,19 @@ def _migrate_single_plan(
 
         try:
             kdb.create_task(
+                conn,
                 title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
                 body=task_body,
                 assignee=profile,
                 initial_status=kb_status,
-                skills=[f"review:{t_review}"] if t_review != "none" else [],
+                skills=[f"review:{t_review}"] if t_review != "none" else ["plan:default"],
                 priority=5,
+                workspace_kind="dir",
+                workspace_path=workspace_path,
+                parents=[root_id] if root_id else [],
+                max_runtime_seconds=3600,
+                max_retries=2,
+                session_id=session_id,
             )
             child_count += 1
         except Exception as e:
@@ -219,9 +240,11 @@ def _migrate_single_plan(
         # Dependencies verlinken
         for dep in depends_on:
             try:
-                kdb.link_tasks(f"{plan_id}:{dep}", f"{plan_id}:{tid}")
+                kdb.link_tasks(conn, f"{plan_id}:{dep}", f"{plan_id}:{tid}")
             except Exception:
                 pass
+
+    conn.close()
 
     return {
         "plan_id": plan_id,

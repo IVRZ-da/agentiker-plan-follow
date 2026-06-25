@@ -25,6 +25,10 @@ def _kanban_available() -> bool:
     if _KANBAN_AVAILABLE is not None:
         return _KANBAN_AVAILABLE
     try:
+        import sys
+        _p = "/home/jo/.hermes/hermes-agent"
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
         from hermes_cli import kanban_db  # noqa: F401
         _KANBAN_AVAILABLE = True
     except ImportError:
@@ -138,16 +142,27 @@ def _update_plans_index(plan: dict) -> None:
             })
             # Upsert: create if not exists, update body if exists
             tid = f"plan_index:{_kanban_profile()}"
+            conn = kdb.connect(board='plans')
             try:
-                existing = kdb.get_task(tid)
+                existing = kdb.get_task(conn, tid)
                 if existing:
-                    kdb.add_comment(tid, body)  # Update via comment
+                    kdb.add_comment(conn, tid, author="system", body=body)  # Update via comment
                 else:
-                    kdb.create_task(title=f"active-plan:{profile}", body=body,
-                                    assignee=profile, initial_status="running")
+                    kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
+                                    assignee=profile, initial_status="running",
+                                    workspace_kind="dir",
+                                    skills=[],
+                                    max_runtime_seconds=7200,
+                                    max_retries=1,
+                                    session_id=get_session_id())
             except Exception:
-                kdb.create_task(title=f"active-plan:{profile}", body=body,
-                                assignee=profile, initial_status="running")
+                try:
+                    kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
+                                    assignee=profile, initial_status="running")
+                except Exception:
+                    pass
+            finally:
+                conn.close()
             return
         except Exception:
             logger.debug("Kanban plans_index update failed, fallback to JSON")

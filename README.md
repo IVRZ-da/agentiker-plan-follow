@@ -70,22 +70,23 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.10-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1028%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.12-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1061%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.10
+**Version:** 0.5.12
 
-**Tests:** 1028 tests
+**Tests:** 1061 tests
 
-**Tools (38):**
+**Tools (39):**
 
 
-### Advanced (12 Tools)
+### Advanced (13 Tools)
 
 | Tool | Description |
 |------|-------------|
 | `plan_decompose` | Manage hierarchical task decomposition (compound tasks with sub-tasks). |
 | `plan_history` | Show git-based plan version history. |
 | `plan_lock` | Manage resource locks for cross-session coordination. |
+| `plan_migrate` | Migrate alte JSON-Pläne in Kanban-DB.  Scannt ~/.hermes/plans/*.json und erzeugt Kanban-Task-Graphen. |
 | `plan_notify` | Send a notification to another session or check own notifications. |
 | `plan_pr_create` | Create a Pull Request via Forgejo API for all configured repos. |
 | `plan_roadmap` | Manage roadmaps — strategic phase overviews. |
@@ -142,21 +143,21 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 ### Recent Changelog
 
-## [0.5.9] — 2026-06-25
-- **CHANGELOG-Format vereinheitlicht:** auf `## [version] — date` (wie code_intel + scout)
-- **Pre-Commit-Hook:** README-Generator auf per-plugin `scripts/generate_readme.py` umgestellt (statt zentralem generate-readme-tools.py)
+## [0.5.12] — 2026-06-25
+- **Kanban-DB Conn Fix:** `conn` als Erstparameter an alle `kdb.*()` Aufrufe übergeben (7 Dateien)
+- **Kanban-DB Status Fix:** `initial_status` korrigiert (`in_progress`→`running`, `pending`→`blocked`)
+- **Kanban-DB Parameter:** `workspace_kind='dir'`, `workspace_path`, `parents=[root_id]`, `session_id`, `max_runtime_seconds`, `max_retries` in allen `create_task()`-Aufrufen ergänzt
+- **Skills/Toolsets getrennt:** Root-Tasks `skills=[]`, Child-Tasks korrekte Skill-Namen
+- **sys.path Fix:** `_kanban_available()` mit sys.path Guard für hermes_cli Import in 3 Modulen
+- **add_comment author:** `author="system"` in allen add_comment-Aufrufen ergänzt
+- **Root-ID Tracking:** create_task Rückgabewert wird für parents-Referenz gespeichert
 
-## [0.5.8] — 2026-06-25
-- **Bug-Hunt Fixes:** coord_state.py OSError-Logging, mcp_server.py Auth-Warning + Exception Leakage + Logger lazy eval
-- **Code-Qualität:** Silent `except OSError: pass` → logger.warning in coord_state.py
-- **Security:** MCP HTTP Auth fehlt → warning log wenn PLAN_MCP_API_TOKEN nicht gesetzt
-- **Security:** Exception Leakage in MCP HTTP → generische Fehlermeldung an Client
+## [0.5.11] — 2026-06-25
+- **VERSION Bump auf v0.5.11:** Kein CHANGELOG-Eintrag (Hotfix)
+- Version wurde von 0.5.10 auf 0.5.11 erhöht
 
-## [0.5.7] — 2026-06-25
-- **Monolith-Split:** plan_tools.py (1237 Zeilen, 36 Handler) → tools/handlers_crud.py + handlers_git.py + handlers_review.py + handlers_misc.py
-- **Re-Export Facade:** plan_tools.py re-exportiert alle Handler via `from .tools.handlers_* import ...`
-- **Bug-Hunt Fixes:** coord_state.py fcntl.flock(), Forgejo API Base env-var, MCP Auth, sys.path Cache, NOTIFICATIONS_FILE konsolidiert
-- **Test-Infrastruktur:** _parse_result() unterstützt jetzt Multi-Line-Values, ast.literal_eval, None/True/False-Konvertierung, fmt_err/fmt_info-Erkennung
+## [0.5.10] — 2026-06-25
+- **VERSION Bump:** Kein CHANGELOG-Eintrag (Hotfix)
 
 <!-- END README_AUTO -->
 

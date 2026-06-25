@@ -10,7 +10,7 @@ Ersetzt die vorherige Honcho-Integration durch Kanban-DB:
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from .base import (
     get_session_id,
@@ -58,7 +58,11 @@ def _save_plan_state_to_kanban(plan_id: str, task_id: str, status: str) -> None:
         })
         # Append state as comment on the plan_index task
         tid = f"plan_index:{profile}"
-        kdb.add_comment(tid, payload)
+        conn = kdb.connect(board='plans')
+        try:
+            kdb.add_comment(conn, tid, author="system", body=payload)
+        finally:
+            conn.close()
         logger.debug("Plan state saved to Kanban: %s/%s = %s", plan_id, task_id, status)
     except Exception as e:
         logger.debug("Kanban state save failed (non-fatal): %s", e)
@@ -194,19 +198,27 @@ def _create_review_task(plan_id: str, task_id: str, review_profile: str, files: 
             "review_profile": review_profile,
         })
 
-        kdb.create_task(
-            title=f"Review {plan_id[:30]}:{task_id}",
-            body=review_body,
-            assignee="plan-reviewer",
-            initial_status="pending",
-            skills=[f"review:{review_profile}"],
-        )
-
-        # Gate: review depends on implementation task
+        conn = kdb.connect(board='plans')
         try:
-            kdb.link_tasks(f"{plan_id}:{task_id}", f"{plan_id}:review-{task_id}")
-        except Exception:
-            logger.debug("Review link failed (non-fatal)")
+            kdb.create_task(
+                conn,
+                title=f"Review {plan_id[:30]}:{task_id}",
+                body=review_body,
+                assignee="plan-reviewer",
+                initial_status="blocked",
+                skills=[f"review:{review_profile}"],
+                workspace_kind="dir",
+                max_runtime_seconds=1800,
+                max_retries=1,
+            )
+
+            # Gate: review depends on implementation task
+            try:
+                kdb.link_tasks(conn, f"{plan_id}:{task_id}", f"{plan_id}:review-{task_id}")
+            except Exception:
+                logger.debug("Review link failed (non-fatal)")
+        finally:
+            conn.close()
 
         logger.info("Review-Task erstellt für %s/%s (Profil: %s)", plan_id, task_id, review_profile)
     except Exception as e:

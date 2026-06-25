@@ -29,6 +29,10 @@ from .status import _format_progress
 
 def _kanban_available() -> bool:
     try:
+        import sys
+        _p = "/home/jo/.hermes/hermes-agent"
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
         from hermes_cli import kanban_db  # noqa: F401
         return True
     except ImportError:
@@ -89,93 +93,130 @@ def _create_kanban_plan(
     """
     import json
     from datetime import datetime, timezone
+    import uuid
 
     kdb = _kanban_db()
     if not kdb:
         raise RuntimeError("Kanban-DB not available")
 
-    profile = _kanban_profile()
-    now = datetime.now(timezone.utc).isoformat()
-
-    # 1. Create root plan task
-    root_body = json.dumps({
-        "type": "plan",
-        "plan_id": plan_id,
-        "goal": goal,
-        "created": now,
-        "repo": repo,
-        "repos": repos or [],
-        "parallel_groups": parallel_groups or {},
-        "current_task": None,
-        "template": "kanban",
-        "version": "2",
-    })
-
+    conn = kdb.connect(board='plans')
     try:
-        kdb.create_task(
-            title=goal[:80],
-            body=root_body,
-            assignee=profile,
-            initial_status="in_progress",
-            priority=5,
-        )
-    except Exception:
-        # Fallback: use plan_id as task id if named task creation works
-        pass
+        profile = _kanban_profile()
+        now = datetime.now(timezone.utc).isoformat()
 
-    # 2. Create child tasks
-    child_ids = {}
-    for t in tasks:
-        tid = t.get("id", "unknown")
-        t_name = t.get("name", tid)
-        t_verify = t.get("verify", "")
-        t_files = t.get("files", [])
-        t_review = t.get("review_profile", "none")
-        depends_on = t.get("depends_on", [])
+        # Session-ID + Workspace-Pfad ermitteln
+        try:
+            from .base import get_session_id
+            session_id = get_session_id()
+        except Exception:
+            session_id = str(uuid.uuid4())
 
-        task_body = json.dumps({
-            "type": "plan_task",
+        workspace_path = ""
+        if repos:
+            workspace_path = str(repos[0])
+        elif repo:
+            workspace_path = repo
+        else:
+            import os
+            workspace_path = os.getcwd()
+
+        # 1. Create root plan task
+        root_body_str = json.dumps({
+            "type": "plan",
             "plan_id": plan_id,
-            "task_id": tid,
-            "name": t_name,
-            "verify": t_verify,
-            "files": t_files,
-            "review_profile": t_review,
-            "depends_on": depends_on,
+            "goal": goal,
+            "created": now,
+            "repo": repo,
+            "repos": repos or [],
+            "parallel_groups": parallel_groups or {},
+            "current_task": None,
+            "template": "kanban",
+            "version": "2",
+            "session_id": session_id,
+            "workspace_path": workspace_path,
         })
 
-        # Determine assignee + skills from review_profile
-        assignee = _profile_for_review(t_review) if t_review != "none" else profile
-        skills = _skill_for_review(t_review)
-
-        kdb.create_task(
-            title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
-            body=task_body,
-            assignee=assignee,
-            initial_status="pending",
-            skills=skills,
-            priority=5,
-        )
-
-    # 3. Link dependencies
-    for t in tasks:
-        tid = t.get("id", "")
-        for dep in t.get("depends_on", []):
-            try:
-                kdb.link_tasks(f"{plan_id}:{dep}", f"{plan_id}:{tid}")
-            except Exception:
-                logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
-
-    # 4. Start first task
-    if tasks:
-        first_tid = tasks[0].get("id", "")
-        # Update root task's current_task
+        root_id = None
         try:
-            root_body_dict = json.loads(root_body)
-            root_body_dict["current_task"] = first_tid
-            kdb.add_comment(plan_id, json.dumps(root_body_dict))
-        except Exception:
-            pass
+            root_id = kdb.create_task(
+                conn,
+                title=goal[:80],
+                body=root_body_str,
+                assignee=profile,
+                initial_status="running",
+                priority=5,
+                workspace_kind="dir",
+                workspace_path=workspace_path,
+                skills=[],
+                max_runtime_seconds=7200,
+                max_retries=2,
+                session_id=session_id,
+            )
+        except Exception as root_err:
+            logger.debug("Root task creation failed (non-fatal): %s", root_err)
+
+        # 2. Create child tasks
+        for t in tasks:
+            tid = t.get("id", "unknown")
+            t_name = t.get("name", tid)
+            t_verify = t.get("verify", "")
+            t_files = t.get("files", [])
+            t_review = t.get("review_profile", "none")
+            depends_on = t.get("depends_on", [])
+
+            task_body = json.dumps({
+                "type": "plan_task",
+                "plan_id": plan_id,
+                "task_id": tid,
+                "name": t_name,
+                "verify": t_verify,
+                "files": t_files,
+                "review_profile": t_review,
+                "depends_on": depends_on,
+            })
+
+            # Determine assignee + skills from review_profile
+            assignee = _profile_for_review(t_review) if t_review != "none" else profile
+            child_skills = _skill_for_review(t_review)
+            if not child_skills:
+                child_skills = ["plan:default"]
+
+            kdb.create_task(
+                conn,
+                title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
+                body=task_body,
+                assignee=assignee,
+                initial_status="blocked",
+                skills=child_skills,
+                priority=5,
+                workspace_kind="dir",
+                workspace_path=workspace_path,
+                parents=[root_id] if root_id else [],
+                max_runtime_seconds=3600,
+                max_retries=2,
+                session_id=session_id,
+            )
+
+        # 3. Link dependencies
+        for t in tasks:
+            tid = t.get("id", "")
+            for dep in t.get("depends_on", []):
+                try:
+                    kdb.link_tasks(conn, f"{plan_id}:{dep}", f"{plan_id}:{tid}")
+                except Exception:
+                    logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
+
+        # 4. Start first task — update root task's current_task via comment
+        if tasks:
+            first_tid = tasks[0].get("id", "")
+            try:
+                root_body_dict = json.loads(root_body_str)
+                root_body_dict["current_task"] = first_tid
+                kdb.add_comment(conn, plan_id, author="system", body=json.dumps(root_body_dict))
+            except Exception:
+                pass
+    finally:
+        conn.close()
 
     logger.info("✅ Plan '%s' als Kanban-Task-Graph erstellt (%d Tasks)", plan_id, len(tasks))
 
@@ -454,7 +495,7 @@ def _check_drift(repos: list[str]) -> list[str]:
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
             if result.stdout.strip():
-                drift.append(f"{repo}: {len([l for l in result.stdout.splitlines() if l.strip()])} uncommitted changes")
+                drift.append(f"{repo}: {len([_line for _line in result.stdout.splitlines() if _line.strip()])} uncommitted changes")
         except Exception:
             pass
     return drift
@@ -475,11 +516,16 @@ def _kanban_complete(plan_id: str, task_id: str, verify_result: dict) -> None:
             "verify": verify_result,
             "profile": os.environ.get("HERMES_PROFILE", "default"),
         }
-        kdb.complete_task(
-            f"{plan_id}:{task_id}",
-            summary=summary,
-            metadata=json.dumps(metadata),
-        )
+        conn = kdb.connect(board='plans')
+        try:
+            kdb.complete_task(
+                conn,
+                f"{plan_id}:{task_id}",
+                summary=summary,
+                metadata=json.dumps(metadata),
+            )
+        finally:
+            conn.close()
         logger.debug("Kanban complete: %s/%s → %s", plan_id, task_id, summary)
     except Exception as e:
         logger.debug("Kanban complete failed (non-fatal): %s", e)

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.12] — 2026-06-25
+- **Kanban-DB Conn Fix:** `conn` als Erstparameter an alle `kdb.*()` Aufrufe übergeben (7 Dateien)
+- **Kanban-DB Status Fix:** `initial_status` korrigiert (`in_progress`→`running`, `pending`→`blocked`)
+- **Kanban-DB Parameter:** `workspace_kind='dir'`, `workspace_path`, `parents=[root_id]`, `session_id`, `max_runtime_seconds`, `max_retries` in allen `create_task()`-Aufrufen ergänzt
+- **Skills/Toolsets getrennt:** Root-Tasks `skills=[]`, Child-Tasks korrekte Skill-Namen
+- **sys.path Fix:** `_kanban_available()` mit sys.path Guard für hermes_cli Import in 3 Modulen
+- **add_comment author:** `author="system"` in allen add_comment-Aufrufen ergänzt
+- **Root-ID Tracking:** create_task Rückgabewert wird für parents-Referenz gespeichert
+
+## [0.5.11] — 2026-06-25
+- **VERSION Bump auf v0.5.11:** Kein CHANGELOG-Eintrag (Hotfix)
+- Version wurde von 0.5.10 auf 0.5.11 erhöht
+
+## [0.5.10] — 2026-06-25
+- **VERSION Bump:** Kein CHANGELOG-Eintrag (Hotfix)
+
 ## [0.5.9] — 2026-06-25
 - **CHANGELOG-Format vereinheitlicht:** auf `## [version] — date` (wie code_intel + scout)
 - **Pre-Commit-Hook:** README-Generator auf per-plugin `scripts/generate_readme.py` umgestellt (statt zentralem generate-readme-tools.py)

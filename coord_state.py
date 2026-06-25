@@ -39,6 +39,10 @@ def _kanban_available() -> bool:
     if _KANBAN_AVAILABLE is not None:
         return _KANBAN_AVAILABLE
     try:
+        import sys
+        _p = "/home/jo/.hermes/hermes-agent"
+        if _p not in sys.path:
+            sys.path.insert(0, _p)
         from hermes_cli import kanban_db  # noqa: F401
         _KANBAN_AVAILABLE = True
         logger.debug("Kanban-DB verfügbar — Sessions/Notifications via Kanban")
@@ -162,12 +166,22 @@ def register_session(
                 "registered": now,
             })
             # Create a lightweight session-marker task
-            kdb.create_task(
-                title=f"session:{session_id[:20]}",
-                body=body,
-                assignee=profile,
-                initial_status="running",
-            )
+            conn = kdb.connect(board='plans')
+            try:
+                kdb.create_task(
+                    conn,
+                    title=f"session:{session_id[:20]}",
+                    body=body,
+                    assignee=profile,
+                    initial_status="running",
+                    workspace_kind="scratch",
+                    skills=[],
+                    max_runtime_seconds=300,
+                    max_retries=0,
+                    session_id=session_id,
+                )
+            finally:
+                conn.close()
             logger.debug("Session %s via Kanban registriert", session_id[:20])
             return {"session_id": session_id, "status": "registered", "backend": "kanban"}
         except Exception as e:
@@ -192,10 +206,13 @@ def unregister_session(session_id: str) -> dict:
     kdb = _get_kanban_db()
     if kdb:
         try:
-            profile = _get_profile_name()
             # Find and complete the session task
             tid = f"session:{session_id[:20]}"
-            kdb.complete_task(tid, summary="session ended")
+            conn = kdb.connect(board='plans')
+            try:
+                kdb.complete_task(conn, tid, summary="session ended")
+            finally:
+                conn.close()
             logger.debug("Session %s via Kanban beendet", session_id[:20])
             return {"status": "unregistered", "backend": "kanban"}
         except Exception as e:
@@ -212,16 +229,19 @@ def update_session(session_id: str, **kwargs) -> dict:
     kdb = _get_kanban_db()
     if kdb:
         try:
-            profile = _get_profile_name()
             tid = f"session:{session_id[:20]}"
             # Update task body with new metadata
-            task = kdb.get_task(tid)
-            if task:
-                body = json.loads(task.body) if task.body else {}
-                for key in ("plan_id", "goal", "cwd"):
-                    if key in kwargs:
-                        body[key] = kwargs[key]
-                kdb.add_comment(tid, json.dumps({"event": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()}))
+            conn = kdb.connect(board='plans')
+            try:
+                task = kdb.get_task(conn, tid)
+                if task:
+                    body = json.loads(task.body) if task.body else {}
+                    for key in ("plan_id", "goal", "cwd"):
+                        if key in kwargs:
+                            body[key] = kwargs[key]
+                    kdb.add_comment(conn, tid, author="system", body=json.dumps({"event": "heartbeat", "ts": datetime.now(timezone.utc).isoformat()}))
+            finally:
+                conn.close()
             return {"status": "updated", "backend": "kanban"}
         except Exception as e:
             logger.debug("Kanban session update failed (fallback): %s", e)
@@ -243,7 +263,6 @@ def get_sessions() -> dict:
     kdb = _get_kanban_db()
     if kdb:
         try:
-            profile = _get_profile_name()
             conn = kdb.connect()
             rows = conn.execute(
                 "SELECT id, body FROM tasks WHERE "
@@ -286,7 +305,11 @@ def cleanup_stale_sessions(max_age_minutes: int = 60) -> int:
     if kdb:
         try:
             # Kanban's built-in stale detection
-            result = kdb.release_stale_claims()
+            conn = kdb.connect(board='plans')
+            try:
+                result = kdb.release_stale_claims(conn)
+            finally:
+                conn.close()
             return len(result.get("reclaimed", [])) if result else 0
         except Exception as e:
             logger.debug("Kanban stale cleanup failed (fallback): %s", e)
@@ -395,7 +418,11 @@ def send_notification(
                 "kind": kind,
                 "ts": datetime.now(timezone.utc).isoformat(),
             })
-            kdb.add_comment(tid, comment_body)
+            conn = kdb.connect(board='plans')
+            try:
+                kdb.add_comment(conn, tid, author="system", body=comment_body)
+            finally:
+                conn.close()
             return {"id": tid, "from": from_session, "to": to_session, "message": message, "kind": kind}
         except Exception as e:
             logger.debug("Kanban notification failed (fallback): %s", e)
@@ -425,7 +452,11 @@ def get_notifications(session_id: str, mark_read: bool = True) -> list:
     if kdb:
         try:
             tid = f"session:{session_id[:20]}"
-            comments = kdb.list_comments(tid)
+            conn = kdb.connect(board='plans')
+            try:
+                comments = kdb.list_comments(conn, tid)
+            finally:
+                conn.close()
             # Filter for notification-style comments
             notifs = []
             for c in comments:
