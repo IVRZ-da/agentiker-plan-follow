@@ -184,9 +184,161 @@ def _inject_steering_hints() -> None:
         logger.warning("plan_follow: could not deregister 'todo': %s", e)
 
 
+# ─── Auto-Setup: Kanban Board + Worker Profiles ──────────────────────────────
+
+_SETUP_SENTINEL = Path(__file__).parent / ".setup_done"
+
+
+def _ensure_kanban_board() -> None:
+    """Create/ensure the 'plans' kanban board for plan storage.
+
+    This board stores plan tasks as Kanban tasks with type='plan' in body.
+    Best-effort: if kanban_db is not available, silently skip.
+    """
+    try:
+        from hermes_cli import kanban_db
+
+        # Check if 'plans' board already exists
+        boards = kanban_db.list_boards()
+        board_slugs = [b.get("slug", "") for b in boards]
+        if "plans" not in board_slugs:
+            kanban_db.create_board(
+                slug="plans",
+                display_name="Plans",
+                description="Kanban-Board für plan_follow Tasks (automatisch erstellt)",
+            )
+            logger.info("✅ Kanban-Board 'plans' erstellt")
+        else:
+            logger.debug("Kanban-Board 'plans' existiert bereits")
+    except ImportError:
+        logger.info("ℹ️  kanban_db nicht verfügbar — Pläne werden als JSON gespeichert")
+    except Exception as e:
+        logger.warning("⚠️  Kanban-Board-Init fehlgeschlagen (non-fatal): %s", e)
+
+
+def _ensure_profiles() -> None:
+    """Create plan-worker and plan-reviewer profiles if they don't exist.
+
+    Uses Hermes profile create via subprocess.
+    Best-effort: silently skip if hermes CLI not available.
+    """
+    import json
+    import subprocess
+    import sys
+
+    profiles_to_create = [
+        {
+            "name": "plan-worker",
+            "description": "Führt Plan-Tasks aus — implementiert Features, schreibt Tests, refaktoriert Code",
+            "toolsets": ["terminal", "file", "code_execution", "web"],
+        },
+        {
+            "name": "plan-reviewer",
+            "description": "Führt Code-Reviews durch — prüft Style, Coverage, Security, Architektur",
+            "toolsets": ["terminal", "file", "web"],
+        },
+    ]
+
+    # First check what profiles already exist
+    profiles_dir = Path.home() / ".hermes" / "profiles"
+    existing = set()
+    if profiles_dir.exists():
+        existing = {p.name for p in profiles_dir.iterdir() if p.is_dir()}
+
+    for profile in profiles_to_create:
+        name = profile["name"]
+        if name in existing:
+            logger.debug("Profil '%s' existiert bereits", name)
+            continue
+
+        try:
+            # Create profile via hermes CLI
+            desc = profile["description"]
+            cmd = [sys.executable, "-m", "hermes_cli", "profile", "create", name]
+            if desc:
+                cmd.extend(["--description", desc])
+
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode == 0:
+                logger.info("✅ Profil '%s' erstellt: %s", name, desc)
+
+                # Set toolsets for the new profile
+                toolsets = profile.get("toolsets", [])
+                if toolsets:
+                    toolsets_str = json.dumps(toolsets)
+                    subprocess.run(
+                        [
+                            sys.executable, "-m", "hermes_cli", "-p", name,
+                            "config", "set", "toolsets", toolsets_str,
+                        ],
+                        capture_output=True, timeout=15,
+                    )
+                    logger.debug("Toolsets für '%s' gesetzt: %s", name, toolsets)
+            else:
+                logger.warning(
+                    "⚠️  Profil '%s' konnte nicht erstellt werden: %s",
+                    name, result.stderr[:200],
+                )
+        except FileNotFoundError:
+            logger.debug("hermes CLI nicht gefunden — Profile manuell anlegen")
+            _ensure_profiles_fallback(profiles_to_create, existing)
+            break
+        except Exception as e:
+            logger.warning("⚠️  Profil '%s' fehlgeschlagen (non-fatal): %s", name, e)
+
+
+def _ensure_profiles_fallback(
+    profiles_to_create: list[dict], existing: set[str],
+) -> None:
+    """Fallback: create profile directories manually."""
+    for profile in profiles_to_create:
+        name = profile["name"]
+        if name in existing:
+            continue
+        profile_dir = Path.home() / ".hermes" / "profiles" / name
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            config_path = profile_dir / "config.yaml"
+            if not config_path.exists():
+                import yaml
+                config = {
+                    "name": name,
+                    "description": profile["description"],
+                    "model": {"default": "deepseek-v4-flash"},
+                    "terminal": {"backend": "local", "cwd": "."},
+                    "toolsets": profile.get("toolsets", ["hermes-cli"]),
+                }
+                config_path.write_text(
+                    yaml.dump(config, default_flow_style=False, allow_unicode=True)
+                )
+                logger.info("✅ Profil '%s' (fallback) erstellt", name)
+        except Exception as e:
+            logger.warning(
+                "⚠️  Profil '%s' fallback fehlgeschlagen: %s", name, e,
+            )
+
+
+def _ensure_setup() -> None:
+    """Run auto-setup once per installation."""
+    if _SETUP_SENTINEL.exists():
+        return  # Setup bereits gelaufen
+    logger.info("🔧 plan_follow: Auto-Setup wird ausgeführt...")
+    _ensure_kanban_board()
+    _ensure_profiles()
+    # Sentinel markiert Setup als abgeschlossen
+    try:
+        _SETUP_SENTINEL.write_text("setup_ok", encoding="utf-8")
+        logger.info("✅ plan_follow Auto-Setup abgeschlossen")
+    except OSError as e:
+        logger.warning("⚠️  Setup-Sentinel konnte nicht geschrieben werden: %s", e)
+
+
 def register(ctx: PluginContext) -> None:
     """Plugin entry point."""
     _ensure_deps()
+    _ensure_setup()
     _register_tools(ctx)
     _register_hooks(ctx)
     _register_skill(ctx)

@@ -1,0 +1,12 @@
+# Plan-Worker Profil — Hermes Kanban Worker für Plan-Task-Implementierung
+# Wird automatisch vom plan_follow Plugin bei der Installation angelegt.
+# Führt Code-Tasks aus: implementieren, testen, refaktorieren.
+name: plan-worker
+description: "Führt Plan-Tasks aus — implementiert Features, schreibt Tests, refaktoriert Code"
+model:
+  default: deepseek-v4-flash
+terminal:
+  backend: local
+  cwd: "."
+toolsets:
+  - hermes-cli

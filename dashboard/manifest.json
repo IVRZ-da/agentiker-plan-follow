@@ -1,14 +1,15 @@
 {
   "name": "plan-follow-dashboard",
-  "version": "0.1.0",
+  "version": "0.6.0",
   "label": "📋 Plans",
   "icon": "list-checks",
+  "description": "Plan-Übersicht mit Task-Baum, Status und Verify-Ergebnissen. Unterstützt Kanban-Backend.",
   "tabs": [
     {
       "id": "plans",
       "label": "Alle Pläne",
       "route": "/api/plugins/plan-follow-dashboard/plans",
-      "after": "agentiker-panel"
+      "after": "kanban"
     }
   ],
   "shellSlots": {

@@ -70,9 +70,9 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.9-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1028%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.10-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1028%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.9
+**Version:** 0.5.10
 
 **Tests:** 1028 tests
 

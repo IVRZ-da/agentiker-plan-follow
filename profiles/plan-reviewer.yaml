@@ -1,0 +1,12 @@
+# Plan-Reviewer Profil — Hermes Kanban Worker für Code-Review
+# Wird automatisch vom plan_follow Plugin bei der Installation angelegt.
+# Führt Code-Reviews durch: prüft Code-Qualität, Coverage, Security.
+name: plan-reviewer
+description: "Führt Code-Reviews durch — prüft Style, Coverage, Security, Architektur"
+model:
+  default: deepseek-v4-flash
+terminal:
+  backend: local
+  cwd: "."
+toolsets:
+  - hermes-cli
