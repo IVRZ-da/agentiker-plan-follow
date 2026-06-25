@@ -1,8 +1,72 @@
-# agentiker-plan-follow
+# 🎯 agentiker-plan-follow — Hermes Plugin
 
-Plan-Follow Plugin für Hermes Agent — strukturierte Planerstellung, Execution-Enforcement und Cross-Session-Koordination.
+> Hermes Plugin für strukturierte Plan-Erstellung, Execution-Enforcement, Peer-Review, Cross-Session-Koordination und automatisierte Git-Versionierung.
+> 38 Tools — von `plan_create` bis `plan_git_sync`, von `plan_review` bis `plan_roadmap`.
 
-## Tools
+## 📋 Table of Contents
+
+- [✨ Why?](#-why)
+- [🚀 Quick Start](#-quick-start)
+- [🛠 Tools](#-tools)
+- [🏗 Architecture](#-architecture)
+- [🧪 Development](#-development)
+- [📦 Installation](#-installation)
+
+---
+
+## ✨ Why?
+
+Hermes kommt mit grundlegenden Planungs-Tools. Sobald du jedoch mehrere Tasks parallel verwalten, Cross-Session-Koordination betreiben oder formale Peer-Reviews durchführen willst, brauchst du eine strukturierte Grundlage.
+
+**Plan-Follow bietet:**
+
+| Feature | Nutzen |
+|---------|--------|
+| **Plan-Erstellung** | 12 Templates (fix, feature, refactoring, deploy, multi, docs, …) — Templates sind **Pflicht**, kein Ad-hoc |
+| **Execution-Enforcement** | Tasks werden einzeln abgearbeitet. `plan_current` zeigt NUR den aktuellen Task |
+| **Auto-Verify** | Jeder Task kann einen Verify-Command haben — automatische Prüfung vor `plan_complete` |
+| **Peer Review** | 6 Review-Profile mit unabhängigem Subagenten-Check vor dem Abschluss |
+| **Parallel Groups** | Tasks innerhalb einer Gruppe laufen parallel, Gruppen sequentiell |
+| **Git-Integration** | Automatisches Branching, Committing, Tagging, Sync — vollständiger Git-Lifecycle |
+| **Roadmaps** | Strategische Phasen-Übersicht mit `plan_roadmap` (11 Subcommands) |
+| **HTN Decomposition** | Compound Tasks mit Sub-Tasks für hierarchische Zerlegung |
+| **MCP Server** | Stdio + HTTP Server für externe Tool-Anbindung |
+| **Dashboard** | Hermes Dashboard Plugin für visuelle Plan-Übersicht |
+| **Locks** | Cross-Session Resource Locks für koordinierte Teamarbeit |
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1. Plugin aktivieren (config.yaml)
+plugins:
+  enabled:
+    - agentiker-plan-follow
+
+# 2. Ersten Plan erstellen
+plan_create goal="Mein erstes Feature" template="feature"
+# → Erzeugt Plan mit p0 (Peer Review), f1 (Implementierung), f2 (Tests)
+
+# 3. Arbeiten
+plan_current        # → "f1: Feature implementieren"
+# ... Code schreiben ...
+plan_complete task_id="f1" auto_verify=true
+
+# 4. Nächster Task
+plan_current        # → "f2: Tests schreiben"
+plan_complete task_id="f2" auto_verify=true auto_commit=true
+
+# 5. Review
+plan_review task_id="f1" profile="standard"
+plan_complete task_id="p0"
+```
+
+Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
+
+---
+
+## 🛠 Tools
 
 <!-- README_AUTO -->
 
@@ -23,7 +87,7 @@ Plan-Follow Plugin für Hermes Agent — strukturierte Planerstellung, Execution
 | `plan_history` | Show git-based plan version history. |
 | `plan_lock` | Manage resource locks for cross-session coordination. |
 | `plan_notify` | Send a notification to another session or check own notifications. |
-| `plan_pr_create` | — |
+| `plan_pr_create` | Create a Pull Request via Forgejo API for all configured repos. |
 | `plan_roadmap` | Manage roadmaps — strategic phase overviews. |
 | `plan_session` | Show active sessions with their plans, locks, and pending notifications. |
 | `plan_simulate` | Simulate a plan to find critical path and parallelization opportunities. |
@@ -44,7 +108,7 @@ Plan-Follow Plugin für Hermes Agent — strukturierte Planerstellung, Execution
 | `plan_current` | Show the current task. ONLY ONE task is returned at a time —  you see only what needs to be done now.  Returns task details including allowed files, verification command, and progress. |
 | `plan_delete` | Permanently delete a plan from disk. |
 | `plan_duedate` | Set or view a due date for a task. |
-| `plan_list` | List all plans (including completed and aborted ones), newest first.  Returns plan_id, goal, progress, and whether each plan is currently active.  Use this to see what plans exist before calling plan_select(). |
+| `plan_list` | List all plans (including completed and aborted ones |
 | `plan_restore` | Restore a plan from the archive back to the plans directory. |
 | `plan_select` | Switch to a different saved plan as the active one. |
 | `plan_status` | Show all tasks with their current status (pending/in_progress/completed/blocked).  Returns a progress overview with counts and blocked-by reasons. |
@@ -96,6 +160,8 @@ Plan-Follow Plugin für Hermes Agent — strukturierte Planerstellung, Execution
 
 <!-- END README_AUTO -->
 
+
+
 ## Architektur
 
 ```
@@ -137,3 +203,4 @@ plugins:
   enabled:
     - agentiker-plan-follow
 ```
+

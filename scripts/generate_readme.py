@@ -38,8 +38,9 @@ class PlanFollowReadmeGenerator(ReadmeGenerator):
             desc_text = desc_file.read_text("utf-8")
             for name in names:
                 # Find the TOOL_DESCRIPTIONS entry for this name
+                # Match bis zum nächsten Eintrag (",\\s*") oder Ende des Dict (",\\s*\\n\\s*}}")
                 d_m = re.search(
-                    rf'"{name}":\s*\((.*?)\),\s*"', desc_text, re.DOTALL
+                    rf'"{name}":\s*\((.*?)\)\s*,\s*(?:"|[\s\S]*?\n\s*\}})', desc_text, re.DOTALL
                 )
                 if d_m:
                     # Get first meaningful line
