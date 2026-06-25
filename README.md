@@ -70,9 +70,9 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.13-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1061%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.14-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1061%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.13
+**Version:** 0.5.14
 
 **Tests:** 1061 tests
 
@@ -143,6 +143,12 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 ### Recent Changelog
 
+## [0.5.14] — 2026-06-25
+- **Pre-Commit Hook:** Test-Datei I001 (Import-Order) Fehler gefixt — Hook läuft jetzt sauber durch
+- **Coveragerc:** Config-Syntax repariert (exclude_lines als Multi-Line statt Python-Liste)
+- **Recovery:** `retry_task()` in tools/plan_mgmt.py — setzt crashed/blocked Tasks zurück auf pending
+- **Worker-Tests:** 32 Tests in test_plan_decompose bestehen
+
 ## [0.5.13] — 2026-06-25
 - **STATE.kanban_root_id:** root_id wird nach create_task() gespeichert (tools/state.py)
 - **Parents für alle Tasks:** `parents=[STATE.kanban_root_id]` in Review/Session/Index (3 Dateien)
@@ -160,10 +166,6 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 - **sys.path Fix:** `_kanban_available()` mit sys.path Guard für hermes_cli Import in 3 Modulen
 - **add_comment author:** `author="system"` in allen add_comment-Aufrufen ergänzt
 - **Root-ID Tracking:** create_task Rückgabewert wird für parents-Referenz gespeichert
-
-## [0.5.11] — 2026-06-25
-- **VERSION Bump auf v0.5.11:** Kein CHANGELOG-Eintrag (Hotfix)
-- Version wurde von 0.5.10 auf 0.5.11 erhöht
 
 <!-- END README_AUTO -->
 

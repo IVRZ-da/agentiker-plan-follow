@@ -6,14 +6,13 @@ fail_under = 90
 precision = 1
 show_missing = true
 skip_covered = true
-exclude_lines = [
-    "pragma: no cover",
-    "if TYPE_CHECKING:",
-    "if __name__ == .__main__.:",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "logger.warning",
-    "logger.debug",
-    "logger.error",
-    "logger.info",
-]
+exclude_lines =
+    pragma: no cover
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    raise AssertionError
+    raise NotImplementedError
+    logger.warning
+    logger.debug
+    logger.error
+    logger.info

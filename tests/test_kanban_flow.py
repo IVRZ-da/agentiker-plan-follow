@@ -170,27 +170,27 @@ class TestKanbanComplete:
     """Test: complete_task() ruft kanban_complete auf."""
 
     def test_complete_task_marks_kanban(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Complete Test", SAMPLE_TASKS)
         # complete p0 (first task)
         result = complete_task("p0")
         assert result["status"] == "completed"
 
     def test_complete_task_calls_kanban_complete(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Kanban Complete Test", SAMPLE_TASKS)
         before = len(mock_kanban.completed)
         complete_task("p0")
         assert len(mock_kanban.completed) == before + 1
 
     def test_complete_task_with_verify(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Verify Test", SAMPLE_TASKS)
         result = complete_task("p0", auto_verify=True)
         assert result["status"] == "completed"
 
     def test_complete_task_advances(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task, get_current_task
+        from plan_follow.plan_core import complete_task, create_plan, get_current_task
         create_plan("Advance Test", SAMPLE_TASKS)
         complete_task("p0")
         next_task = get_current_task()
@@ -242,7 +242,7 @@ class TestKanbanDrift:
         assert result == []  # Silently skip
 
     def test_drift_in_complete_result(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Drift Test", SAMPLE_TASKS, repo="/tmp")
         result = complete_task("p0")
         assert "drift" in result or result["status"] == "completed"
@@ -288,7 +288,7 @@ class TestLegacyMigration:
         assert result["status"] in ("no_plans", "ok")
 
     def test_migrate_dry_run(self, mock_kanban, tmp_path):
-        from plan_follow.plan_migrate import migrate_legacy_plans, PLANS_DIR
+        from plan_follow.plan_migrate import PLANS_DIR, migrate_legacy_plans
         # Temporarily point to a test dir with JSON plan
         with patch.object(PLANS_DIR.__class__, "exists", return_value=True):
             result = migrate_legacy_plans(dry_run=True)
@@ -320,14 +320,14 @@ class TestKanbanFallback:
 
     def test_fallback_complete_works(self):
         """Ohne Kanban: complete_task() funktioniert trotzdem."""
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Fallback Complete", SAMPLE_TASKS)
         result = complete_task("p0")
         assert result["status"] == "completed"
 
     def test_fallback_create_then_complete(self):
         """Ohne Kanban: Kompletter Flow ohne Fehler."""
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Full Fallback", SAMPLE_TASKS)
         r1 = complete_task("p0")
         assert r1["status"] == "completed"
@@ -370,7 +370,7 @@ class TestKanbanTools:
 
     def test_complete_task_returns_result(self):
         """complete_task gibt Dict-Result zurück."""
-        from plan_follow.plan_core import create_plan, complete_task
+        from plan_follow.plan_core import complete_task, create_plan
         create_plan("Result Test", SAMPLE_TASKS)
         result = complete_task("p0")
         assert isinstance(result, dict)
