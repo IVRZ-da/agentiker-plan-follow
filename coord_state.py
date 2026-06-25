@@ -10,11 +10,14 @@ Fehlertolerant — Einzelfehler blockieren nicht die gesamte Koordination.
 
 import fcntl
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("plan_follow")
 
 SHARED_DIR = Path.home() / ".hermes" / "shared"
 SESSIONS_FILE = SHARED_DIR / "sessions.json"
@@ -63,12 +66,12 @@ def _release_coord_lock(fd: int) -> None:
     """Release the coord lock and close the fd."""
     try:
         fcntl.flock(fd, fcntl.LOCK_UN)
-    except OSError:
-        pass
+    except OSError as e:
+        logger.warning("coord_state: failed to unlock fd %d: %s", fd, e)
     try:
         os.close(fd)
-    except OSError:
-        pass
+    except OSError as e:
+        logger.warning("coord_state: failed to close fd %d: %s", fd, e)
 
 
 def _atomic_write(path: Path, data: dict) -> None:
@@ -85,8 +88,8 @@ def _atomic_write(path: Path, data: dict) -> None:
             # Aufräumen bei Fehler
             try:
                 os.unlink(tmp)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("coord_state: cleanup of temp file %s failed: %s", tmp, e)
             raise
     finally:
         _release_coord_lock(lock_fd)

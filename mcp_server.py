@@ -47,7 +47,10 @@ def _get_core():
 def _get_api_token() -> str:
     """Get API token for MCP HTTP auth from env var."""
     import os
-    return os.environ.get("PLAN_MCP_API_TOKEN", "")
+    token = os.environ.get("PLAN_MCP_API_TOKEN", "")
+    if not token:
+        logger.warning("plan-mcp: PLAN_MCP_API_TOKEN not set — HTTP auth disabled")
+    return token
 
 
 # ─── MCP Tool Implementations ─────────────────────────────────────────────────
@@ -385,13 +388,14 @@ def run_http(host: str = "127.0.0.1", port: int = 8123):
                 self.end_headers()
                 self.wfile.write(json.dumps(response).encode())
             except Exception as e:
+                logger.error("plan-mcp: request failed: %s", e)
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": str(e)}).encode())
+                self.wfile.write(json.dumps({"error": "Internal Server Error"}).encode())
 
         def log_message(self, format, *args):
-            logger.debug("HTTP %s", format % args)
+            logger.debug("plan-mcp: HTTP request: %s %s", format, args)
 
     server = HTTPServer((host, port), MCPHandler)
     logger.info("plan-mcp: HTTP server on http://%s:%d", host, port)
