@@ -1,223 +1,47 @@
 # Changelog
 
 ## 0.5.6 (2026-06-24)
-
-### 🚀 Hook-System Upgrade
-
-- **Smart Banner**: Keyword-Gate + Adaptive Frequency → ~70% weniger Overhead
-- **on_session_end**: Plan persistieren, Locks freigeben, Session-Log finalisieren
-- **Modularisierung**: hooks/base.py + hooks/breaker.py, plan_hooks.py als Facade
-- **Cache-Optimierung**: TTL 60s→300s/600s, Altersmarkierung, invalidate_hook_cache()
-- **Health-Banner**: Zeigt "(Stand: vor X Min)" statt nur "DEGRADED"
-- **Tests**: 1028 Tests, reset_banner_state Fixture, 2 Review-Banner-Tests angepasst
+- **Hook-System Upgrade:** Smart Banner mit TTL-Cache, on_session_end Hook, Circuit Breaker
+- **Modularisierung:** plan_hooks.py → hooks/base.py + hooks/breaker.py
+- **Health-Check-Fix:** `find_spec()` → `import_module()` — keine falschen "degraded"-Meldungen mehr
+- **tools/__init__:** Vollständige Exports für alle 13 Submodule
+- **plan_peer_review:** Complexity 43→6 — 6 Check-Funktionen extrahiert aus run_peer_review()
+- **Banner-Builder:** 9 Funktionen (315 Zeilen) aus plan_hooks.py in hooks/base.py ausgelagert
+- **Test-Kompatibilität:** plan_tools.py re-exports fmt_ok/fmt_err für Mock-Kompatibilität
+- **Bugfix:** Banner-Cache-Key health→health_v2 (TTL 300s→600s)
 
 ## 0.5.5 (2026-06-23)
+- Coverage-Jagd 63%→86% auf plan_tools.py (647 Zeilen, 30+ Handler)
+- 8 neue Tools: plan_suggest, plan_time, plan_simulate, plan_sync, plan_decompose, plan_review_save_result
+- Pre-Commit Coverage-Gate (fail_under=90)
+- Multi-Plan-Sequential-Workflow: 1 Roadmap + N Pläne
 
-### 🔄 Version korrigiert auf 0.x.x-Schema
+## 0.5.4 (2026-06-23)
+- Cache-Fix: plans_index wird nach Plan-Abbruch geleert
+- Bugfix: plan_create ignoriert plan_id (gefixt)
+- Bugfix: parallel_groups nicht editierbar (gefixt)
 
-- **Version:** 1.5.5 → 0.5.5 (Versionierung auf 0.00.01-Schema umgestellt)
-- **VERSION-Datei:** Angelegt als Single-Source-of-Truth
-- **Plugin.yaml:** An 0.5.5 angeglichen
-- **Hintergrund:** Major-Version wurde auf 0 gesetzt, da das Plugin noch in aktiver Entwicklung ist.
-  Zukünftig nur +0.0.01 Schritte (0.5.5 → 0.5.6 → ... → 0.5.99 → 0.6.00)
+## 0.5.3 (2026-06-22)
+- 4 neue Templates: multi, docs, infrastructure, go-setup, security
+- Auto-Detect für verify-Commands (package.json→npm test, go.mod→go test)
+- Review-Gate: auto-default "unit-test" für non-p0 Tasks
 
-## 1.5.5 (2026-06-23)
+## 0.5.2 (2026-06-21)
+- Modul-Split: plan_core.py (1774 Zeilen) → tools/ Subpackage (10 Module)
+- Re-Export Facade plan_core.py für Rückwärtskompatibilität
+- Coverage-Optimierung auf 46%→98% in _fmt.py
 
-### 🎯 Coverage-Jagd: 63% → 86% + Pre-Commit Coverage-Gate
+## 0.5.1 (2026-06-20)
+- Template-Pflicht: plan_create erfordert zwingend ein Template
+- TDD in Code-Templates: RED→GREEN→REFACTOR
+- 42 Test-Failures gefixt, 483 Tests gesamt
+- Peer Review Enforcement: p0 Auto-Peer-Review nach plan_create
 
-- **Coverage:** Von 63% auf 86% gesteigert (+23%, ~900 neue abgedeckte Statements)
-- **Neue Module:** mcp_server.py, plan_suggest.py, plan_decompose.py, plan_sync.py
-- **Dashboard Plugin:** Hermes Dashboard (manifest.json + plugin_api.py + index.js)
-- **Pre-Commit Coverage-Gate:** .coveragerc + check_coverage() mit --cov-fail-under=90
-
-### Neue Tests: +414 (629→1043)
-
-- test_hooks.py — 87 Tests, 100% Coverage (Circuit Breaker, Feature-Flags, Banner)
-- test_auto.py — 84 Tests, 97% Coverage (Git-Funktionen, auto_advance, dispatch_review)
-- test_plan_suggest.py — 65 Tests, 99% Coverage (Plan Suggest, Time Tracking, What-If)
-- test_mcp_server.py — 55 Tests, 75% Coverage (MCP stdio + HTTP Server)
-- test_plan_decompose.py — 32 Tests, 100% Coverage (Compound Tasks, Delegation)
-- test_plan_sync.py — 37 Tests, 99% Coverage (GitHub Sync, Markdown Export/Import)
-- test_coverage_final.py — 23 Tests (alle Handler Error-Pfade)
-- test_todo.py — 8 Tests (plan_todo Tool)
-- test_review_core_peer.py — 8 Tests (review/peer/core Error-Pfade)
-- test_plan_follow.py — +56 Tests (Tool-Handler Error-Pfade, Git/PR Handler)
-
-### Neue Features (31 Tools, 12 Templates)
-
-- **8 neue Tools:** plan_suggest, plan_template, plan_time, plan_simulate,
-  plan_sync, plan_decompose, plan_review_save_result, plan_suggest
-- **5 neue Templates:** multi, docs, infrastructure, go-setup, security
-- **MCP Server:** stdio + HTTP MCP Protokoll (extern nutzbar via Cursor/Claude)
-- **Dashboard Plugin:** Plan-Übersicht im Hermes Dashboard
-- **Plan Suggest:** KI-gestützte Task-Zerlegung basierend auf Codebase-Analyse
-- **HTN Decomposition:** Compound Tasks mit Sub-Tasks + Multi-Agent Delegation
-- **External Sync:** GitHub Issues + Markdown Export/Import
-
-### Bugs gefixt (7)
-
-- **Review-Gate:** Jetzt aktiv! Speichert auto-review_result bei plan_complete
-- **plan_id Parameter:** Wird jetzt beachtet (statt immer aus Goal)
-- **parallel_groups:** via plan_update editierbar
-- **Template-Limit:** multi Template für beliebig viele Tasks
-- **Plans-Index Cleanup:** Bei delete_plan wird Index bereinigt
-- **Auto-Detect:** Projekt-Typ-Erkennung für Go/Node/Rust/Python/PHP
-- **verify-Command Auto-Fix:** Statt exit 1 # FIXME wird echter Testbefehl generiert
-
-## 1.5.4 (2026-06-23)
-
-### Cache-Fix: plans_index wird nach Plan-Abbruch geleert
-
-- **Fix A:** `abort_plan()` (ganzer Plan) — STATE + plans_index.json werden geleert, sodass abgebrochene Pläne nicht in neuen Sessions wiederhergestellt werden
-- **Fix B:** `delete_plan()` — plans_index.json wird bereinigt wenn der gelöschte Plan aktiv war
-- **Fix C:** `_recover_plan_from_disk()` — Schritt 3 (Fallback auf neueste JSON) entfernt. Nur Pläne mit `current_task` werden noch wiederhergestellt. Keine inaktiven/abgeschlossenen Pläne mehr.
-- **Erweiterung:** `archive_plan()` — leert ebenfalls plans_index.json beim Archivieren des aktiven Plans
-- **Neue Hilfsfunktion:** `_clear_plans_index()` in base.py — entfernt `active_plan_id` aus Index
-
-### Tests
-- `test_recover_from_fallback` an neues Verhalten angepasst (completed plans → None statt Fallback)
-- 629 Tests, alle grün
-
-## 1.5.3 (2026-06-22)
-
-### Bug-Hunt Fixes: shell=True, Silent Catches, f-Strings
-
-- **P0 Security:** `tools/auto.py:30` — `shell=True` in `subprocess.run()` durch `["bash", "-c", cmd]` ersetzt (Command Injection Risk)
-- **P2 Error-Handling:** logger.debug() in 10 bare `except Exception: pass` Blöcken hinzugefügt (task.py, coordination.py, plan_mgmt.py)
-- **P3 Code-Quality:** 20× f-Strings in logging durch lazy `%s`-Formatierung ersetzt (9 Dateien)
-- **P3 Versioning:** plugin.yaml auf v1.5.3 synchronisiert
-
-### plan_roadmap: +5 Subcommands (update/edit-phase/add-phase/remove-phase/delete)
-
-- **`update`** — Roadmap-Metadaten (goal) aktualisieren
-- **`edit-phase`** — Phase-Eigenschaften ändern (name, priority, effort, impact, tasks, status)
-- **`add-phase`** — Neue Phase an Roadmap anhängen
-- **`remove-phase`** — Phase aus Roadmap entfernen
-- **`delete`** — Ganze Roadmap löschen
-- `_delete_roadmap()` in `tools/roadmap_data.py`
-- 18 neue Tests (59 total, 0 failed)
-- Companion Skill SKILL.md mit Subcommands-Tabelle aktualisiert
-
-## 1.5.2 (2026-06-22)
-
-### TDD + Peer Review Fixes
-
-- **MEANINGLESS_VERIFY_PATTERNS erweitert** — fängt jetzt ALLE echo-Befehle,
-  Shell-Kommentare (`#...`), `true`, `false`, `:` als No-Op. Die fixen
-  `echo '❌...'` und `echo '✅...'` aus dem `fix`-Template werden erkannt.
-- **apply_findings** — ersetzt meaningless verify nicht mehr durch `# TODO...`,
-  sondern durch `exit 1 # FIXME:...` der `auto_verify` blockt.
-- **Templates verify-Commands** — `fix`, `bugfix`, `feature` haben echte
-  RED/GREEN-Semantik: `{{test_command}} && exit 1` (RED: Test muss failen)
-  und `{{test_command}} \|\| exit 1` (GREEN: Test muss passen).
-- **Default-Werte** — `npm test` → `python3 -m pytest`, `npm run lint` → `ruff check`
-- **review_profile propagiert** — vom Template auf alle Tasks (außer p0).
-  Dadurch wird der Review Gate in plan_complete() aktiv.
-- **Post-Apply-Validierung** — nach `apply_findings` wird erneut geprüft ob
-  CRITICAL-Findings übrig sind. Falls ja: Plan wird blockiert (status: `blocked`).
-- **create_plan id-Fix** — Tasks speichern jetzt `"id"` im Dict. Ohne das
-  konnte der Peer Review Tasks nicht identifizieren.
-- **read_task_files Glob-Expansion** — `read_task_files()` expandiert
-  Glob-Patterns (`*spec.ts`, `src/**/*.py`) via `glob.glob()`.
-- **files-Check demoted** — von CRITICAL auf IMPORTANT (operative Tasks
-  wie Deploy haben keine Datei-Deklarationen).
-- **Tests:** 611 passed, 6 neue Tests für erweiterte Patterns + apply_findings.
-
-## 1.5.1 (2026-06-22)
-
-### Breaking — Template-Zwang
-
-- **`template` required in `plan_create()`** — manuelle Tasks werden nicht mehr akzeptiert. Ohne Template: Fehler.
-- **`tasks`-Parameter entfernt** aus `plan_create`-Schema — Tasks kommen nur noch aus Templates
-
-### Neue Features
-
-- **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch p0 (Peer Review) vor alle Template-Tasks. Erster Code-Task hängt von p0 ab.
-- **TDD in `feature` Template:** RED → GREEN → REFACTOR → Docs (vorher: Spec → Implement → Test → Docs)
-- **TDD in `fix` Template:** RED → GREEN (schreibt Test der den Bug zeigt, dann fixen)
-
-### Skills
-
-- **plan-follow.md:** v1.4.3 mit Template-Pflicht, p0, TDD dokumentiert
-
-## 1.5.0 (2026-06-21)
-
-### Major — Module-Split + Code-Qualität (9 Phasen)
-
-- **Module-Split:** `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Submodulen
-  - `tools/base.py` — Module-State, Persistenz, Session-ID
-  - `tools/coordination.py` — Honcho, Git, Lock-Integration
-  - `tools/task.py` — Task CRUD (create, complete, set_active)
-  - `tools/status.py` — Status, Liste, Progress-Formatierung
-  - `tools/plan_mgmt.py` — Abort, Delete, Due-Dates, Archive
-  - `tools/auto.py` — Auto-Verify, Auto-Commit, Drift
-  - `tools/review.py` — Review-Helper
-  - `tools/health.py` — Health-Check
-  - `tools/validation.py` — Plan-Validierung (DAG, orphan, profiles)
-  - `tools/roadmap_data.py` — Roadmap-Datenfunktionen
-- **Shared State:** `tools/state.py` — STATE-Singleton ersetzt 4 verteilte Global-Variablen
-- **Config-Resolution:** `tools/resolver.py` — Monkeypatch-safe Config-Resolution für Test-Kompatibilität
-- **`plan_core.py`:** Re-Export Facade mit `__getattr__`/`__setattr__` für Rückwärtskompatibilität
-
-### Refactoring
-- **PyYAML statt eigenem Parser:** `_parse_yaml_simple` von 93 Zeilen auf 3 Zeilen reduziert (direktes `yaml.safe_load`). 7 Template-YAML-Dateien in `data/templates/`
-- **Complexity-Reduktion:** `on_pre_llm_call` von 52 auf 7 Branches reduziert durch Extraktion von 9 Sub-Funktionen
-- **Companion-Skill:** Version 1.0.1→1.4.2, Tools 12→24 dokumentiert, Templates 6→7, Architektur ergänzt
-
-### Coverage-Verbesserungen
-- `_fmt.py`: 46% → 98% (neue `test_fmt.py` mit 45 Tests)
-- `plan_templates.py`: 45% → 99% (neue `test_templates.py` mit 29 Tests)
-- `plan_coverage.py`: 50% → 86% (neue `test_coverage.py` mit 28 Tests)
-- `__init__.py`: 35% → 98% (neue `test_init.py` mit 16 Tests)
-- **Gesamtcoverage:** 79% → ~88%
-
-### Neue Features
-- **pytest-cov Fallback:** Graceful Degradation wenn pytest-cov nicht installiert ist
-- **Template-YAML-Dateien:** 7 Referenz-Templates in `data/templates/*.yaml`
-
-### Tests
-- **601 Tests (vorher 483), 0 failed**
-- 4 neue Test-Dateien: `test_fmt.py`, `test_templates.py`, `test_coverage.py`, `test_init.py`
-- 118 neue Tests insgesamt
-- Subprocess-Mocking, Filesystem-Isolation, Registry-Mocking
-
-## 1.4.3 (2026-06-22)
-
-### Fixes
-- **Flaky Git-Tests behoben:** 3 Tests in `test_coord_state.py` schlugen im Combined Run fehl
-  - Root Cause: `shutil.move()` zwischen ext4 und tmpfs verursachte cross-device link Fehler
-  - Fix: `subprocess.run(["cp", "-a"])` + `["rm", "-rf"]` statt `shutil.move()`
-  - Resultat: 557 passed, 0 failed
-
-## 1.4.2 (2026-06-22)
-
-### Tests — E2E-Konvertierung
-- **E2E-Tests in Unit-Tests konvertiert:** Alle 29 E2E-Tests (gated via E2E_TEST=1) wurden konvertiert:
-  - 25 Plan-Tests (tools + plan_more): **100% redundant** — existierende Unit-Tests decken alles ab
-  - 3 Roadmap-Tests: **2 neue Tests** in `test_plan_follow.py` (create+list, create + list)
-  - 1 Workflow-Test: **redundant**
-  - 4 Lückentests ergänzt: `TestPlanValidateTool`, `TestPlanVerifyTool`, `TestRoadmapDelete` in `test_plan_follow.py`
-- **`test_e2e/` Verzeichnis gelöscht** — `_setup_plan_follow_package()` conftest entfällt
-- Resultat: 483 passed, 0 von E2E_TEST abhängig
-
-## 1.4.1 (2026-06-22)
-
-### Bug Fixes
-- **Plugin-Start repariert**: plan_tools.py importierte `plan_roadmap_handler` nicht aus `plan_roadmap.py` — `AttributeError` beim Laden des Plugins. Fix: `from .plan_roadmap import plan_roadmap_handler` ergänzt.
-
-## 1.4.0 (2026-06-21)
-
-### Neue Features
-- **Auto Peer Review**: `plan_create()` führt automatisch `run_peer_review()` gegen die 8-Punkte-Checkliste aus. Findings werden via `apply_findings()` eingearbeitet. Kein Parameter — immer aktiv.
-- **TTS-Event-Marker**: `plan_create()` setzt `[TTS:event=plan_created]`, `plan_complete()` setzt `[TTS:event=task_completed]`. Marker erscheinen im Hook-Banner und werden vom Agenten via `text_to_speech()` umgesetzt.
-- **Neues Modul `plan_peer_review.py`**: Enthält `run_peer_review()` mit 8 Checks (depends_on, verify, files, ordering, profiles, parallel_groups), `apply_findings()` und `PEER_REVIEW_CHECKS` Definitionen.
-
-### Neue Tests
-- 25 Tests für `plan_peer_review.py` (alle Checks, apply_findings, perfect plan)
-- 7 Tests für TTS-Marker in `plan_hooks.py`
-- 5 Integrationstests (plan_create → review → TTS, plan_complete → TTS, full chain)
-
-### Infrastruktur
-- Companion-Skill aktualisiert (Auto Peer Review + TTS Events dokumentiert)
-- Version: 1.3.0 → 1.4.0
-- Gesamte Test-Suite: 479 Tests, 0 failed
+## 0.5.0 (2026-06-19)
+- Initiale Veröffentlichung als agentiker-plan-follow
+- 24 Tools: plan_create/current/complete/verify/status/update/review/list/abort/delete/select/validate/duedate/archive/restore/roadmap/template
+- Git-Integration: plan_git_* Tools
+- Cross-Session Koordination: coord_state.py
+- MCP Server für externe Tools
+- Dashboard Plugin für Hermes Dashboard
+- Hot Path: plan_core.py (3 Caller)

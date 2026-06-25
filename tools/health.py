@@ -14,9 +14,10 @@ logger = logging.getLogger("plan_follow")
 
 
 def _mod_available(mod_name: str) -> bool:
-    """Check if a Python module is importable (safe, no side effects)."""
+    """Check if a Python module can be imported (works with dynamic modules, unlike find_spec)."""
     try:
-        return importlib.util.find_spec(mod_name) is not None
+        importlib.import_module(mod_name)
+        return True
     except (ModuleNotFoundError, ImportError, Exception):
         return False
 

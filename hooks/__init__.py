@@ -11,6 +11,10 @@ __all__ = [
     "_get_last_user_message", "_has_plan_keywords", "invalidate_hook_cache",
     "_BREAKER_CRITICAL_PREFIXES", "_BREAKER_TTL", "_breaker_state",
     "_build_breaker_banner", "_check_breaker", "_set_breaker",
+    # Banner-Builder (ausgelagert aus plan_hooks.py)
+    "_build_task_header", "_build_roadmap_banner", "_build_git_banner",
+    "_build_drift_banner", "_build_due_banner", "_build_coordination_banner",
+    "_build_tts_banner", "_build_review_banner", "_build_health_banner",
 ]
 
 from .base import (
@@ -24,6 +28,15 @@ from .base import (
     _banner_turn_counter,
     _build_banner,
     _build_compact_banner,
+    _build_coordination_banner,
+    _build_drift_banner,
+    _build_due_banner,
+    _build_git_banner,
+    _build_health_banner,
+    _build_review_banner,
+    _build_roadmap_banner,
+    _build_task_header,
+    _build_tts_banner,
     _cached_or_fresh,
     _get_last_user_message,
     _has_plan_keywords,

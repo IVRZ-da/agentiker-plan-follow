@@ -664,8 +664,10 @@ def run_tests(test_files: list[str]) -> bool:
         return True
     else:
         failures = [l for l in (r.stderr or "").strip().split("\n") if "FAILED" in l]
-        print(f"  ❌ {len(failures)} Test(s) fehlgeschlagen:")
-        for f in failures[:10]:
+        errors = [l for l in (r.stdout or "").strip().split("\n") if "ERROR" in l]
+        all_fails = failures + errors
+        print(f"  ❌ {len(all_fails)} Test(s) fehlgeschlagen:")
+        for f in all_fails[:10]:
             print(f"     {f}")
         print("\n  Commit abgebrochen — Fehler beheben vor erneutem Commit.")
         print("  (git commit --no-verify zum Überspringen)")

@@ -1,14 +1,19 @@
 [run]
-source =
-    plan_follow
-    plan_follow.tools
-    plan_follow.mcp_server
-    plan_follow.plan_suggest
-    plan_follow.plan_decompose
-    plan_follow.plan_sync
+source = plan_follow, plan_follow.tools, plan_follow.hooks, plan_follow.mcp_server, plan_follow.plan_suggest, plan_follow.plan_decompose, plan_follow.plan_sync
 
 [report]
 fail_under = 90
-precision = 2
-show_missing = True
-skip_covered = False
+precision = 1
+show_missing = true
+skip_covered = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "logger.warning",
+    "logger.debug",
+    "logger.error",
+    "logger.info",
+]

@@ -1,66 +1,31 @@
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.build_meta:__legacy__"
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "agentiker-plan-follow"
-version = "0.5.5"
-description = "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit"
-authors = [
-    {name = "Johannes Lettner"},
-]
-license = {text = "MIT"}
-readme = "README.md"
-requires-python = ">=3.12"
-
-dependencies = [
-    "rich>=13.0",
-    "PyYAML>=6.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=8.0",
-    "pytest-cov",
-    "pytest-xdist",
-]
-dashboard = [
-    "fastapi>=0.133.0",
-]
-
-[tool.setuptools.packages.find]
-include = ["plan_follow", "plan_follow.*"]
-namespaces = false
+version = "0.5.6"
+description = "Plan-Follow Plugin for Hermes Agent — task enforcement, peer review, cross-session coordination"
+requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
-pythonpath = [".."]
 testpaths = ["tests"]
-addopts = "-n auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+log_cli_level = "WARNING"
 
 [tool.ruff]
-line-length = 120
+line-length = 100
+target-version = "py311"
 
 [tool.ruff.lint]
-ignore = ["E501"]
-
-[tool.ruff.lint.per-file-ignores]
-"scripts/*" = ["T201"]
-"tests/*" = ["E402"]
-
-[tool.coverage.run]
-source = ["plan_follow"]
-omit = ["tests/*", "scripts/*"]
-relative_files = true
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if __name__ == .__main__.:",
-    "raise AssertionError",
-    "raise NotImplementedError",
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "SIM", "ARG", "PTH", "PL", "RUF"]
+ignore = [
+    "E501",   # line-too-long (covered by formatter)
+    "SIM114", # if-else -> or (sometimes less readable)
+    "PLR0913", # too-many-arguments
+    "PLR2004", # magic-value-comparison
+    "S101",   # assert allowed in tests
 ]

@@ -1659,8 +1659,8 @@ class TestReviewBanner:
         from plan_follow.plan_tools import plan_create_tool
 
         # Set cache to degraded so health banner shows (expected format: (value, timestamp))
-        _hook_cache.pop("health", None)
-        _hook_cache["health"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
+        _hook_cache.pop("health_v2", None)
+        _hook_cache["health_v2"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
