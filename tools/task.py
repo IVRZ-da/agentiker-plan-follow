@@ -292,10 +292,18 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
         plan_id = f"{now[:10]}-{goal.lower().replace(' ', '-')[:40]}"
 
 
-    # --- Kanban-Integration deaktiviert (2026-06-25) ---
-    # Kanban ist ein paralleles Task-Dispatch-System, kein Plan-Speicher.
-    # Plan-Tasks sind sequentiell mit Abhängigkeiten — inkompatibel.
-    # Nutze nur den klassischen JSON-Fallback.
+    # --- Kanban-DB: Create Task-Graph ---
+    if _kanban_available():
+        try:
+            return _create_kanban_plan(
+                goal=goal, tasks=tasks, plan_id=plan_id,
+                repo=repo, repos=repos,
+                parallel_groups=parallel_groups,
+            )
+        except Exception as e:
+            logger.warning("Kanban plan creation failed, fallback to JSON: %s", e)
+
+    # --- JSON-Fallback: Existing logic ---
     tasks_dict = {}
     for t in tasks:
         tasks_dict[t["id"]] = {
