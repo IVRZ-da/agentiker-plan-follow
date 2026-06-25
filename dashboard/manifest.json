@@ -3,16 +3,8 @@
   "version": "0.6.0",
   "label": "📋 Plans",
   "icon": "list-checks",
-  "description": "Plan-Übersicht mit Task-Baum, Status und Verify-Ergebnissen. Unterstützt Kanban-Backend.",
-  "tabs": [
-    {
-      "id": "plans",
-      "label": "Alle Pläne",
-      "route": "/api/plugins/plan-follow-dashboard/plans",
-      "after": "kanban"
-    }
-  ],
-  "shellSlots": {
-    "sidebar": true
-  }
+  "description": "Plan-Übersicht (deaktiviert — Nutze das Kanban-Dashboard)",
+  "disabled": true,
+  "tabs": [],
+  "shellSlots": {}
 }
