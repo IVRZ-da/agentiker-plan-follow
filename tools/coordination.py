@@ -173,6 +173,46 @@ def _git_commit_if_active(plan: dict) -> None:
 # ─── Auto Lock / Unlock (via coord_state — JSON+fcntl) ───────────────────────
 
 
+def _create_review_task(plan_id: str, task_id: str, review_profile: str, files: list[str]) -> None:
+    """Create a review task in Kanban gated on the completed task.
+
+    The review task is assigned to plan-reviewer and depends on the
+    implementation task being completed.
+    """
+    kdb = _kanban_db()
+    if not kdb or review_profile in ("none", "", None):
+        return
+
+    try:
+        import json
+
+        review_body = json.dumps({
+            "type": "review_task",
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "files": files,
+            "review_profile": review_profile,
+        })
+
+        kdb.create_task(
+            title=f"Review {plan_id[:30]}:{task_id}",
+            body=review_body,
+            assignee="plan-reviewer",
+            initial_status="pending",
+            skills=[f"review:{review_profile}"],
+        )
+
+        # Gate: review depends on implementation task
+        try:
+            kdb.link_tasks(f"{plan_id}:{task_id}", f"{plan_id}:review-{task_id}")
+        except Exception:
+            logger.debug("Review link failed (non-fatal)")
+
+        logger.info("Review-Task erstellt für %s/%s (Profil: %s)", plan_id, task_id, review_profile)
+    except Exception as e:
+        logger.debug("Review task creation failed (non-fatal): %s", e)
+
+
 def _auto_lock_task_files(task: dict) -> None:
     """Auto-acquire locks for all files in a task on activation."""
     files = task.get("files", [])

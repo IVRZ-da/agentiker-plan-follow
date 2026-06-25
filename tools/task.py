@@ -18,6 +18,7 @@ from .base import (
 from .coordination import (
     _auto_lock_task_files,
     _auto_unlock_task_files,
+    _create_review_task,
     _save_plan_state_to_honcho,
 )
 from .state import STATE
@@ -391,12 +392,79 @@ def _format_task(tid: str, task: dict, plan: dict) -> dict:
     }
 
 
-def complete_task(task_id: str) -> dict:
+def _run_verify(verify_cmd: str, timeout: int = 120) -> dict:
+    """Run a verify command and return results."""
+    if not verify_cmd or not verify_cmd.strip():
+        return {"status": "skipped", "message": "No verify command configured."}
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["bash", "-c", verify_cmd], capture_output=True, text=True, timeout=timeout,
+        )
+        return {
+            "status": "passed" if result.returncode == 0 else "failed",
+            "exit_code": result.returncode,
+            "stdout": result.stdout[-500:],
+            "stderr": result.stderr[-500:],
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "failed", "message": f"Timeout ({timeout}s)"}
+    except Exception as e:
+        return {"status": "failed", "message": str(e)}
+
+
+def _check_drift(repos: list[str]) -> list[str]:
+    """Check for unplanned changes in git repos."""
+    import subprocess
+    drift = []
+    for repo in repos:
+        if not repo:
+            continue
+        try:
+            result = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if result.stdout.strip():
+                drift.append(f"{repo}: {len([l for l in result.stdout.splitlines() if l.strip()])} uncommitted changes")
+        except Exception:
+            pass
+    return drift
+
+
+def _kanban_complete(plan_id: str, task_id: str, verify_result: dict) -> None:
+    """Complete a task in Kanban DB (best-effort)."""
+    kdb = _kanban_db()
+    if not kdb:
+        return
+    try:
+        import json
+        import os
+        summary = verify_result.get("status", "completed")
+        metadata = {
+            "plan_id": plan_id,
+            "task_id": task_id,
+            "verify": verify_result,
+            "profile": os.environ.get("HERMES_PROFILE", "default"),
+        }
+        kdb.complete_task(
+            f"{plan_id}:{task_id}",
+            summary=summary,
+            metadata=json.dumps(metadata),
+        )
+        logger.debug("Kanban complete: %s/%s → %s", plan_id, task_id, summary)
+    except Exception as e:
+        logger.debug("Kanban complete failed (non-fatal): %s", e)
+
+
+def complete_task(task_id: str, auto_verify: bool = False) -> dict:
     """Mark a task as completed, advance to next. Returns result dict.
 
-    Supports parallel groups: when all tasks in a group are completed,
-    the next group is activated (all tasks set to in_progress).
-    In linear mode, advances to the next task with satisfied dependencies.
+    Supports:
+    - Auto-Verify: runs verify command before completing
+    - Kanban: calls kanban_db.complete_task() when available
+    - Drift detection: warns about unplanned changes
+    - Parallel groups and linear mode
     """
     plan = _get_active_plan()
     if not plan:
@@ -409,35 +477,72 @@ def complete_task(task_id: str) -> dict:
     if plan.get("current_task") != task_id:
         return {"status": "error", "message": f"Task '{task_id}' is not the current task."}
 
-    # Mark as completed
+    # 1. Drift Detection
+    repos = plan.get("repos", [])
+    if plan.get("repo"):
+        repos = [plan["repo"]] + repos
+    drift = _check_drift(repos) if repos else []
+
+    # 2. Auto-Verify
+    verify_result = {"status": "skipped"}
+    if auto_verify:
+        verify_cmd = task.get("verify", "")
+        if verify_cmd and verify_cmd != "echo '✅ Plan reviewed and accepted'":
+            verify_result = _run_verify(verify_cmd)
+            if verify_result.get("status") == "failed":
+                return {
+                    "status": "verify_failed",
+                    "task_id": task_id,
+                    "message": f"Verify command failed: {verify_cmd}",
+                    "verify_result": verify_result,
+                    "drift": drift,
+                }
+
+    # 3. Kanban: complete task
+    _kanban_complete(plan["plan_id"], task_id, verify_result)
+
+    # Review-Gate: create review task if applicable
+    review_profile = task.get("review_profile", "none")
+    if review_profile and review_profile != "none":
+        _create_review_task(
+            plan_id=plan["plan_id"],
+            task_id=task_id,
+            review_profile=review_profile,
+            files=task.get("files", []),
+        )
+
+    # 4. Mark as completed (JSON fallback)
     task["status"] = "completed"
+    task["verify_result"] = verify_result
+    if drift:
+        task["drift_warnings"] = drift
     _save_plan_state_to_honcho(plan["plan_id"], task_id, "completed")
-    # Release locks for completed task
     _auto_unlock_task_files(task)
 
-    # Handle parallel groups
+    # 5. Advance
     groups = plan.get("parallel_groups")
     if groups:
         _advance_parallel_group(plan, task_id, groups)
     else:
-        # Linear mode: find next pending task with completed dependencies
         _advance_linear(plan)
 
     _save_plan(plan)
 
-    # Cross-Session: Session-Update bei Task-Abschluss
+    # 6. Cross-Session: Session-Update
     try:
         from .coord_state import update_session
         update_session(get_session_id(), plan_id=plan["plan_id"])
     except Exception:
-        logger.debug("Honcho session registration failed (best-effort)")
-        pass  # Best-effort
+        pass
 
     result = {
         "status": "completed",
         "task_id": task_id,
         "next_task": plan.get("current_task"),
+        "verify": verify_result,
     }
+    if drift:
+        result["drift"] = drift
     return result
 
 
