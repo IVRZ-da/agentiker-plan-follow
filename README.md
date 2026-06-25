@@ -70,23 +70,22 @@ Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.14-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1061%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.14-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1026%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
 **Version:** 0.5.14
 
-**Tests:** 1061 tests
+**Tests:** 1026 tests
 
-**Tools (39):**
+**Tools (38):**
 
 
-### Advanced (13 Tools)
+### Advanced (12 Tools)
 
 | Tool | Description |
 |------|-------------|
 | `plan_decompose` | Manage hierarchical task decomposition (compound tasks with sub-tasks). |
 | `plan_history` | Show git-based plan version history. |
 | `plan_lock` | Manage resource locks for cross-session coordination. |
-| `plan_migrate` | Migrate alte JSON-Pläne in Kanban-DB.  Scannt ~/.hermes/plans/*.json und erzeugt Kanban-Task-Graphen. |
 | `plan_notify` | Send a notification to another session or check own notifications. |
 | `plan_pr_create` | Create a Pull Request via Forgejo API for all configured repos. |
 | `plan_roadmap` | Manage roadmaps — strategic phase overviews. |
