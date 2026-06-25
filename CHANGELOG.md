@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.8 (2026-06-25)
+- **Bug-Hunt Fixes:** coord_state.py OSError-Logging, mcp_server.py Auth-Warning + Exception Leakage + Logger lazy eval
+- **Code-Qualität:** Silent `except OSError: pass` → logger.warning in coord_state.py
+- **Security:** MCP HTTP Auth fehlt → warning log wenn PLAN_MCP_API_TOKEN nicht gesetzt
+- **Security:** Exception Leakage in MCP HTTP → generische Fehlermeldung an Client
+
 ## 0.5.7 (2026-06-25)
 - **Monolith-Split:** plan_tools.py (1237 Zeilen, 36 Handler) → tools/handlers_crud.py + handlers_git.py + handlers_review.py + handlers_misc.py
 - **Re-Export Facade:** plan_tools.py re-exportiert alle Handler via `from .tools.handlers_* import ...`
