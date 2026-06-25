@@ -18,257 +18,12 @@ from .base import (
 from .coordination import (
     _auto_lock_task_files,
     _auto_unlock_task_files,
-    _create_review_task,
     _save_plan_state_to_honcho,
 )
 from .state import STATE
 from .status import _format_progress
 
 # ─── Plan CRUD ────────────────────────────────────────────────────────────────
-
-
-def _kanban_available() -> bool:
-    try:
-        import sys
-        _p = "/home/jo/.hermes/hermes-agent"
-        if _p not in sys.path:
-            sys.path.insert(0, _p)
-        from hermes_cli import kanban_db  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
-
-def _kanban_db():
-    try:
-        from hermes_cli import kanban_db
-        return kanban_db
-    except ImportError:
-        return None
-
-
-def _kanban_profile() -> str:
-    import os
-    return os.environ.get("HERMES_PROFILE", "default")
-
-
-def _profile_for_review(review_profile: str) -> str:
-    """Map review_profile to Kanban worker profile name."""
-    mapping = {
-        "full": "plan-reviewer",
-        "security": "plan-reviewer",
-        "api-route": "plan-reviewer",
-        "unit-test": "plan-reviewer",
-        "ui-component": "plan-reviewer",
-    }
-    return mapping.get(review_profile, "plan-worker")
-
-
-def _skill_for_review(review_profile: str) -> list[str]:
-    """Map review_profile to Kanban skills."""
-    mapping = {
-        "full": ["review:full"],
-        "security": ["review:security"],
-        "api-route": ["review:api-route"],
-        "unit-test": ["review:unit-test"],
-        "ui-component": ["review:ui-component"],
-    }
-    return mapping.get(review_profile, ["plan:default"])
-
-
-# ─── Kanban Plan Creation ─────────────────────────────────────────────────────
-
-
-def _create_kanban_plan(
-    goal: str, tasks: list, plan_id: str, repo: str = "",
-    repos: Optional[list[str]] = None,
-    parallel_groups: Optional[dict] = None,
-) -> str:
-    """Create a plan as a Kanban task graph.
-
-    Creates one root task (type='plan') + N child tasks (type='plan_task')
-    with dependencies via link_tasks().
-
-    Returns plan_id.
-    """
-    import json
-    import uuid
-    from datetime import datetime, timezone
-
-    kdb = _kanban_db()
-    if not kdb:
-        raise RuntimeError("Kanban-DB not available")
-
-    conn = kdb.connect(board='plans')
-    try:
-        profile = _kanban_profile()
-        now = datetime.now(timezone.utc).isoformat()
-
-        # Session-ID + Workspace-Pfad ermitteln
-        try:
-            from .base import get_session_id
-            session_id = get_session_id()
-        except Exception:
-            session_id = str(uuid.uuid4())
-
-        workspace_path = ""
-        if repos:
-            workspace_path = str(repos[0])
-        elif repo:
-            workspace_path = repo
-        else:
-            import os
-            workspace_path = os.getcwd()
-
-        # 1. Create root plan task
-        root_body_str = json.dumps({
-            "type": "plan",
-            "plan_id": plan_id,
-            "goal": goal,
-            "created": now,
-            "repo": repo,
-            "repos": repos or [],
-            "parallel_groups": parallel_groups or {},
-            "current_task": None,
-            "template": "kanban",
-            "version": "2",
-            "session_id": session_id,
-            "workspace_path": workspace_path,
-        })
-
-        root_id = None
-        try:
-            root_id = kdb.create_task(
-                conn,
-                title=goal[:80],
-                body=root_body_str,
-                assignee=profile,
-                initial_status="running",
-                priority=5,
-                workspace_kind="dir",
-                workspace_path=workspace_path,
-                skills=[],
-                max_runtime_seconds=7200,
-                max_retries=2,
-                session_id=session_id,
-            )
-            if root_id:
-                from .state import STATE
-                STATE.kanban_root_id = root_id
-                try:
-                    kdb.add_notify_sub(conn, task_id=root_id, platform="hermes",
-                                       chat_id=session_id, notifier_profile=profile)
-                except Exception:
-                    logger.debug("Notify sub for root failed (non-fatal)")
-        except Exception as root_err:
-            logger.debug("Root task creation failed (non-fatal): %s", root_err)
-
-        # 2. Create child tasks
-        kanban_child_ids = {}
-        for t in tasks:
-            tid = t.get("id", "unknown")
-            t_name = t.get("name", tid)
-            t_verify = t.get("verify", "")
-            t_files = t.get("files", [])
-            t_review = t.get("review_profile", "none")
-            depends_on = t.get("depends_on", [])
-
-            task_body = json.dumps({
-                "type": "plan_task",
-                "plan_id": plan_id,
-                "task_id": tid,
-                "name": t_name,
-                "verify": t_verify,
-                "files": t_files,
-                "review_profile": t_review,
-                "depends_on": depends_on,
-            })
-
-            # Determine assignee + skills from review_profile
-            assignee = _profile_for_review(t_review) if t_review != "none" else profile
-            child_skills = _skill_for_review(t_review)
-            if not child_skills:
-                child_skills = ["plan:default"]
-
-            kanban_child_id = kdb.create_task(
-                conn,
-                title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
-                body=task_body,
-                assignee=assignee,
-                initial_status="blocked",
-                skills=child_skills,
-                priority=5,
-                workspace_kind="dir",
-                workspace_path=workspace_path,
-                parents=[root_id] if root_id else [],
-                max_runtime_seconds=3600,
-                max_retries=2,
-                session_id=session_id,
-            )
-            if kanban_child_id:
-                kanban_child_ids[tid] = kanban_child_id
-                try:
-                    kdb.add_notify_sub(conn, task_id=kanban_child_id, platform="hermes",
-                                       chat_id=session_id, notifier_profile=assignee)
-                except Exception:
-                    pass
-
-        # 3. Link dependencies (via kanban-IDs, nicht plan_follow-IDs)
-        for t in tasks:
-            tid = t.get("id", "")
-            child_kid = kanban_child_ids.get(tid)
-            if not child_kid:
-                continue
-            for dep in t.get("depends_on", []):
-                parent_kid = kanban_child_ids.get(dep) or root_id
-                if parent_kid and child_kid:
-                    try:
-                        kdb.link_tasks(conn, parent_kid, child_kid)
-                    except Exception:
-                        logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
-
-        # 4. Start first task — update root task's current_task via comment
-        if tasks:
-            first_tid = tasks[0].get("id", "")
-            try:
-                root_body_dict = json.loads(root_body_str)
-                root_body_dict["current_task"] = first_tid
-                kdb.add_comment(conn, plan_id, author="system", body=json.dumps(root_body_dict))
-            except Exception:
-                pass
-    finally:
-        conn.close()
-
-    logger.info("✅ Plan '%s' als Kanban-Task-Graph erstellt (%d Tasks)", plan_id, len(tasks))
-
-    # Save JSON plan as backup (für STATE-Konsistenz + Fallback)
-    try:
-        from datetime import datetime, timezone
-        plan_dict = {
-            "plan_id": plan_id,
-            "goal": goal,
-            "created": now,
-            "current_task": tasks[0].get("id", "") if tasks else None,
-            "tasks": {t["id"]: {
-                "id": t["id"],
-                "status": "in_progress" if t.get("id") == (tasks[0].get("id", "") if tasks else None) else "pending",
-                "name": t.get("name", ""),
-                "files": t.get("files", []),
-                "verify": t.get("verify", ""),
-                "review_profile": t.get("review_profile", "none"),
-                "depends_on": t.get("depends_on", []),
-            } for t in tasks},
-            "repo": repo,
-            "repos": repos or [],
-            "parallel_groups": parallel_groups or {},
-        }
-        from .base import _save_plan
-        _save_plan(plan_dict)
-        logger.debug("JSON-Backup für Plan %s gespeichert", plan_id)
-    except Exception as plan_save_err:
-        logger.warning("JSON-Backup fehlgeschlagen (non-fatal): %s", plan_save_err)
-
-    return plan_id
 
 
 def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optional[dict] = None,
@@ -291,19 +46,6 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
     else:
         plan_id = f"{now[:10]}-{goal.lower().replace(' ', '-')[:40]}"
 
-
-    # --- Kanban-DB: Create Task-Graph ---
-    if _kanban_available():
-        try:
-            return _create_kanban_plan(
-                goal=goal, tasks=tasks, plan_id=plan_id,
-                repo=repo, repos=repos,
-                parallel_groups=parallel_groups,
-            )
-        except Exception as e:
-            logger.warning("Kanban plan creation failed, fallback to JSON: %s", e)
-
-    # --- JSON-Fallback: Existing logic ---
     tasks_dict = {}
     for t in tasks:
         tasks_dict[t["id"]] = {
@@ -482,86 +224,12 @@ def _format_task(tid: str, task: dict, plan: dict) -> dict:
     }
 
 
-def _run_verify(verify_cmd: str, timeout: int = 120) -> dict:
-    """Run a verify command and return results."""
-    if not verify_cmd or not verify_cmd.strip():
-        return {"status": "skipped", "message": "No verify command configured."}
-    import subprocess
-    try:
-        result = subprocess.run(
-            ["bash", "-c", verify_cmd], capture_output=True, text=True, timeout=timeout,
-        )
-        return {
-            "status": "passed" if result.returncode == 0 else "failed",
-            "exit_code": result.returncode,
-            "stdout": result.stdout[-500:],
-            "stderr": result.stderr[-500:],
-        }
-    except subprocess.TimeoutExpired:
-        return {"status": "failed", "message": f"Timeout ({timeout}s)"}
-    except Exception as e:
-        return {"status": "failed", "message": str(e)}
-
-
-def _check_drift(repos: list[str]) -> list[str]:
-    """Check for unplanned changes in git repos."""
-    import subprocess
-    drift = []
-    for repo in repos:
-        if not repo:
-            continue
-        try:
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=repo, capture_output=True, text=True, timeout=10,
-            )
-            if result.stdout.strip():
-                drift.append(
-                    f"{repo}: {len([_line for _line in result.stdout.splitlines() if _line.strip()])} uncommitted changes"
-                )
-        except Exception:
-            pass
-    return drift
-
-
-def _kanban_complete(plan_id: str, task_id: str, verify_result: dict) -> None:
-    """Complete a task in Kanban DB (best-effort)."""
-    kdb = _kanban_db()
-    if not kdb:
-        return
-    try:
-        import json
-        import os
-        summary = verify_result.get("status", "completed")
-        metadata = {
-            "plan_id": plan_id,
-            "task_id": task_id,
-            "verify": verify_result,
-            "profile": os.environ.get("HERMES_PROFILE", "default"),
-        }
-        conn = kdb.connect(board='plans')
-        try:
-            kdb.complete_task(
-                conn,
-                f"{plan_id}:{task_id}",
-                summary=summary,
-                metadata=json.dumps(metadata),
-            )
-        finally:
-            conn.close()
-        logger.debug("Kanban complete: %s/%s → %s", plan_id, task_id, summary)
-    except Exception as e:
-        logger.debug("Kanban complete failed (non-fatal): %s", e)
-
-
-def complete_task(task_id: str, auto_verify: bool = False) -> dict:
+def complete_task(task_id: str) -> dict:
     """Mark a task as completed, advance to next. Returns result dict.
 
-    Supports:
-    - Auto-Verify: runs verify command before completing
-    - Kanban: calls kanban_db.complete_task() when available
-    - Drift detection: warns about unplanned changes
-    - Parallel groups and linear mode
+    Supports parallel groups: when all tasks in a group are completed,
+    the next group is activated (all tasks set to in_progress).
+    In linear mode, advances to the next task with satisfied dependencies.
     """
     plan = _get_active_plan()
     if not plan:
@@ -574,72 +242,35 @@ def complete_task(task_id: str, auto_verify: bool = False) -> dict:
     if plan.get("current_task") != task_id:
         return {"status": "error", "message": f"Task '{task_id}' is not the current task."}
 
-    # 1. Drift Detection
-    repos = plan.get("repos", [])
-    if plan.get("repo"):
-        repos = [plan["repo"]] + repos
-    drift = _check_drift(repos) if repos else []
-
-    # 2. Auto-Verify
-    verify_result = {"status": "skipped"}
-    if auto_verify:
-        verify_cmd = task.get("verify", "")
-        if verify_cmd and verify_cmd != "echo '✅ Plan reviewed and accepted'":
-            verify_result = _run_verify(verify_cmd)
-            if verify_result.get("status") == "failed":
-                return {
-                    "status": "verify_failed",
-                    "task_id": task_id,
-                    "message": f"Verify command failed: {verify_cmd}",
-                    "verify_result": verify_result,
-                    "drift": drift,
-                }
-
-    # 3. Kanban: complete task
-    _kanban_complete(plan["plan_id"], task_id, verify_result)
-
-    # Review-Gate: create review task if applicable
-    review_profile = task.get("review_profile", "none")
-    if review_profile and review_profile != "none":
-        _create_review_task(
-            plan_id=plan["plan_id"],
-            task_id=task_id,
-            review_profile=review_profile,
-            files=task.get("files", []),
-        )
-
-    # 4. Mark as completed (JSON fallback)
+    # Mark as completed
     task["status"] = "completed"
-    task["verify_result"] = verify_result
-    if drift:
-        task["drift_warnings"] = drift
     _save_plan_state_to_honcho(plan["plan_id"], task_id, "completed")
+    # Release locks for completed task
     _auto_unlock_task_files(task)
 
-    # 5. Advance
+    # Handle parallel groups
     groups = plan.get("parallel_groups")
     if groups:
         _advance_parallel_group(plan, task_id, groups)
     else:
+        # Linear mode: find next pending task with completed dependencies
         _advance_linear(plan)
 
     _save_plan(plan)
 
-    # 6. Cross-Session: Session-Update
+    # Cross-Session: Session-Update bei Task-Abschluss
     try:
         from .coord_state import update_session
         update_session(get_session_id(), plan_id=plan["plan_id"])
     except Exception:
-        pass
+        logger.debug("Honcho session registration failed (best-effort)")
+        pass  # Best-effort
 
     result = {
         "status": "completed",
         "task_id": task_id,
         "next_task": plan.get("current_task"),
-        "verify": verify_result,
     }
-    if drift:
-        result["drift"] = drift
     return result
 
 
