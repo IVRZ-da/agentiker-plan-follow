@@ -4,10 +4,11 @@ Verwaltet:
   - sessions.json (aktive Sessions mit Plan-ID + Metadaten)
   - locks.json (Ressourcen-Locks für Dateien/Pfade)
 
-Atomic Writes via tempfile + rename. KEINE Git-Abhängigkeit.
+Atomic Writes via tempfile + rename + fcntl.flock für Prozess-Sicherheit.
 Fehlertolerant — Einzelfehler blockieren nicht die gesamte Koordination.
 """
 
+import fcntl
 import json
 import os
 import tempfile
@@ -18,17 +19,23 @@ from typing import Optional
 SHARED_DIR = Path.home() / ".hermes" / "shared"
 SESSIONS_FILE = SHARED_DIR / "sessions.json"
 LOCKS_FILE = SHARED_DIR / "locks.json"
+NOTIFICATIONS_FILE = SHARED_DIR / "notifications.json"
+
+# Separate Lock-Datei für fcntl.flock() — verhindert TOCTOU Race Conditions
+# bei gleichzeitigen Zugriffen mehrerer Sessions/Prozesse.
+_COORD_LOCK = SHARED_DIR / ".coord.lock"
 
 _SHARED_DIR_INIT = False
 
 
 def set_shared_dir(path: Path) -> None:
     """Set a custom shared directory (for testing). Updates all file paths."""
-    global SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE, _SHARED_DIR_INIT
+    global SHARED_DIR, SESSIONS_FILE, LOCKS_FILE, NOTIFICATIONS_FILE, _COORD_LOCK, _SHARED_DIR_INIT
     SHARED_DIR = path
     SESSIONS_FILE = path / "sessions.json"
     LOCKS_FILE = path / "locks.json"
     NOTIFICATIONS_FILE = path / "notifications.json"
+    _COORD_LOCK = path / ".coord.lock"
     _SHARED_DIR_INIT = False
 
 
@@ -40,31 +47,63 @@ def _ensure_shared_dir():
         _SHARED_DIR_INIT = True
 
 
-def _atomic_write(path: Path, data: dict) -> None:
-    """Atomic write: tempfile → rename. Verhindert corrupted reads."""
+def _acquire_coord_lock():
+    """Acquire an exclusive fcntl.flock() on the coord lock file.
+
+    Blocks until the lock is acquired. Creates the lock file if needed.
+    Returns the file descriptor (caller MUST release via _release_coord_lock).
+    """
     _ensure_shared_dir()
-    fd, tmp = tempfile.mkstemp(dir=str(SHARED_DIR), suffix=".tmp")
+    fd = os.open(str(_COORD_LOCK), os.O_CREAT | os.O_RDWR, 0o644)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _release_coord_lock(fd: int) -> None:
+    """Release the coord lock and close the fd."""
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, str(path))
-    except Exception:
-        # Aufräumen bei Fehler
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+def _atomic_write(path: Path, data: dict) -> None:
+    """Atomic write: tempfile → rename. fcntl.flock() schützt vor TOCTOU."""
+    lock_fd = _acquire_coord_lock()
+    try:
+        _ensure_shared_dir()
+        fd, tmp = tempfile.mkstemp(dir=str(SHARED_DIR), suffix=".tmp")
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, str(path))
+        except Exception:
+            # Aufräumen bei Fehler
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    finally:
+        _release_coord_lock(lock_fd)
 
 
 def _atomic_read(path: Path) -> dict:
-    """Read JSON with fallback auf leeres Dict."""
-    if not path.exists():
-        return {}
+    """Read JSON with fallback auf leeres Dict. fcntl.flock() für Konsistenz."""
+    lock_fd = _acquire_coord_lock()
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
+        if not path.exists():
+            return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    finally:
+        _release_coord_lock(lock_fd)
 
 
 # ─── Session Management ───────────────────────────────────────────────────────
@@ -219,9 +258,6 @@ def cleanup_stale_locks(max_age_minutes: int = 120) -> int:
 
 
 # ─── Notification Management ──────────────────────────────────────────────────
-
-
-NOTIFICATIONS_FILE = SHARED_DIR / "notifications.json"
 
 
 def send_notification(

@@ -724,9 +724,8 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
                 )
                 head = br.stdout.strip()
 
-            api_url = f"https://git.agentiker.de/api/v1/repos/{owner}/{repo_name}/pulls"
-            if "git.ivory.green" in remote_url:
-                api_url = f"https://git.ivory.green/api/v1/repos/{owner}/{repo_name}/pulls"
+            api_base = _os.environ.get("FORGEJO_API_BASE", "https://git.agentiker.de")
+            api_url = f"{api_base}/api/v1/repos/{owner}/{repo_name}/pulls"
 
             payload = _json.dumps({
                 "title": title,
