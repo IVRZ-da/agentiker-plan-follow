@@ -9,9 +9,7 @@ Testet den kompletten Kanban-Flow:
 """
 
 import json
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -31,19 +29,22 @@ class MockKanbanDB:
         self.links = []
         self.comments = []
         self.completed = []
+        self.notify_subs = []
+        self.events = []
 
-    def connect(self):
+    def connect(self, board=None):
         return self
 
     def execute(self, sql, params=None):
-        # Return a proper mock cursor
         cursor = MagicMock()
         cursor.fetchall.return_value = []
         cursor.fetchone.return_value = None
         return cursor
 
-    def create_task(self, title="", body="", assignee="", initial_status="pending",
-                    skills=None, priority=5):
+    def create_task(self, conn, title="", body="", assignee="", initial_status="pending",
+                    skills=None, priority=5, workspace_kind=None, workspace_path=None,
+                    parents=None, max_runtime_seconds=None, max_retries=None,
+                    session_id=None):
         tid = f"task-{len(self.tasks) + 1}"
         self.tasks[tid] = {
             "id": tid,
@@ -53,10 +54,14 @@ class MockKanbanDB:
             "status": initial_status,
             "skills": skills or [],
             "priority": priority,
+            "parents": parents or [],
         }
-        return {"id": tid}
+        if parents:
+            for pid in parents:
+                self.links.append({"parent": pid, "child": tid})
+        return tid
 
-    def get_task(self, tid):
+    def get_task(self, conn, tid):
         task = self.tasks.get(tid)
         if task:
             return MagicMock(
@@ -68,21 +73,23 @@ class MockKanbanDB:
             )
         return None
 
-    def complete_task(self, tid, summary="", metadata=""):
-        # Accept any task ID (Kanban auto-generates IDs, we don't know them)
+    def complete_task(self, conn, tid, summary="", metadata=""):
         self.completed.append({"id": tid, "summary": summary, "metadata": metadata})
-        return {"status": "completed"}
 
-    def link_tasks(self, parent_id, child_id):
+    def link_tasks(self, conn, parent_id, child_id):
         self.links.append({"parent": parent_id, "child": child_id})
-        return {"status": "linked"}
 
-    def add_comment(self, task_id, body):
-        self.comments.append({"task_id": task_id, "body": body})
-        return {"id": len(self.comments)}
+    def add_comment(self, conn, task_id, author="system", body=""):
+        self.comments.append({"task_id": task_id, "body": body, "author": author})
 
-    def list_comments(self, task_id):
+    def list_comments(self, conn, task_id):
         return [c for c in self.comments if c["task_id"] == task_id]
+
+    def add_notify_sub(self, conn, task_id="", platform="", chat_id="", notifier_profile=""):
+        self.notify_subs.append({"task_id": task_id, "platform": platform})
+
+    def claim_unseen_events_for_sub(self, conn, task_id="", platform="", chat_id=""):
+        return (0, 0, [])
 
     def list_boards(self):
         return [{"slug": "plans", "display_name": "Plans"}]
@@ -138,13 +145,13 @@ class TestKanbanPlanCreation:
 
     def test_kanban_plan_has_tasks_in_graph(self, mock_kanban):
         from plan_follow.plan_core import create_plan
-        plan_id = create_plan("E2E Test", SAMPLE_TASKS)
+        create_plan("E2E Test", SAMPLE_TASKS)
         # Kanban has tasks
         assert len(mock_kanban.tasks) >= 1
 
     def test_kanban_plan_creates_child_tasks(self, mock_kanban):
         from plan_follow.plan_core import create_plan
-        plan_id = create_plan("Child Test", SAMPLE_TASKS)
+        create_plan("Child Test", SAMPLE_TASKS)
         # Should have at least root + child tasks
         task_count = len(mock_kanban.tasks)
         # At least 3 tasks: p0 (peer review) + p1 + p2 from template
@@ -152,7 +159,7 @@ class TestKanbanPlanCreation:
 
     def test_kanban_plan_has_dependencies(self, mock_kanban):
         from plan_follow.plan_core import create_plan
-        plan_id = create_plan("Dep Test", SAMPLE_TASKS)
+        create_plan("Dep Test", SAMPLE_TASKS)
         assert len(mock_kanban.links) >= 1, "Expected at least 1 dependency link"
 
 
@@ -164,27 +171,27 @@ class TestKanbanComplete:
 
     def test_complete_task_marks_kanban(self, mock_kanban):
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Complete Test", SAMPLE_TASKS)
+        create_plan("Complete Test", SAMPLE_TASKS)
         # complete p0 (first task)
         result = complete_task("p0")
         assert result["status"] == "completed"
 
     def test_complete_task_calls_kanban_complete(self, mock_kanban):
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Kanban Complete Test", SAMPLE_TASKS)
+        create_plan("Kanban Complete Test", SAMPLE_TASKS)
         before = len(mock_kanban.completed)
         complete_task("p0")
         assert len(mock_kanban.completed) == before + 1
 
     def test_complete_task_with_verify(self, mock_kanban):
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Verify Test", SAMPLE_TASKS)
+        create_plan("Verify Test", SAMPLE_TASKS)
         result = complete_task("p0", auto_verify=True)
         assert result["status"] == "completed"
 
     def test_complete_task_advances(self, mock_kanban):
         from plan_follow.plan_core import create_plan, complete_task, get_current_task
-        plan_id = create_plan("Advance Test", SAMPLE_TASKS)
+        create_plan("Advance Test", SAMPLE_TASKS)
         complete_task("p0")
         next_task = get_current_task()
         assert next_task is None or next_task["task_id"] != "p0"
@@ -197,7 +204,6 @@ class TestKanbanReviewGate:
     """Test: Bei review_profile wird Review-Task erzeugt."""
 
     def test_review_task_created_on_complete(self, mock_kanban):
-        from plan_follow.plan_core import create_plan, complete_task
         from plan_follow.tools.task import _create_review_task
 
         before = len(mock_kanban.tasks)
@@ -237,7 +243,7 @@ class TestKanbanDrift:
 
     def test_drift_in_complete_result(self, mock_kanban):
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Drift Test", SAMPLE_TASKS, repo="/tmp")
+        create_plan("Drift Test", SAMPLE_TASKS, repo="/tmp")
         result = complete_task("p0")
         assert "drift" in result or result["status"] == "completed"
 
@@ -315,14 +321,14 @@ class TestKanbanFallback:
     def test_fallback_complete_works(self):
         """Ohne Kanban: complete_task() funktioniert trotzdem."""
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Fallback Complete", SAMPLE_TASKS)
+        create_plan("Fallback Complete", SAMPLE_TASKS)
         result = complete_task("p0")
         assert result["status"] == "completed"
 
     def test_fallback_create_then_complete(self):
         """Ohne Kanban: Kompletter Flow ohne Fehler."""
-        from plan_follow.plan_core import create_plan, complete_task, get_current_task
-        plan_id = create_plan("Full Fallback", SAMPLE_TASKS)
+        from plan_follow.plan_core import create_plan, complete_task
+        create_plan("Full Fallback", SAMPLE_TASKS)
         r1 = complete_task("p0")
         assert r1["status"] == "completed"
 
@@ -365,7 +371,7 @@ class TestKanbanTools:
     def test_complete_task_returns_result(self):
         """complete_task gibt Dict-Result zurück."""
         from plan_follow.plan_core import create_plan, complete_task
-        plan_id = create_plan("Result Test", SAMPLE_TASKS)
+        create_plan("Result Test", SAMPLE_TASKS)
         result = complete_task("p0")
         assert isinstance(result, dict)
         assert "status" in result
@@ -385,7 +391,6 @@ class TestKanbanEdgeCases:
 
     def test_complete_without_plan(self):
         """Ohne aktiven Plan → Error."""
-        from plan_follow.plan_core import reset_session_id
         from plan_follow.tools.base import _reset_cache
         _reset_cache()
         from plan_follow.plan_core import complete_task

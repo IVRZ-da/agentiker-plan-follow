@@ -1,7 +1,16 @@
 # Changelog
 
+## [0.5.13] — 2026-06-25
+- **STATE.kanban_root_id:** root_id wird nach create_task() gespeichert (tools/state.py)
+- **Parents für alle Tasks:** `parents=[STATE.kanban_root_id]` in Review/Session/Index (3 Dateien)
+- **link_tasks mit kanban-IDs:** plan_follow-IDs durch kanban-IDs in _create_kanban_plan + plan_migrate ersetzt
+- **Notify-Subs:** `add_notify_sub()` nach jedem create_task() — Event-Kanal für Worker-Crashes
+- **Event-Poller im Banner:** pre_llm_call Hook checkt Worker-Crashes via claim_unseen_events_for_sub()
+- **Hybrid-Modell B:** plan-worker + plan-reviewer Profile + plan_decompose delegate für Worker-Dispatch
+- **Koordination-Banner:** Zeigt 🔴 Worker-Crashes, 🚫 blocked, ✅ completed Tasks
+
 ## [0.5.12] — 2026-06-25
-- **Kanban-DB Conn Fix:** `conn` als Erstparameter an alle `kdb.*()` Aufrufe übergeben (7 Dateien)
+- **Kanban-DB Conn Fix:** `conn` als Erstparameter an alle `kdb.*()` Aufrufe (7 Dateien)
 - **Kanban-DB Status Fix:** `initial_status` korrigiert (`in_progress`→`running`, `pending`→`blocked`)
 - **Kanban-DB Parameter:** `workspace_kind='dir'`, `workspace_path`, `parents=[root_id]`, `session_id`, `max_runtime_seconds`, `max_retries` in allen `create_task()`-Aufrufen ergänzt
 - **Skills/Toolsets getrennt:** Root-Tasks `skills=[]`, Child-Tasks korrekte Skill-Namen

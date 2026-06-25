@@ -292,6 +292,35 @@ def _build_coordination_banner() -> list[str]:
         if notifs:
             lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
             lines.append("║    → plan_notify(action='check')          ║")
+
+        # ─── Worker-Event-Check ────────────────────────────────────
+        try:
+            from ..tools.base import _kanban_available
+            if _kanban_available():
+                from hermes_cli import kanban_db as _kdb
+
+                from ..tools.state import STATE
+                if STATE.kanban_root_id:
+                    _conn = _kdb.connect(board='plans')
+                    _result = _kdb.claim_unseen_events_for_sub(
+                        _conn, task_id=STATE.kanban_root_id,
+                        platform="hermes", chat_id=_pc.get_session_id(),
+                    )
+                    if _result:
+                        _old, _new, _events = _result
+                        if _events:
+                            crashed = [e for e in _events if e.kind == "crashed"]
+                            blocked = [e for e in _events if e.kind == "blocked"]
+                            completed = [e for e in _events if e.kind == "completed"]
+                            if crashed:
+                                lines.append(f"║  🔴 {len(crashed)} Worker-Crash(s)          ║")
+                            if blocked:
+                                lines.append(f"║  🚫 {len(blocked)} Task(s) blocked          ║")
+                            if completed:
+                                lines.append(f"║  ✅ {len(completed)} Task(s) completed       ║")
+                    _conn.close()
+        except Exception:
+            pass
     except Exception:
         pass
     return lines

@@ -92,8 +92,8 @@ def _create_kanban_plan(
     Returns plan_id.
     """
     import json
-    from datetime import datetime, timezone
     import uuid
+    from datetime import datetime, timezone
 
     kdb = _kanban_db()
     if not kdb:
@@ -152,10 +152,19 @@ def _create_kanban_plan(
                 max_retries=2,
                 session_id=session_id,
             )
+            if root_id:
+                from .state import STATE
+                STATE.kanban_root_id = root_id
+                try:
+                    kdb.add_notify_sub(conn, task_id=root_id, platform="hermes",
+                                       chat_id=session_id, notifier_profile=profile)
+                except Exception:
+                    logger.debug("Notify sub for root failed (non-fatal)")
         except Exception as root_err:
             logger.debug("Root task creation failed (non-fatal): %s", root_err)
 
         # 2. Create child tasks
+        kanban_child_ids = {}
         for t in tasks:
             tid = t.get("id", "unknown")
             t_name = t.get("name", tid)
@@ -181,7 +190,7 @@ def _create_kanban_plan(
             if not child_skills:
                 child_skills = ["plan:default"]
 
-            kdb.create_task(
+            kanban_child_id = kdb.create_task(
                 conn,
                 title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
                 body=task_body,
@@ -196,15 +205,27 @@ def _create_kanban_plan(
                 max_retries=2,
                 session_id=session_id,
             )
+            if kanban_child_id:
+                kanban_child_ids[tid] = kanban_child_id
+                try:
+                    kdb.add_notify_sub(conn, task_id=kanban_child_id, platform="hermes",
+                                       chat_id=session_id, notifier_profile=assignee)
+                except Exception:
+                    pass
 
-        # 3. Link dependencies
+        # 3. Link dependencies (via kanban-IDs, nicht plan_follow-IDs)
         for t in tasks:
             tid = t.get("id", "")
+            child_kid = kanban_child_ids.get(tid)
+            if not child_kid:
+                continue
             for dep in t.get("depends_on", []):
-                try:
-                    kdb.link_tasks(conn, f"{plan_id}:{dep}", f"{plan_id}:{tid}")
-                except Exception:
-                    logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
+                parent_kid = kanban_child_ids.get(dep) or root_id
+                if parent_kid and child_kid:
+                    try:
+                        kdb.link_tasks(conn, parent_kid, child_kid)
+                    except Exception:
+                        logger.debug("Kanban link %s → %s failed (non-fatal)", dep, tid)
 
         # 4. Start first task — update root task's current_task via comment
         if tasks:
@@ -495,7 +516,9 @@ def _check_drift(repos: list[str]) -> list[str]:
                 cwd=repo, capture_output=True, text=True, timeout=10,
             )
             if result.stdout.strip():
-                drift.append(f"{repo}: {len([_line for _line in result.stdout.splitlines() if _line.strip()])} uncommitted changes")
+                drift.append(
+                    f"{repo}: {len([_line for _line in result.stdout.splitlines() if _line.strip()])} uncommitted changes"
+                )
         except Exception:
             pass
     return drift

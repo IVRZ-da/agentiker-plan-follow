@@ -139,15 +139,16 @@ def _migrate_single_plan(
             "status": "dry_run",
             "goal": goal,
             "task_count": len(tasks),
-            "message": f"Würde migrieren: {goal} ({len(tasks)} Tasks)" if tasks else f"Würde migrieren: {goal} (0 Tasks)",
+            'message': (f"Würde migrieren: {goal} ({len(tasks)} Tasks)"
+                        if tasks else f"Würde migrieren: {goal} (0 Tasks)"),
         }
 
     # ─── Echten Import durchführen ────────────────────────────────────
     profile = _kanban_profile()
     now = datetime.now(timezone.utc).isoformat()
     conn = kdb.connect(board='plans')
-    import uuid
     import os
+    import uuid
     session_id = str(uuid.uuid4())
     workspace_path = repo or os.getcwd()
 
@@ -189,6 +190,7 @@ def _migrate_single_plan(
 
     # 2. Child-Tasks (Unter-Tasks des Plans)
     child_count = 0
+    kanban_child_ids = {}
     for tid, tdef in tasks.items():
         t_name = tdef.get("name", tid)
         t_verify = tdef.get("verify", "")
@@ -217,7 +219,7 @@ def _migrate_single_plan(
         })
 
         try:
-            kdb.create_task(
+            child_kanban_id = kdb.create_task(
                 conn,
                 title=f"{plan_id[:30]}:{tid} — {t_name[:40]}",
                 body=task_body,
@@ -233,16 +235,21 @@ def _migrate_single_plan(
                 session_id=session_id,
             )
             child_count += 1
+            if child_kanban_id:
+                kanban_child_ids[tid] = child_kanban_id
         except Exception as e:
             logger.warning("Child-Task %s/%s fehlgeschlagen: %s", plan_id, tid, e)
             continue
 
-        # Dependencies verlinken
+        # Dependencies verlinken (via kanban-IDs)
         for dep in depends_on:
-            try:
-                kdb.link_tasks(conn, f"{plan_id}:{dep}", f"{plan_id}:{tid}")
-            except Exception:
-                pass
+            parent_kid = kanban_child_ids.get(dep) or root_id
+            child_kid = kanban_child_ids.get(tid)
+            if parent_kid and child_kid:
+                try:
+                    kdb.link_tasks(conn, parent_kid, child_kid)
+                except Exception:
+                    pass
 
     conn.close()
 

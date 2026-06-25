@@ -148,17 +148,23 @@ def _update_plans_index(plan: dict) -> None:
                 if existing:
                     kdb.add_comment(conn, tid, author="system", body=body)  # Update via comment
                 else:
+                    from .state import STATE
+                    plist = [STATE.kanban_root_id] if STATE.kanban_root_id else []
                     kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
                                     assignee=profile, initial_status="running",
                                     workspace_kind="dir",
                                     skills=[],
                                     max_runtime_seconds=7200,
                                     max_retries=1,
-                                    session_id=get_session_id())
+                                    session_id=get_session_id(),
+                                    parents=plist)
             except Exception:
                 try:
+                    from .state import STATE
+                    plist = [STATE.kanban_root_id] if STATE.kanban_root_id else []
                     kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
-                                    assignee=profile, initial_status="running")
+                                    assignee=profile, initial_status="running",
+                                    parents=plist)
                 except Exception:
                     pass
             finally:

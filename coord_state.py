@@ -168,12 +168,15 @@ def register_session(
             # Create a lightweight session-marker task
             conn = kdb.connect(board='plans')
             try:
+                from .tools.state import STATE
+                parents_list = [STATE.kanban_root_id] if STATE.kanban_root_id else []
                 kdb.create_task(
                     conn,
                     title=f"session:{session_id[:20]}",
                     body=body,
                     assignee=profile,
                     initial_status="running",
+                    parents=parents_list,
                     workspace_kind="scratch",
                     skills=[],
                     max_runtime_seconds=300,

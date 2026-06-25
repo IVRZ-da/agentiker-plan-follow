@@ -200,6 +200,8 @@ def _create_review_task(plan_id: str, task_id: str, review_profile: str, files: 
 
         conn = kdb.connect(board='plans')
         try:
+            from .state import STATE
+            parents_list = [STATE.kanban_root_id] if STATE.kanban_root_id else []
             kdb.create_task(
                 conn,
                 title=f"Review {plan_id[:30]}:{task_id}",
@@ -207,16 +209,12 @@ def _create_review_task(plan_id: str, task_id: str, review_profile: str, files: 
                 assignee="plan-reviewer",
                 initial_status="blocked",
                 skills=[f"review:{review_profile}"],
+                parents=parents_list,
                 workspace_kind="dir",
                 max_runtime_seconds=1800,
                 max_retries=1,
             )
 
-            # Gate: review depends on implementation task
-            try:
-                kdb.link_tasks(conn, f"{plan_id}:{task_id}", f"{plan_id}:review-{task_id}")
-            except Exception:
-                logger.debug("Review link failed (non-fatal)")
         finally:
             conn.close()
 
