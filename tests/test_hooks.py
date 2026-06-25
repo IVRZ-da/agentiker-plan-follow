@@ -117,7 +117,7 @@ class TestCircuitBreaker:
 
     def test_breaker_auto_expires(self, mock_time):
         """Line 40: expired entry is removed."""
-        from plan_follow.plan_hooks import _check_breaker, _set_breaker, _BREAKER_TTL
+        from plan_follow.plan_hooks import _BREAKER_TTL, _check_breaker, _set_breaker
 
         # Set a breaker entry
         _set_breaker("honcho_tool", "error msg")
@@ -222,8 +222,8 @@ class TestBuildBreakerBanner:
         _set_breaker("code_refactor", "Syntax error detected")
         lines = _build_breaker_banner()
         assert len(lines) >= 2
-        assert any("CIRCUIT BREAKER ACTIVE" in l for l in lines)
-        assert any("code_refactor" in l for l in lines)
+        assert any("CIRCUIT BREAKER ACTIVE" in line for line in lines)
+        assert any("code_refactor" in line for line in lines)
 
     def test_multiple_breakers_truncated(self, mock_time):
         """Line 373-374: more than 3 breakers → '... und N weitere'."""
@@ -283,9 +283,9 @@ class TestBuildRoadmapBanner:
         )
         lines = _build_roadmap_banner()
         assert len(lines) >= 2
-        assert any("ROADMAP" in l for l in lines)
-        assert any("1/2" in l or "1 Phasen" in l for l in lines)
-        assert any("Phase 2" in l for l in lines)
+        assert any("ROADMAP" in line for line in lines)
+        assert any("1/2" in line or "1 Phasen" in line for line in lines)
+        assert any("Phase 2" in line for line in lines)
 
     def test_with_blocked_phases(self, monkeypatch):
         """Lines 108-111: blocked phases section."""
@@ -607,8 +607,8 @@ class TestBuildDueBanner:
 
 class TestBuildCoordinationBanner:
     def test_no_sessions_no_locks(self, monkeypatch, mock_time):
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
         monkeypatch.setattr(cs, "get_locks", lambda: {})
         monkeypatch.setattr(cs, "get_notifications", lambda *a, **kw: [])
@@ -626,8 +626,8 @@ class TestBuildCoordinationBanner:
 
     def test_with_sessions(self, monkeypatch, mock_time):
         """Lines 228-233: active sessions listed."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {
             "sess-1": {"goal": "Implement feature X"},
             "sess-2": {"goal": "Fix bug Y"},
@@ -647,12 +647,12 @@ class TestBuildCoordinationBanner:
         lines = _build_coordination_banner()
         text = "\n".join(lines)
         assert "aktive" in text or "Session" in text
-        assert "Implement" in text or "Feature" in text
+        assert "sess-1" in text or "sess-2" in text
 
     def test_with_sessions_truncated(self, monkeypatch, mock_time):
         """Line 232-233: more than 3 sessions → '... und N weitere'."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {f"s{i}": {"goal": f"Goal {i}"} for i in range(5)})
         monkeypatch.setattr(cs, "get_locks", lambda: {})
         monkeypatch.setattr(cs, "get_notifications", lambda *a, **kw: [])
@@ -672,8 +672,8 @@ class TestBuildCoordinationBanner:
 
     def test_with_locks(self, monkeypatch, mock_time):
         """Lines 235-248: locks for current task files."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
         monkeypatch.setattr(cs, "get_locks", lambda: {
             "/workspace/src/main.py": {"session_id": "other-sess", "since": "2024-01-01T00:00:00"},
@@ -696,8 +696,8 @@ class TestBuildCoordinationBanner:
 
     def test_with_notifications(self, monkeypatch, mock_time):
         """Lines 250-255: unread notifications."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
         monkeypatch.setattr(cs, "get_locks", lambda: {})
         monkeypatch.setattr(cs, "get_notifications", lambda *a, **kw: [{"id": "n1", "text": "Hello"}])
@@ -717,8 +717,8 @@ class TestBuildCoordinationBanner:
 
     def test_coord_exception_handled(self, monkeypatch, mock_time):
         """Line 256-257: exception caught."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_session_id",
@@ -1029,8 +1029,8 @@ class TestOnPreLLMCall:
 
     def test_banner_with_git_and_drift_separators(self, monkeypatch, mock_time):
         """Lines 416-418: git separator line is added."""
-        from plan_follow.plan_hooks import on_pre_llm_call
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import on_pre_llm_call
         current = _make_current()
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
@@ -1083,8 +1083,8 @@ class TestOnPreLLMCall:
 
     def test_banner_with_coord_and_breaker(self, monkeypatch, mock_time):
         """Lines 426-428, 439-441: coord and breaker separators."""
-        from plan_follow.plan_hooks import on_pre_llm_call, _set_breaker
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _set_breaker, on_pre_llm_call
         current = _make_current()
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
@@ -1134,8 +1134,8 @@ class TestOnPreLLMCall:
 
     def test_banner_with_health_lines(self, monkeypatch, mock_time):
         """Lines 434-437: health_lines separator is added when health degraded."""
-        from plan_follow.plan_hooks import on_pre_llm_call
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import on_pre_llm_call
         current = _make_current()
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
@@ -1200,7 +1200,7 @@ class TestOnPreLLMCall:
 class TestOnPostToolCall:
     def test_circuit_breaker_critical_error(self, monkeypatch, mock_time):
         """Lines 470-472: error on critical tool sets breaker."""
-        from plan_follow.plan_hooks import on_post_tool_call, _check_breaker
+        from plan_follow.plan_hooks import _check_breaker, on_post_tool_call
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
             lambda: None,
@@ -1218,7 +1218,7 @@ class TestOnPostToolCall:
 
     def test_circuit_breaker_truncated_error(self, monkeypatch, mock_time):
         """Line 471: error truncated to 80 chars."""
-        from plan_follow.plan_hooks import on_post_tool_call, _check_breaker
+        from plan_follow.plan_hooks import _check_breaker, on_post_tool_call
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
             lambda: None,
@@ -1236,7 +1236,7 @@ class TestOnPostToolCall:
 
     def test_circuit_breaker_ignores_non_critical(self, monkeypatch, mock_time):
         """Non-critical tool errors don't set breaker."""
-        from plan_follow.plan_hooks import on_post_tool_call, _check_breaker
+        from plan_follow.plan_hooks import _check_breaker, on_post_tool_call
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
             lambda: None,
@@ -1344,8 +1344,8 @@ class TestOnPostToolCall:
 
     def test_lock_enforcement_other_session(self, monkeypatch, mock_time):
         """Lines 519-528: lock enforcement for file locked by another session."""
-        from plan_follow.plan_hooks import on_post_tool_call
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import on_post_tool_call
         drift_warnings = []
         current = _make_current(files=["/workspace/src/main.py"])
         monkeypatch.setattr(
@@ -1384,8 +1384,8 @@ class TestOnPostToolCall:
 
     def test_lock_enforcement_exception(self, monkeypatch, mock_time):
         """Lines 527-528: lock enforcement exception caught."""
-        from plan_follow.plan_hooks import on_post_tool_call
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import on_post_tool_call
         current = _make_current(files=["/workspace/src/main.py"])
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
@@ -1456,8 +1456,8 @@ class TestBuildTaskHeader:
         current = _make_current(files=["f1.py", "f2.py", "f3.py", "f4.py"])
         lines = _build_task_header(current)
         assert len(lines) >= 3
-        assert any("CURRENT TASK" in l for l in lines)
-        assert any("f1.py" in l for l in lines)
+        assert any("CURRENT TASK" in line for line in lines)
+        assert any("f1.py" in line for line in lines)
         # More than 3 files should show "..."
         text = "\n".join(lines)
         assert "..." in text
@@ -1558,8 +1558,8 @@ class TestEdgeCases:
 
     def test_coord_banner_empty_sessions_with_notifs(self, monkeypatch, mock_time):
         """Coordination banner with only notifications."""
-        from plan_follow.plan_hooks import _build_coordination_banner
         import plan_follow.coord_state as cs
+        from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
         monkeypatch.setattr(cs, "get_locks", lambda: {})
         monkeypatch.setattr(cs, "get_notifications", lambda *a, **kw: [{"id": "n1"}])
@@ -1605,7 +1605,7 @@ class TestEdgeCases:
 
     def test_on_post_tool_call_error_result_fallback(self, monkeypatch, mock_time):
         """Line 471: fallback to result when error is empty."""
-        from plan_follow.plan_hooks import on_post_tool_call, _check_breaker
+        from plan_follow.plan_hooks import _check_breaker, on_post_tool_call
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
             lambda: None,
@@ -1621,3 +1621,110 @@ class TestEdgeCases:
         active = _check_breaker()
         assert "code_refactor" in active
         assert "Critical failure" in active["code_refactor"]["error"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# _do_coordination_housekeeping (Lines 26-62)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCoordinationHousekeeping:
+    """Auto-Lock + Session Heartbeat in pre_llm_call."""
+
+    def test_housekeeping_registers_session(self, monkeypatch):
+        """Session should be registered with plan_id + goal."""
+        from plan_follow import coord_state, plan_core
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
+
+        monkeypatch.setattr(
+            plan_core, "get_session_id", lambda: "test-session-42"
+        )
+        monkeypatch.setattr(
+            plan_core, "_get_active_plan",
+            lambda: {"plan_id": "p1", "goal": "Test Goal"},
+        )
+        current = _make_current(task_id="T001", files=["/test/file.ts"])
+
+        result = _do_coordination_housekeeping(current)
+        assert result >= 1  # locks acquired
+
+        # Verify session was registered
+        sessions = coord_state.get_sessions()
+        assert "test-session-42" in sessions
+        assert sessions["test-session-42"]["plan_id"] == "p1"
+
+    def test_housekeeping_releases_on_task_change(self, monkeypatch):
+        """When task_id changes, old locks should be released first."""
+        import plan_follow.plan_hooks as _ph
+        from plan_follow import coord_state
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
+        from plan_follow.tools import base as _tb
+
+        # Simulate session ID via env var (like Hermes runtime does)
+        monkeypatch.setenv("HERMES_SESSION_ID", "test-session-42")
+        # Reset session ID cache so it picks up the env var
+        _tb.reset_session_id()
+
+        # Create a lock from a "previous" session
+        coord_state.acquire_lock("/old/file.ts", "test-session-42")
+        assert coord_state.get_lock("/old/file.ts") is not None
+
+        # Mock _get_active_plan
+        monkeypatch.setattr(
+            "plan_follow.tools.base._get_active_plan",
+            lambda: {"plan_id": "p1", "goal": "Test"},
+        )
+
+        # Set global to simulate task change detection
+        _ph._LAST_LOCKED_TASK = "T001"  # previous task
+
+        current = _make_current(task_id="T002", files=["/new/file.ts"])
+        _do_coordination_housekeeping(current)
+
+        # Old lock should be gone
+        assert coord_state.get_lock("/old/file.ts") is None
+        # New lock should exist
+        new_lock = coord_state.get_lock("/new/file.ts")
+        assert new_lock is not None
+        assert new_lock["session_id"] == "test-session-42"
+
+    def test_housekeeping_no_files(self, monkeypatch):
+        """Task with no files should not acquire locks."""
+        from plan_follow import plan_core
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
+
+        monkeypatch.setattr(
+            plan_core, "get_session_id", lambda: "test-session-42"
+        )
+        monkeypatch.setattr(
+            plan_core, "_get_active_plan",
+            lambda: {"plan_id": "p1", "goal": "Test"},
+        )
+
+        current = _make_current(task_id="T001", files=[])
+        result = _do_coordination_housekeeping(current)
+        assert result == 0
+
+    def test_housekeeping_lock_conflict(self, monkeypatch):
+        """Conflict detection: lock held by another session on task files."""
+        from plan_follow import coord_state, plan_core
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
+
+        # Another session already holds lock on our file
+        coord_state.acquire_lock("/shared/file.ts", "other-session")
+        assert coord_state.get_lock("/shared/file.ts") is not None
+
+        monkeypatch.setattr(
+            plan_core, "get_session_id", lambda: "test-session-42"
+        )
+        monkeypatch.setattr(
+            plan_core, "_get_active_plan",
+            lambda: {"plan_id": "p1", "goal": "Test"},
+        )
+
+        current = _make_current(
+            task_id="T001", files=["/shared/file.ts"]
+        )
+        result = _do_coordination_housekeeping(current)
+        # Lock already exists (held by other), so acquire returns "exists"
+        assert result == 0  # no NEW locks acquired

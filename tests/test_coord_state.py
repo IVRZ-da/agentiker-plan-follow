@@ -24,10 +24,12 @@ try:
         clear_notifications,
         get_lock,
         get_locks,
+        get_locks_by_session,
         get_notifications,
         get_session,
         get_sessions,
         register_session,
+        release_all_locks,
         release_lock,
         send_notification,
         unregister_session,
@@ -47,10 +49,12 @@ except ImportError:
         clear_notifications,
         get_lock,
         get_locks,
+        get_locks_by_session,
         get_notifications,
         get_session,
         get_sessions,
         register_session,
+        release_all_locks,
         release_lock,
         send_notification,
         unregister_session,
@@ -679,3 +683,54 @@ class TestCleanupStale:
         removed = cleanup_stale_locks(max_age_minutes=1)
         assert removed >= 1
         assert "/old-file.ts" not in get_locks()
+
+
+# ─── Release All Locks Tests ──────────────────────────────────────────────────
+
+
+class TestReleaseAllLocks:
+    """Tests for release_all_locks + get_locks_by_session."""
+
+    def test_release_all_locks_empty(self):
+        """release_all_locks on empty state should return 0."""
+        count = release_all_locks("ghost")
+        assert count == 0
+
+    def test_release_all_locks_releases_multiple(self):
+        """release_all_locks should release all locks for a session."""
+        acquire_lock("/file1.ts", "session-a")
+        acquire_lock("/file2.ts", "session-a")
+        acquire_lock("/file3.ts", "session-b")
+        count = release_all_locks("session-a")
+        assert count == 2
+        assert get_lock("/file1.ts") is None
+        assert get_lock("/file2.ts") is None
+        assert get_lock("/file3.ts") is not None  # session-b's lock remains
+
+    def test_release_all_locks_other_unaffected(self):
+        """Other sessions' locks must survive release_all_locks."""
+        acquire_lock("/a.ts", "session-a")
+        acquire_lock("/b.ts", "session-b")
+        release_all_locks("session-a")
+        assert get_lock("/b.ts") is not None
+        assert get_lock("/b.ts")["session_id"] == "session-b"
+
+    def test_get_locks_by_session_returns_correct(self):
+        """get_locks_by_session should only return locks for given session."""
+        acquire_lock("/f1.ts", "session-a")
+        acquire_lock("/f2.ts", "session-a")
+        acquire_lock("/f3.ts", "session-b")
+        result = get_locks_by_session("session-a")
+        assert len(result) == 2
+        assert "/f1.ts" in result
+        assert "/f3.ts" not in result
+
+    def test_get_locks_by_session_empty(self):
+        """get_locks_by_session with no locks should return empty dict."""
+        assert get_locks_by_session("ghost") == {}
+
+    def test_release_all_locks_idempotent(self):
+        """Calling release_all_locks twice should be safe."""
+        acquire_lock("/f.ts", "session-a")
+        assert release_all_locks("session-a") == 1
+        assert release_all_locks("session-a") == 0

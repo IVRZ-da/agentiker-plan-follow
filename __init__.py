@@ -869,11 +869,15 @@ def _register_tools(ctx: PluginContext) -> None:
 
 
 def _register_hooks(ctx: PluginContext) -> None:
-    """Register pre_llm_call hook for task injection and post_tool_call for logging."""
-    from .plan_hooks import on_post_tool_call, on_pre_llm_call
+    """Register hooks for task injection, logging, and session lifecycle."""
+    from .plan_hooks import on_post_tool_call, on_pre_llm_call, on_session_end
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
     ctx.register_hook("post_tool_call", on_post_tool_call)
-    logger.info("plan_follow: pre_llm_call + post_tool_call hooks registered")
+    try:
+        ctx.register_hook("session_end", on_session_end)
+        logger.info("plan_follow: pre_llm_call + post_tool_call + session_end hooks registered")
+    except Exception:
+        logger.warning("plan_follow: session_end hook registration failed (may not be supported)")
 
 
 def _register_skill(ctx: PluginContext) -> None:

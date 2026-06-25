@@ -198,6 +198,28 @@ def get_lock(path: str) -> Optional[dict]:
     return locks.get(path)
 
 
+def release_all_locks(session_id: str) -> int:
+    """Release ALL locks held by a session. Returns count released.
+
+    Called when a session ends or on task completion.
+    """
+    locks = _atomic_read(LOCKS_FILE)
+    to_release = [p for p, lock in locks.items()
+                  if lock.get("session_id") == session_id]
+    for p in to_release:
+        locks.pop(p, None)
+    if to_release:
+        _atomic_write(LOCKS_FILE, locks)
+    return len(to_release)
+
+
+def get_locks_by_session(session_id: str) -> dict:
+    """Get all locks held by a specific session."""
+    locks = _atomic_read(LOCKS_FILE)
+    return {p: lock for p, lock in locks.items()
+            if lock.get("session_id") == session_id}
+
+
 def cleanup_stale_locks(max_age_minutes: int = 120) -> int:
     """Remove locks older than max_age_minutes. Returns count removed."""
     locks = _atomic_read(LOCKS_FILE)

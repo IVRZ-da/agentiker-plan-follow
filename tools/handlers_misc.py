@@ -127,9 +127,11 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
     """Manage resource locks for cross-session coordination.
 
     Parameters:
-    - action (str, required): 'lock', 'unlock', or 'status'
-    - path (str, required): File or directory path to lock/unlock
+    - action (str, required): 'lock', 'unlock', 'status', or 'list'
+    - path (str, required for lock/unlock/status): File or directory path
     - session_id (str, optional): Session ID (default: auto-detected)
+
+    'list' shows all locks grouped by session (no path needed).
     """
     from .. import coord_state
 
@@ -152,6 +154,18 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
             result = {"status": "locked", "path": path, "locked_by": lock.get("session_id"), "since": lock.get("since")}
         else:
             result = {"status": "free", "path": path}
+    elif action == "list":
+        all_locks = coord_state.get_locks()
+        by_session = {}
+        for lp, lock in all_locks.items():
+            sid = lock.get("session_id", "unknown")
+            by_session.setdefault(sid, []).append(lp)
+        result = {
+            "status": "ok",
+            "total_locks": len(all_locks),
+            "by_session": {sid: {"count": len(paths), "paths": paths[:10]}
+                          for sid, paths in by_session.items()},
+        }
     else:
         return fmt_err(f"Unknown action: {action}. Use lock|unlock|status.")
 
@@ -159,13 +173,14 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
 
 
 def plan_notify_tool(args: dict, **kwargs) -> str:
-    """Send a notification to another session or check own notifications.
+    """Send or manage notifications between sessions.
 
     Parameters:
-    - action (str, required): 'send' or 'check'
-    - to (str, optional): Target session ID (required for 'send')
-    - message (str, optional): Message text (required for 'send')
+    - action (str, required): 'send', 'check', 'list', 'clear', or 'reply'
+    - to (str, optional): Target session ID (required for 'send' and 'reply')
+    - message (str, optional): Message text (required for 'send' and 'reply')
     - kind (str, optional): 'info', 'warning', 'alert' (default: 'info')
+    - session_id (str, optional): Source session ID (default: auto-detected)
     """
     from .. import coord_state
 
@@ -176,7 +191,7 @@ def plan_notify_tool(args: dict, **kwargs) -> str:
     session_id = args.get("session_id") or plan_core.get_session_id()
 
     if not action:
-        return fmt_err("action is required (send|check)")
+        return fmt_err("action is required (send|check|list|clear|reply)")
 
     if action == "send":
         if not to:
@@ -194,8 +209,33 @@ def plan_notify_tool(args: dict, **kwargs) -> str:
             "notifications": pending,
         })
 
+    elif action == "list":
+        sessions = coord_state.get_sessions()
+        notif_all = {}
+        for sid in sessions:
+            n = coord_state.get_notifications(sid, mark_read=False)
+            if n:
+                notif_all[sid] = n
+        return fmt_ok({
+            "action": "list",
+            "pending_by_session": notif_all,
+        })
+
+    elif action == "clear":
+        coord_state.clear_notifications(session_id)
+        return fmt_ok({"action": "cleared", "session_id": session_id})
+
+    elif action == "reply":
+        if not to:
+            return fmt_err("'to' (target session) is required for reply")
+        if not message:
+            return fmt_err("'message' is required for reply")
+        # Reply to the last notification from 'to'
+        result = coord_state.send_notification(session_id, to, message, "reply")
+        return fmt_ok({"action": "replied", "to": to, "notification": result})
+
     else:
-        return fmt_err(f"Unknown action: {action}. Use send|check.")
+        return fmt_err(f"Unknown action: {action}. Use send|check|list|clear|reply.")
 
 
 # ─── Git-Integration Tools (OPTIONAL) ────────────────────────────────────────

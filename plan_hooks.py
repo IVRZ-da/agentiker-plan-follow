@@ -11,8 +11,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from . import plan_core
-from .plan_roadmap import _get_phase_progress
+from . import coord_state, plan_core
 
 logger = logging.getLogger("plan_follow")
 
@@ -20,6 +19,50 @@ logger = logging.getLogger("plan_follow")
 # Cache health_check and drift results so they don't fire on EVERY LLM turn.
 _hook_cache: dict = {}
 _HOOK_CACHE_TTL = 60  # seconds
+
+# ─── Cross-Session Auto-Coordination ────────────────────────────────────────────
+# Track which task's files are currently locked, so we can release on task change.
+_LAST_LOCKED_TASK: Optional[str] = None
+
+
+def _do_coordination_housekeeping(current: dict) -> int:
+    """Register session heartbeat + auto-acquire locks for task files.
+
+    Called once per turn from on_pre_llm_call, BEFORE the banner is built.
+    Detects task changes and releases stale locks automatically.
+
+    Returns the number of locks acquired (0 if none needed).
+    """
+    global _LAST_LOCKED_TASK
+
+    session_id = plan_core.get_session_id()
+    plan = plan_core._get_active_plan()
+    plan_id = plan.get("plan_id", "") if plan else ""
+    goal = plan.get("goal", "") if plan else ""
+
+    # 1. Register/update session with heartbeat
+    registered = coord_state.get_session(session_id)
+    if registered:
+        coord_state.update_session(session_id, plan_id=plan_id, goal=goal)
+    else:
+        coord_state.register_session(session_id, plan_id=plan_id, goal=goal)
+
+    # 2. Detect task change → release ALL old locks for this session
+    current_task_id = current.get("task_id", "")
+    if _LAST_LOCKED_TASK and _LAST_LOCKED_TASK != current_task_id:
+        coord_state.release_all_locks(session_id)
+
+    # 3. Auto-acquire locks for current task files
+    task_files = current.get("files", [])
+    acquired_count = 0
+    for f in task_files:
+        result = coord_state.acquire_lock(f, session_id)
+        if result["status"] == "acquired":
+            acquired_count += 1
+
+    _LAST_LOCKED_TASK = current_task_id
+    return acquired_count
+
 
 # ─── Circuit Breaker ──────────────────────────────────────────────────────────────
 # Tracked tool failures that should stop work. Set by post_tool_call on error,
@@ -75,6 +118,9 @@ def _build_banner(lines: list) -> Optional[str]:
     return "[PLAN] " + "\n[PLAN] ".join(full)
 
 
+# ─── Banner-Builder ──────────────────────────────────────────────────────────
+
+
 def _build_task_header(current: dict) -> list[str]:
     """Build task info header lines."""
     lines = [
@@ -91,7 +137,7 @@ def _build_roadmap_banner() -> list[str]:
     """Build roadmap progress lines (best-effort)."""
     lines = []
     try:
-        from .plan_roadmap import _get_next_phases, get_active_roadmap
+        from .plan_roadmap import _get_next_phases, _get_phase_progress, get_active_roadmap
 
         rname, rdata = get_active_roadmap()
         if not rdata:
@@ -223,28 +269,56 @@ def _build_coordination_banner() -> list[str]:
 
         sessions = coord_state.get_sessions()
         locks = coord_state.get_locks()
+        my_sid = plan_core.get_session_id()
+        current = plan_core.get_current_task_cached()
 
         if sessions:
             lines.append(f"║  👥 {len(sessions)} aktive Session(s)         ║")
             for sid, s in list(sessions.items())[:3]:
-                goal_preview = s.get("goal", "")[:35]
-                lines.append(f"║    • {sid[:20]}: {goal_preview}    ║")
+                plan_label = s.get("plan_id", "")[:25]
+                last_seen = s.get("last_seen", "")[11:19] if s.get("last_seen") else "?"
+                lock_count = sum(
+                    1 for lock in locks.values()
+                    if lock.get("session_id") == sid
+                )
+                my_mark = " ← du" if sid == my_sid else ""
+                lines.append(
+                    f"║    • {sid[:16]} {plan_label} [{last_seen}]"
+                    f"{' 🔒' + str(lock_count) if lock_count else ''}{my_mark}    ║"
+                )
             if len(sessions) > 3:
                 lines.append(f"║    ... und {len(sessions) - 3} weitere        ║")
 
-        current = plan_core.get_current_task_cached()
+        # Show MY locks
+        if my_sid and locks:
+            my_locks = [
+                p for p, lock in locks.items()
+                if lock.get("session_id") == my_sid
+            ]
+            if my_locks:
+                lines.append(f"║  🔒 Eigene Locks ({len(my_locks)})                  ║")
+                for lp in my_locks[:2]:
+                    fname = lp.rsplit("/", 1)[-1]
+                    lines.append(f"║    • {fname[:45]}                      ║")
+                if len(my_locks) > 2:
+                    lines.append(f"║    ... und {len(my_locks) - 2} weitere            ║")
+
+        # Show locks by OTHER sessions on our task files
         if current and locks:
             other_locks = []
             task_files = current.get("files", [])
             for path, lock in locks.items():
                 if any(f in path for f in task_files):
-                    other_locks.append(path)
+                    locker = lock.get("session_id", "")
+                    if locker and locker != my_sid:
+                        other_locks.append((path, lock))
             if other_locks:
-                lines.append("║  🔒 LOCKS: Dateien von anderer Session  ║")
-                for lpath in other_locks[:2]:
-                    lock_info = locks.get(lpath, {})
+                lines.append("║  ⚠️  LOCKS von anderen auf Task-Files    ║")
+                for lpath, lock_info in other_locks[:2]:
+                    fname = lpath.rsplit("/", 1)[-1]
+                    locker_sid = lock_info.get("session_id", "?")[:16]
                     lines.append(
-                        f"║    • {lpath[:45]} ({lock_info.get('session_id', '?')[:15]})    ║"
+                        f"║    • {fname[:40]} (🔒 {locker_sid})    ║"
                     )
 
         notifs = coord_state.get_notifications(
@@ -310,7 +384,6 @@ def _build_tts_banner() -> list[str]:
             lines.append(f"║   in {task_name}]                            ║")
             to_clear.append(rfid)
 
-        # Clear shown flags
         if "plan_created" in to_clear:
             tts_flags.pop("plan_created", None)
         for item in to_clear:
@@ -398,10 +471,13 @@ def _build_health_banner() -> list[str]:
     return lines
 
 
+# ─── pre_llm_call Hook ──────────────────────────────────────────────────────
+
+
 def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     """Pre-LLM-call hook: inject plan context into user message.
 
-    Registered via PluginContext.register_hook(\"pre_llm_call\", ...).
+    Registered via PluginContext.register_hook("pre_llm_call", ...).
     Builds banner from sub-functions, then returns formatted string.
     ALWAYS returns None if no active plan (nothing to inject).
     """
@@ -409,6 +485,13 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
         current = plan_core.get_current_task_cached()
         if not current:
             return None
+
+        # ─── Auto-Coordination Housekeeping ─────────────────────────────
+        # Session heartbeat + auto-lock task files
+        try:
+            _do_coordination_housekeeping(current)
+        except Exception:
+            pass  # Best-effort
 
         # Build banner sections sequentially
         lines = _build_task_header(current)
@@ -508,21 +591,41 @@ def on_post_tool_call(**kwargs: Any) -> None:
                         f"which is outside task.files: {allowed}"
                     )
 
-            # ─── Lock Enforcement ───────────────────────────────────────────
-            # Check if file is locked by another session
+            # ─── Lock Enforcement + Auto-Lock ─────────────────────────────────
             if file_path:
                 try:
                     from . import coord_state
 
+                    my_sid = plan_core.get_session_id()
+
+                    # Check if file is locked by another session
                     lock_info = coord_state.get_lock(file_path)
                     if lock_info:
                         locker_sid = lock_info.get("session_id", "unknown")
-                        my_sid = __import__("os").environ.get("HERMES_SESSION_ID", "")
                         if locker_sid and my_sid and locker_sid != my_sid:
                             since = lock_info.get("since", "?")
                             record_drift_warning(
                                 f"🔒 '{file_path}' ist von Session '{locker_sid[:20]}' "
                                 f"gelockt seit {since[:19]}. Konflikt vermeiden!"
+                            )
+                            # Auto-notify the locking session
+                            try:
+                                coord_state.send_notification(
+                                    my_sid, locker_sid,
+                                    f"⚠️ Versuche '{file_path.rsplit('/', 1)[-1]}' zu editieren, "
+                                    f"das du seit {since[:19]} gelockt hast.",
+                                    kind="warning",
+                                )
+                            except Exception:
+                                pass
+
+                    # Auto-Lock: Acquire lock on the file being edited
+                    if my_sid:
+                        lock_result = coord_state.acquire_lock(file_path, my_sid)
+                        if lock_result.get("status") == "acquired":
+                            logger.debug(
+                                "Auto-Lock: '%s' für Session '%s' erworben",
+                                file_path, my_sid[:20]
                             )
                 except Exception:
                     pass  # Best-effort
@@ -542,3 +645,60 @@ def on_post_tool_call(**kwargs: Any) -> None:
             f.write(entry)
     except Exception as e:
         logger.warning("Session log write failed: %s", e)
+
+
+# ─── on_session_end Hook ────────────────────────────────────────────────────
+
+
+def on_session_end(**kwargs: Any) -> None:
+    """Session end: persist plan state, release locks, unregister session."""
+    try:
+        # 1. Persist current plan state
+        plan = plan_core._get_active_plan()
+        if plan:
+            plan["_last_session_end"] = (
+                __import__("datetime")
+                .datetime.now(__import__("zoneinfo").ZoneInfo("UTC"))
+                .isoformat()
+            )
+            plan_core._save_plan(plan)
+            logger.info("Plan '%s' state persisted at session end", plan.get("plan_id"))
+
+        # 2. Release all locks held by this session
+        try:
+            from . import coord_state
+
+            session_id = plan_core.get_session_id()
+            if session_id:
+                released = coord_state.release_all_locks(session_id)
+                if released:
+                    logger.info("Released %d lock(s) at session end", released)
+        except Exception:
+            pass  # Best-effort
+
+        # 3. Unregister session
+        try:
+            from . import coord_state
+
+            session_id = plan_core.get_session_id()
+            if session_id:
+                coord_state.unregister_session(session_id)
+                logger.info("Session '%s' unregistered at session end", session_id[:20])
+        except Exception:
+            pass  # Best-effort
+
+        # 4. Finalize session log
+        try:
+            log_dir = plan_core.PLANS_DIR / ".session-logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = log_dir / "tool-calls.log"
+            iso = __import__("datetime").datetime.now(
+                __import__("zoneinfo").ZoneInfo("UTC")
+            ).isoformat()
+            with open(log_file, "a") as f:
+                f.write(f"[{iso}] SESSION_END\n")
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.warning("on_session_end failed (non-blocking): %s", e)
