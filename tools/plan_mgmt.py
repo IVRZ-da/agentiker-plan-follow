@@ -268,19 +268,3 @@ def restore_plan(plan_id: str) -> dict:
         "status": "restored", "plan_id": plan_id,
         "message": f"Plan '{plan_id}' restored from archive.",
     }
-
-def retry_task(task_id: str) -> dict:
-    """Reset a crashed/blocked task to pending for retry."""
-    from .base import _get_active_plan, _save_plan
-    plan = _get_active_plan()
-    if not plan:
-        return {"status": "error", "message": "No active plan"}
-    tasks = plan.get("tasks", {})
-    if task_id not in tasks:
-        return {"status": "error", "message": f"Task '{task_id}' not found"}
-    t = tasks[task_id]
-    old_status = t.get("status", "unknown")
-    t["status"] = "pending"
-    t["review_result"] = None
-    _save_plan(plan)
-    return {"status": "retried", "task_id": task_id, "from": old_status, "to": "pending"}

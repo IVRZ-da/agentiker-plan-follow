@@ -1,24 +1,9 @@
-name: agentiker-plan-follow
-version: 0.6.0
-description: >
-  Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement und
-  Multi-Session-Koordination via Kanban-Integration. Erzeugt Task-Graphen
-  im Kanban-Board, managed Verify-Commands, Review-Gates und parallele
-  Gruppen. Installiert automatisch Worker-Profile (plan-worker,
-  plan-reviewer) und ein Dashboard "📋 Plans".
+name: plan_follow
+version: 1.5.5
+description: "Hermes Plugin für strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit, Disk-Recovery, TTL-Cache, Validierung, Fälligkeit, Archivierung, Cross-Session Koordination, optionaler Git-Versionierung, Auto-Lock/Unlock, Auto-Peer-Review (run_peer_review nach plan_create), TTS-Event-Marker (plan_created, task_completed, review_failed) im Hook-Banner, Lock-Enforcement und cleanup_stale. Bietet 24 Tools, 2 Hooks, 7 Templates, Module-Split (tools/ Subpackage) und 600+ Tests."
 author: "Johannes Lettner"
 license: MIT
-repo: https://git.agentiker.de/johannes/agentiker-plan-follow
-min_hermes_version: "0.16.0"
-dependencies:
-  - kanban_db  # Hermes Kanban-Kernel für Task-Management
+repo: https://git.ivory.green/johannes/agentiker-plan-follow-plugin
 hooks:
   - pre_llm_call
   - post_tool_call
-  - on_session_end
-setup:
-  profiles:
-    - plan-worker: "Führt Plan-Tasks aus (Implementierung, Tests)"
-    - plan-reviewer: "Führt Code-Reviews durch"
-  board: plans
-  dashboard: true

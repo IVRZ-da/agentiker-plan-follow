@@ -1,10 +1,17 @@
 {
   "name": "plan-follow-dashboard",
-  "version": "0.6.0",
+  "version": "0.1.0",
   "label": "📋 Plans",
   "icon": "list-checks",
-  "description": "Plan-Übersicht (deaktiviert — Nutze das Kanban-Dashboard)",
-  "disabled": true,
-  "tabs": [],
-  "shellSlots": {}
+  "tabs": [
+    {
+      "id": "plans",
+      "label": "Alle Pläne",
+      "route": "/api/plugins/plan-follow-dashboard/plans",
+      "after": "agentiker-panel"
+    }
+  ],
+  "shellSlots": {
+    "sidebar": true
+  }
 }

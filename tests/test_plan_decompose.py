@@ -11,10 +11,9 @@ Tests cover:
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import patch
-
 import pytest
+from unittest.mock import patch
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Module under test
@@ -687,10 +686,10 @@ class TestLifecycleIntegration:
         patch_plan(mock_get, plan)
 
         from plan_follow.plan_decompose import (
-            collapse_task,
             create_compound_task,
             expand_task,
             get_subtask_status,
+            collapse_task,
         )
 
         # 1. Create compound task

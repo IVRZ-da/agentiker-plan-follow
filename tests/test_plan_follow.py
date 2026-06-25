@@ -12,9 +12,7 @@ def _parse_result(output: str) -> dict:
     """Parse rich-formatted fmt_ok/fmt_err tool output to dict for assertions.
 
     Strips ANSI codes, extracts Key | Value pairs from rich Panel output.
-    Handles multi-line values (Rich wraps long strings across lines).
-    Falls back to json.loads() if output is plain JSON (backward compat).
-    Auto-converts numeric and list/dict values via ast.literal_eval.
+    Falls back to _parse_result() if output is plain JSON (for backward compat).
     """
     from rich.ansi import AnsiDecoder
 
@@ -26,87 +24,19 @@ def _parse_result(output: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # Detect info/error panels without key-value pairs
-    if '❌ Error' in text or 'ℹ️' in text or '❌  Error' in text:
-        lines = text.replace('\r\n', '\n').split('\n')
-        for line in lines:
-            clean = line.strip()
-            if clean.startswith('│') and 'Error' not in clean and 'ℹ️' not in clean:
-                msg = clean.strip('││ ').strip()
-                if msg and '─' not in msg:
-                    if '❌ Error' in text:
-                        return {"error": msg, "status": "error", "_type": "error"}
-                    elif 'ℹ️' in text:
-                        return {"info": msg, "status": msg, "_type": "info"}
-        if '❌ Error' in text:
-            return {"error": "unknown", "status": "error", "_type": "error"}
-        if 'ℹ️' in text:
-            return {"info": "unknown", "status": "unknown", "_type": "info"}
-
-    # Strip ANSI codes, preserving line structure
+    # Strip ANSI codes
     decoder = AnsiDecoder()
-    text = '\n'.join(s.plain for s in decoder.decode(output))
+    text = ''.join(s.plain for s in decoder.decode(output))
 
     result = {}
-    prev_key = None
     for line in text.replace('\r\n', '\n').split('\n'):
-        if '│' not in line:
-            continue
-        # Skip border lines
-        if any(c in line for c in ('╭', '╰')):
-            continue
-        parts = [p.strip() for p in line.split('│')]
-        if len(parts) < 3:
-            continue
-        key, val = parts[1], parts[2]
-        if '─' in key:
-            continue
-        if key and val:
-            prev_key = key
-            result[key] = val
-        elif not key and prev_key and val:
-            if isinstance(result.get(prev_key), str):
-                result[prev_key] += ' ' + val
-
-    # If no key-values extracted and it has panel borders, extract the message
-    if not result and ('╭' in text and '╰' in text):
-        lines = text.replace('\r\n', '\n').split('\n')
-        for line in lines:
-            clean = line.strip()
-            if clean.startswith('│'):
-                msg = clean.strip('││ ').strip()
-                if msg and '─' not in msg and '✅' not in msg and '❌' not in msg and 'ℹ️' not in msg and '╭' not in msg and '╰' not in msg:
-                    result['_message'] = msg
-                    result['status'] = msg
-                    break
-
-    # Post-process: structured value parsing
-    for key in list(result.keys()):
-        val = result[key]
-        if isinstance(val, str):
-            # Convert None/True/False strings
-            if val in ('None', 'none'):
-                result[key] = None
-                continue
-            if val in ('True', 'true'):
-                result[key] = True
-                continue
-            if val in ('False', 'false'):
-                result[key] = False
-                continue
-            # Try list/dict parsing
-            if val and val[0] in ('[', '{', '('):
-                try:
-                    import ast
-                    result[key] = ast.literal_eval(val)
-                    continue
-                except (ValueError, SyntaxError):
-                    pass
-            # Try numeric conversion
-            try:
-                result[key] = int(val) if '.' not in val else float(val)
-            except (ValueError, TypeError):
-                pass
+        if '\u2502' in line:  # │ character
+            parts = [p.strip() for p in line.split('\u2502')]
+            for i, p in enumerate(parts):
+                if p and i + 1 < len(parts):
+                    nxt = parts[i + 1].strip()
+                    if nxt and '─' not in p and '╭' not in p and '╰' not in p:
+                        result[p] = nxt
     return result
 
 import pytest  # noqa: E402
@@ -868,9 +798,7 @@ class TestToolHandlerDispatch:
         from plan_follow.plan_tools import plan_create_tool, plan_status_tool
         plan_create_tool({"goal": "Test", "template": "fix"})
         result = _parse_result(plan_status_tool({}))
-        # _parse_result extracts values as strings from rich Panel output
-        assert "tasks" in result
-        assert "current_task" in result or "current_task_id" in result
+        assert len(result["tasks"]) == 3  # p0 + f1 + f2
 
     def test_plan_update_handler_dispatch(self, reset_plans_dir):
         from plan_follow.plan_tools import plan_create_tool, plan_update_tool
@@ -1697,9 +1625,6 @@ class TestReviewBanner:
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
-        # Set counter to force-refresh via module directly
-        import plan_follow.plan_hooks as hk
-        hk._banner_turn_counter = 4  # next call will be 5 → force_refresh
         output2 = self._call_hook_mocked()
         assert "PASSED" in (output2 or "")
 
@@ -1708,8 +1633,6 @@ class TestReviewBanner:
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "failed", "issues": [{"check": "missing_tests"}]})
-        import plan_follow.plan_hooks as hk
-        hk._banner_turn_counter = 4  # next call will be 5 → force_refresh
         output2 = self._call_hook_mocked()
         assert "FAILED" in (output2 or "").upper()
         assert "missing_tests" in (output2 or "")
@@ -1731,8 +1654,8 @@ class TestReviewBanner:
         from plan_follow.plan_tools import plan_create_tool
 
         # Set cache to degraded so health banner shows (expected format: (value, timestamp))
-        _hook_cache.pop("health_v2", None)
-        _hook_cache["health_v2"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
+        _hook_cache.pop("health", None)
+        _hook_cache["health"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
@@ -1747,12 +1670,12 @@ class TestReviewBanner:
 
     def test_banner_no_health_warning_when_ok(self):
         """When health is ok, no health section in banner."""
-        from plan_follow.plan_hooks import _HEALTH_CACHE_KEY, _hook_cache, on_pre_llm_call
+        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
-        _hook_cache.pop(_HEALTH_CACHE_KEY, None)
+        _hook_cache.pop("health", None)
         # Cache health as "ok" so _build_health_banner() doesn't call health_check()
-        _hook_cache[_HEALTH_CACHE_KEY] = ({"status": "ok"}, __import__("time").monotonic())
+        _hook_cache["health"] = {"status": "ok"}
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
@@ -2828,28 +2751,111 @@ class TestGetPlanStatusEdgeCases:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Edge Case Tests: Kanban State Save/Load (ersetzt Honcho Dispatch)
+# Edge Case Tests: _dispatch_honcho_tool fallback (lines 267-275)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class TestKanbanState:
-    """Tests for Kanban-based plan state persistence (replaces Honcho)."""
+class TestDispatchHonchoTool:
+    """Tests for _dispatch_honcho_tool fallback paths (lines 267-275)."""
 
-    def test_save_plan_state_aliases_exist(self):
-        """_save_plan_state_to_honcho should still be importable (legacy alias)."""
-        from plan_follow.plan_core import _save_plan_state_to_honcho
-        assert callable(_save_plan_state_to_honcho)
+    def test_dispatch_tool_entry_not_found(self):
+        """When entry is None, return None."""
+        from plan_follow.plan_core import _dispatch_honcho_tool
+        result = _dispatch_honcho_tool("nonexistent_tool_xyz", {})
+        assert result is None
 
-    def test_load_plan_state_aliases_exist(self):
-        """_load_plan_state_from_honcho should still be importable (legacy alias)."""
-        from plan_follow.plan_core import _load_plan_state_from_honcho
-        assert callable(_load_plan_state_from_honcho)
+    def test_dispatch_tool_handler_not_callable(self, monkeypatch):
+        """When entry has no callable handler, return None."""
+        from types import SimpleNamespace
 
-    def test_can_get_session_id(self):
-        """get_session_id should still work after refactoring."""
-        from plan_follow.plan_core import get_session_id
-        sid = get_session_id()
-        assert sid is not None
-        assert len(sid) > 0
+        from plan_follow.plan_core import _dispatch_honcho_tool
+        from tools.registry import registry
+
+        # Add entry without handler attribute
+        entry = SimpleNamespace(name="honcho_search", schema={})
+        original_get = registry.get_entry
+
+        def mock_get(name):
+            if name == "honcho_search":
+                return entry
+            return original_get(name)
+
+        monkeypatch.setattr(registry, "get_entry", mock_get)
+        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
+        assert result is None
+
+    def test_dispatch_tool_handler_raises(self, monkeypatch):
+        """When handler raises an exception, return None."""
+        from types import SimpleNamespace
+
+        from plan_follow.plan_core import _dispatch_honcho_tool
+        from tools.registry import registry
+
+        def failing_handler(args):
+            raise ValueError("Something went wrong")
+
+        entry = SimpleNamespace(
+            name="honcho_search", schema={}, handler=failing_handler
+        )
+        original_get = registry.get_entry
+
+        def mock_get(name):
+            if name == "honcho_search":
+                return entry
+            return original_get(name)
+
+        monkeypatch.setattr(registry, "get_entry", mock_get)
+        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
+        assert result is None
+
+    def test_dispatch_tool_handler_returns_string(self, monkeypatch):
+        """When handler returns a JSON string, it should be parsed."""
+        import json
+        from types import SimpleNamespace
+
+        from plan_follow.plan_core import _dispatch_honcho_tool
+        from tools.registry import registry
+
+        def handler(args):
+            return json.dumps({"status": "ok", "results": []})
+
+        entry = SimpleNamespace(
+            name="honcho_search", schema={}, handler=handler
+        )
+        original_get = registry.get_entry
+
+        def mock_get(name):
+            if name == "honcho_search":
+                return entry
+            return original_get(name)
+
+        monkeypatch.setattr(registry, "get_entry", mock_get)
+        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
+        assert result is not None
+        assert result["status"] == "ok"
+
+    def test_dispatch_tool_handler_returns_dict(self, monkeypatch):
+        """When handler returns a dict directly, return it unchanged."""
+        from types import SimpleNamespace
+
+        from plan_follow.plan_core import _dispatch_honcho_tool
+        from tools.registry import registry
+
+        def handler(args):
+            return {"status": "ok", "data": "test"}
+
+        entry = SimpleNamespace(
+            name="honcho_search", schema={}, handler=handler
+        )
+        original_get = registry.get_entry
+
+        def mock_get(name):
+            if name == "honcho_search":
+                return entry
+            return original_get(name)
+
+        monkeypatch.setattr(registry, "get_entry", mock_get)
+        result = _dispatch_honcho_tool("honcho_search", {"query": "test"})
+        assert result == {"status": "ok", "data": "test"}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -3126,7 +3132,7 @@ class TestToolsErrorBranches:
     def test_plan_verify_without_plan(self):
         from plan_follow.plan_tools import plan_verify_tool
         result = _parse_result(plan_verify_tool({}))
-        assert "status" in result or "_message" in result
+        assert "no_active" in result.get("status", "") or "error" in result
 
     def test_plan_status_without_plan(self):
         from plan_follow.plan_tools import plan_status_tool
@@ -3421,13 +3427,15 @@ class TestPlanValidateTool:
 
     def test_validate_after_create(self, sample_tasks):
         """plan_validate_tool nach plan_create."""
+        import json
+
         from plan_follow.plan_tools import plan_create_tool, plan_validate_tool
         # Neuen Plan erstellen (sample_tasks könnte bereits abgeschlossen sein)
         plan_create_tool({
             "goal": "Validate Test",
             "tasks": [{"id": "v1", "name": "Validation task"}],
         })
-        r = _parse_result(plan_validate_tool({}))
+        r = json.loads(plan_validate_tool({}))
         assert r.get("status") != "error"
 
 
@@ -3441,15 +3449,18 @@ class TestPlanVerifyTool:
             "goal": "Verify Test",
             "tasks": [{"id": "w1", "name": "Verify task", "verify": "echo 'ok'"}],
         })
-        r = _parse_result(plan_verify_tool({}))
+        import json
+        r = json.loads(plan_verify_tool({}))
         assert r.get("status") != "error"
 
     def test_verify_no_plan(self):
         """plan_verify_tool ohne aktiven Plan -> no_active_plan."""
+        import json
+
         from plan_follow.plan_tools import plan_verify_tool
-        r = _parse_result(plan_verify_tool({}))
-        # Kann 'error' oder info sein — beides akzeptabel
-        assert r is not None
+        r = json.loads(plan_verify_tool({}))
+        # Kann 'error' oder 'no_active_plan' sein — beides akzeptabel
+        assert r.get("status") in ("error", "no_active_plan")
 
 
 class TestRoadmapDelete:

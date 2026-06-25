@@ -27,30 +27,11 @@ logging.basicConfig(level=logging.INFO, format="%(name)s [%(levelname)s] %(messa
 logger = logging.getLogger("plan-mcp")
 
 
-_plan_core_cache = None
-
-
 def _get_core():
-    """Lazy import plan_core to avoid circular imports on plugin load.
-
-    Cached after first call — sys.path.insert nur einmalig.
-    """
-    global _plan_core_cache
-    if _plan_core_cache is not None:
-        return _plan_core_cache
+    """Lazy import plan_core to avoid circular imports on plugin load."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import plan_core  # noqa: F811
-    _plan_core_cache = plan_core
     return plan_core
-
-
-def _get_api_token() -> str:
-    """Get API token for MCP HTTP auth from env var."""
-    import os
-    token = os.environ.get("PLAN_MCP_API_TOKEN", "")
-    if not token:
-        logger.warning("plan-mcp: PLAN_MCP_API_TOKEN not set — HTTP auth disabled")
-    return token
 
 
 # ─── MCP Tool Implementations ─────────────────────────────────────────────────
@@ -328,26 +309,10 @@ def run_http(host: str = "127.0.0.1", port: int = 8123):
         host: Bind address.
         port: Port number.
     """
-    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from http.server import HTTPServer, BaseHTTPRequestHandler
 
     class MCPHandler(BaseHTTPRequestHandler):
-        def _check_auth(self) -> bool:
-            """Check Authorization header against PLAN_MCP_API_TOKEN."""
-            token = _get_api_token()
-            if not token:
-                return True  # no token configured = no auth required
-            auth = self.headers.get("Authorization", "")
-            if auth == f"Bearer {token}" or auth == f"token {token}":
-                return True
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"error": "Unauthorized"}).encode())
-            return False
-
         def do_POST(self):
-            if not self._check_auth():
-                return
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
             try:
@@ -388,14 +353,13 @@ def run_http(host: str = "127.0.0.1", port: int = 8123):
                 self.end_headers()
                 self.wfile.write(json.dumps(response).encode())
             except Exception as e:
-                logger.error("plan-mcp: request failed: %s", e)
                 self.send_response(500)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
-                self.wfile.write(json.dumps({"error": "Internal Server Error"}).encode())
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
 
         def log_message(self, format, *args):
-            logger.debug("plan-mcp: HTTP request: %s %s", format, args)
+            logger.debug("HTTP %s", format % args)
 
     server = HTTPServer((host, port), MCPHandler)
     logger.info("plan-mcp: HTTP server on http://%s:%d", host, port)

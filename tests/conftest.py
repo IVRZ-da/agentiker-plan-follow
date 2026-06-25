@@ -58,12 +58,3 @@ def mock_fmt():
                 with patch("plan_follow.plan_tools.fmt_table", side_effect=lambda rows, **kw: json.dumps(rows, ensure_ascii=False)):
                     with patch("plan_follow.plan_todo.fmt_ok", side_effect=lambda d, **kw: json.dumps(d, ensure_ascii=False)):
                         yield
-
-
-@pytest.fixture(autouse=True)
-def reset_banner_state():
-    """Reset Smart Banner state between tests so every test starts fresh."""
-    import plan_follow.plan_hooks as hk
-    hk._banner_turn_counter = 0
-    hk._last_task_id = ""
-    hk._banner_last_task_id = ""

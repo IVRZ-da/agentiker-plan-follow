@@ -1,214 +1,96 @@
-# 🎯 agentiker-plan-follow — Hermes Plugin
+# plan_follow — Hermes Plugin
 
-> Hermes Plugin für strukturierte Plan-Erstellung, Execution-Enforcement, Peer-Review, Cross-Session-Koordination und automatisierte Git-Versionierung.
-> 38 Tools — von `plan_create` bis `plan_git_sync`, von `plan_review` bis `plan_roadmap`.
+Structured plan creation, task enforcement, review gates, parallel groups, auto-verify/commit, plan validation, due dates, archive/restore, and session isolation for Hermes Agent.
 
-## 📋 Table of Contents
+## Features
 
-- [✨ Why?](#-why)
-- [🚀 Quick Start](#-quick-start)
-- [🛠 Tools](#-tools)
-- [🏗 Architecture](#-architecture)
-- [🧪 Development](#-development)
-- [📦 Installation](#-installation)
+| Category | Tools |
+|----------|-------|
+| **Plan Lifecycle** | `plan_create`, `plan_current`, `plan_complete`, `plan_abort` |
+| **Status & Review** | `plan_status`, `plan_update`, `plan_verify`, `plan_review`, `plan_review_profiles` |
+| **Management** | `plan_list`, `plan_select`, `plan_delete`, `plan_archive`, `plan_restore` |
+| **Validation** | `plan_validate`, `plan_duedate` |
 
----
+### Core Capabilities
 
-## ✨ Why?
-
-Hermes kommt mit grundlegenden Planungs-Tools. Sobald du jedoch mehrere Tasks parallel verwalten, Cross-Session-Koordination betreiben oder formale Peer-Reviews durchführen willst, brauchst du eine strukturierte Grundlage.
-
-**Plan-Follow bietet:**
-
-| Feature | Nutzen |
-|---------|--------|
-| **Plan-Erstellung** | 12 Templates (fix, feature, refactoring, deploy, multi, docs, …) — Templates sind **Pflicht**, kein Ad-hoc |
-| **Execution-Enforcement** | Tasks werden einzeln abgearbeitet. `plan_current` zeigt NUR den aktuellen Task |
-| **Auto-Verify** | Jeder Task kann einen Verify-Command haben — automatische Prüfung vor `plan_complete` |
-| **Peer Review** | 6 Review-Profile mit unabhängigem Subagenten-Check vor dem Abschluss |
-| **Parallel Groups** | Tasks innerhalb einer Gruppe laufen parallel, Gruppen sequentiell |
-| **Git-Integration** | Automatisches Branching, Committing, Tagging, Sync — vollständiger Git-Lifecycle |
-| **Roadmaps** | Strategische Phasen-Übersicht mit `plan_roadmap` (11 Subcommands) |
-| **HTN Decomposition** | Compound Tasks mit Sub-Tasks für hierarchische Zerlegung |
-| **MCP Server** | Stdio + HTTP Server für externe Tool-Anbindung |
-| **Dashboard** | Hermes Dashboard Plugin für visuelle Plan-Übersicht |
-| **Locks** | Cross-Session Resource Locks für koordinierte Teamarbeit |
-
----
-
-## 🚀 Quick Start
-
-```bash
-# 1. Plugin aktivieren (config.yaml)
-plugins:
-  enabled:
-    - agentiker-plan-follow
-
-# 2. Ersten Plan erstellen
-plan_create goal="Mein erstes Feature" template="feature"
-# → Erzeugt Plan mit p0 (Peer Review), f1 (Implementierung), f2 (Tests)
-
-# 3. Arbeiten
-plan_current        # → "f1: Feature implementieren"
-# ... Code schreiben ...
-plan_complete task_id="f1" auto_verify=true
-
-# 4. Nächster Task
-plan_current        # → "f2: Tests schreiben"
-plan_complete task_id="f2" auto_verify=true auto_commit=true
-
-# 5. Review
-plan_review task_id="f1" profile="standard"
-plan_complete task_id="p0"
-```
-
-Weitere Beispiele unter [`docs/examples/`](docs/examples/) (geplant).
-
----
-
-## 🛠 Tools
-
-<!-- README_AUTO -->
-
-[![Version](https://img.shields.io/badge/version-0.5.14-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1026%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
-
-**Version:** 0.5.14
-
-**Tests:** 1026 tests
-
-**Tools (38):**
-
-
-### Advanced (12 Tools)
-
-| Tool | Description |
-|------|-------------|
-| `plan_decompose` | Manage hierarchical task decomposition (compound tasks with sub-tasks). |
-| `plan_history` | Show git-based plan version history. |
-| `plan_lock` | Manage resource locks for cross-session coordination. |
-| `plan_notify` | Send a notification to another session or check own notifications. |
-| `plan_pr_create` | Create a Pull Request via Forgejo API for all configured repos. |
-| `plan_roadmap` | Manage roadmaps — strategic phase overviews. |
-| `plan_session` | Show active sessions with their plans, locks, and pending notifications. |
-| `plan_simulate` | Simulate a plan to find critical path and parallelization opportunities. |
-| `plan_suggest` | Suggest a plan decomposition for a goal by analyzing the project. |
-| `plan_sync` | Sync plans with external systems. |
-| `plan_time` | Track time spent on tasks. |
-| `plan_todo` | Manage your task list for the active plan.  Replaces the built-in `todo` tool.\n Read mode (no parameters):\n - Returns ALL tasks of the active plan as a compact todo list.\n - Output: {todos: [...], summary: {total, pending, in_progress, completed, cancelled}}\n Write mode (todos + merge=true):\n - Set status to 'completed' → completes the task via plan_complete\n - Other status changes are ignored (plan manages status internally)\n |
-
-
-### CRUD (15 Tools)
-
-| Tool | Description |
-|------|-------------|
-| `plan_abort` | Abort the active plan or a specific task. |
-| `plan_archive` | Move a plan to the archive directory (soft delete). |
-| `plan_complete` | Complete the current task, verify it, advance to the next one. |
-| `plan_create` | Create a new structured plan with enforceable tasks.  TEMPLATE IS REQUIRED — manual tasks are not allowed. |
-| `plan_current` | Show the current task. ONLY ONE task is returned at a time —  you see only what needs to be done now.  Returns task details including allowed files, verification command, and progress. |
-| `plan_delete` | Permanently delete a plan from disk. |
-| `plan_duedate` | Set or view a due date for a task. |
-| `plan_list` | List all plans (including completed and aborted ones |
-| `plan_restore` | Restore a plan from the archive back to the plans directory. |
-| `plan_select` | Switch to a different saved plan as the active one. |
-| `plan_status` | Show all tasks with their current status (pending/in_progress/completed/blocked).  Returns a progress overview with counts and blocked-by reasons. |
-| `plan_template` | Manage user-defined plan templates. |
-| `plan_update` | Update a task's properties without aborting the plan. |
-| `plan_validate` | Validate the integrity of a plan. |
-| `plan_verify` | Check for drift: compare current git changes against the plan's task scope.  Returns list of unplanned files if drift detected.  Call this before plan_complete to catch scope creep. |
-
-
-### Git (7 Tools)
-
-| Tool | Description |
-|------|-------------|
-| `plan_git_branch` | Manage git branches in configured repos. |
-| `plan_git_init` | Initialize a Git repository in ~/.hermes/plans/ for plan versioning. |
-| `plan_git_push` | Push committed changes to remote for all configured repos. |
-| `plan_git_stash` | Stash or unstash uncommitted changes in configured repos. |
-| `plan_git_status` | Show comprehensive git status for all configured repos.  Returns branch name, dirty flag, ahead/behind count,  and last commit message for each repo. |
-| `plan_git_sync` | Pull to add to commit to push in one step for all configured repos. |
-| `plan_git_tag` | Create, list, or delete git tags in configured repos. |
-
-
-### Review (4 Tools)
-
-| Tool | Description |
-|------|-------------|
-| `plan_auto_review` | Prepare a complete review in one call — reads files, measures test coverage,  and builds the delegate_task prompt. |
-| `plan_review` | Review a task's files using an independent reviewer subagent. |
-| `plan_review_profiles` | Show all available review profiles with their names, descriptions, and checks.  Use this to see what each profile validates before selecting one for a task. |
-| `plan_review_save_result` | Save a review result for a task. |
-
-### Recent Changelog
-
-## [0.5.14] — 2026-06-25
-- **Pre-Commit Hook:** Test-Datei I001 (Import-Order) Fehler gefixt — Hook läuft jetzt sauber durch
-- **Coveragerc:** Config-Syntax repariert (exclude_lines als Multi-Line statt Python-Liste)
-- **Recovery:** `retry_task()` in tools/plan_mgmt.py — setzt crashed/blocked Tasks zurück auf pending
-- **Worker-Tests:** 32 Tests in test_plan_decompose bestehen
-
-## [0.5.13] — 2026-06-25
-- **STATE.kanban_root_id:** root_id wird nach create_task() gespeichert (tools/state.py)
-- **Parents für alle Tasks:** `parents=[STATE.kanban_root_id]` in Review/Session/Index (3 Dateien)
-- **link_tasks mit kanban-IDs:** plan_follow-IDs durch kanban-IDs in _create_kanban_plan + plan_migrate ersetzt
-- **Notify-Subs:** `add_notify_sub()` nach jedem create_task() — Event-Kanal für Worker-Crashes
-- **Event-Poller im Banner:** pre_llm_call Hook checkt Worker-Crashes via claim_unseen_events_for_sub()
-- **Hybrid-Modell B:** plan-worker + plan-reviewer Profile + plan_decompose delegate für Worker-Dispatch
-- **Koordination-Banner:** Zeigt 🔴 Worker-Crashes, 🚫 blocked, ✅ completed Tasks
-
-## [0.5.12] — 2026-06-25
-- **Kanban-DB Conn Fix:** `conn` als Erstparameter an alle `kdb.*()` Aufrufe (7 Dateien)
-- **Kanban-DB Status Fix:** `initial_status` korrigiert (`in_progress`→`running`, `pending`→`blocked`)
-- **Kanban-DB Parameter:** `workspace_kind='dir'`, `workspace_path`, `parents=[root_id]`, `session_id`, `max_runtime_seconds`, `max_retries` in allen `create_task()`-Aufrufen ergänzt
-- **Skills/Toolsets getrennt:** Root-Tasks `skills=[]`, Child-Tasks korrekte Skill-Namen
-- **sys.path Fix:** `_kanban_available()` mit sys.path Guard für hermes_cli Import in 3 Modulen
-- **add_comment author:** `author="system"` in allen add_comment-Aufrufen ergänzt
-- **Root-ID Tracking:** create_task Rückgabewert wird für parents-Referenz gespeichert
-
-<!-- END README_AUTO -->
-
-
-
-## Architektur
-
-```
-plan_follow/
-├── __init__.py        — Plugin-Entry, TOOL_DESCRIPTIONS, PER_TOOL_SCHEMAS, 38 Tool-Registrierungen
-├── plan_tools.py      — 38 Tool-Handler (Facade)
-├── plan_core.py       — Re-Export Facade für tools/ Subpackage
-├── plan_hooks.py      — pre_llm_call + post_tool_call + on_session_end Hooks
-├── plan_roadmap.py    — Roadmap YAML-Management (11 Subcommands)
-├── plan_templates.py  — Template-Engine (7 Built-in Templates)
-├── plan_peer_review.py— Auto Peer Review (6 extrahierte Checks)
-├── plan_review.py     — Review-Dispatch & Coverage-Check
-├── plan_todo.py       — Todo-Liste aus Plan-Tasks
-├── plan_coverage.py   — pytest-cov Wrapper
-├── plan_suggest.py    — Projektanalyse → Task-Vorschlag
-├── plan_sync.py       — GitHub/Markdown Sync
-├── plan_decompose.py  — HTN-Style Compound Tasks
-├── mcp_server.py      — MCP stdio+HTTP Server
-├── coord_state.py     — Cross-Session Koordination
-├── _fmt.py            — Rich-Formatierung
-├── hooks/             — Hook-Subpackage (base.py, breaker.py)
-└── tools/             — Plan-Core Subpackage (13 Module)
-
-Weitere: tests/ (16 Test-Dateien, 1028+ Tests), dashboard/ (Hermes Dashboard Plugin)
-```
-
-## Tests
-
-```bash
-python3 -m pytest tests/ -q --no-header
-# 1028+ tests, ~38s Laufzeit
-```
+- **Task Dependencies** — `depends_on` array for ordered execution
+- **Parallel Groups** — Multiple tasks run in parallel within a group, groups run sequentially
+- **Review Gates** — 6 review profiles (none, unit-test, api-route, ui-component, security, full) with independent reviewer subagent pattern
+- **Auto-Verify** — Automatic verify command execution on `plan_complete(task_id, auto_verify=True)`
+- **Auto-Commit** — Git commit on task completion: `plan_complete(task_id, auto_commit=True)`
+- **Drift Detection** — Git diff against task scope on every verify; proactive drift tracking via `post_tool_call` hook
+- **Archiving** — Soft delete via `plan_archive` / `plan_restore` instead of permanent `plan_delete`
+- **Due Dates** — Per-task deadlines with automatic banner warnings (🟡 SOON / 🔴 OVERDUE)
+- **Plan Validation** — Consistency check: deps, cycles, profiles, orphan tasks
+- **Templates** — 6 built-in: deploy, bugfix, feature, refactoring, research, analysis
+- **Multi-Repo** — `repos` array for drift detection across multiple git repos
+- **Session Isolation** — `pre_llm_call` hook uses in-memory cache only (no disk recovery), preventing plan leaks across sessions
+- **TTL Cache** — Health check and drift results cached for 60s to reduce API calls per turn
+- **Tool Metrics** — Per-task tool call tracking (count, duration, category)
+- **Honcho Integration** — Registry-dispatch with HTTP fallback for cross-session recovery
 
 ## Installation
 
+Enable in `~/.hermes/config.yaml`:
+
 ```yaml
-# ~/.hermes/config.yaml
 plugins:
   enabled:
-    - agentiker-plan-follow
+    - plan_follow
 ```
 
+Requires Hermes restart (`/new` in session or restart the daemon).
+
+## Quick Start
+
+```python
+# Create a plan
+plan_create(goal="Fix login validation", tasks=[
+    {"id": "p1", "name": "Add email format check", "files": ["lib/validation.ts"], "verify": "npm test"},
+    {"id": "p2", "name": "Add password strength check", "files": ["lib/validation.ts"], "depends_on": ["p1"]},
+])
+
+# Work through tasks
+plan_current()                    # See current task
+plan_complete("p1")               # Complete task, advance to next
+plan_complete("p2", auto_verify=True, auto_commit=True)  # Verify + commit
+
+# Management
+plan_list()                       # List all plans
+plan_list(include_archived=True)  # Include archived plans
+plan_validate()                   # Check plan integrity
+plan_duedate("p1", "2026-06-25")  # Set deadline
+plan_archive("2026-06-18-fix-validation")  # Archive completed plan
+plan_restore("2026-06-18-fix-validation")  # Restore from archive
+```
+
+## Architecture
+
+```
+plugin.yaml          — v1.1.0 manifest
+__init__.py          — register() entry point, tool registration, schemas
+plan_core.py         — Data model, JSON persistence, plan CRUD, validation
+plan_tools.py        — Tool handler implementations (17 tools)
+plan_hooks.py        — pre_llm_call + post_tool_call hooks
+plan_templates.py    — 6 built-in templates + YAML user template support
+plan_review.py       — Review dispatch, prompt building, result validation
+review_profiles.py   — 6 review profile definitions
+skills/              — Companion skill for LLM awareness
+tests/               — 217 tests
+CHANGELOG.md         — Release history
+```
+
+## Test Suite
+
+```bash
+cd ~/.hermes/plugins/plan_follow
+python3 -m pytest tests/ -v
+```
+
+217 tests covering plan creation, task progression, dependencies, parallel groups, persistence, disk recovery, drift detection, health check, templates, review gates, auto-verify/commit, plan management, archive/restore, due dates, plan validation, tool metrics, drift tracking, session isolation, and tool handler dispatch patterns.
+
+## Version History
+
+- **1.1.0** (2026-06-18) — plan_archive/restore, plan_validate, plan_duedate, deadline warnings, error messages English, tool metrics, 217 tests
+- **1.0.1** (2026-06-17) — Minor bugfixes, template parametrization
+- **1.0.0** (2026-06-16) — Initial release with 12 tools, 2 hooks, 6 templates, 173 tests
