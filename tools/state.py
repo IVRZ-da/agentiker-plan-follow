@@ -23,7 +23,6 @@ class PlanState:
         self.tool_metrics: dict[str, Any] = {}
         self.drift_warnings: list[str] = []
         self.session_id: Optional[str] = None
-        self.kanban_root_id: Optional[str] = None
 
 
 STATE = PlanState()

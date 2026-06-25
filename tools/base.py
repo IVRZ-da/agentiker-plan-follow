@@ -15,38 +15,6 @@ from .state import STATE
 
 logger = logging.getLogger("plan_follow")
 
-# ─── Kanban-DB Verfügbarkeit ─────────────────────────────────────────────────
-
-_KANBAN_AVAILABLE: Optional[bool] = None
-
-
-def _kanban_available() -> bool:
-    global _KANBAN_AVAILABLE
-    if _KANBAN_AVAILABLE is not None:
-        return _KANBAN_AVAILABLE
-    try:
-        import sys
-        _p = "/home/jo/.hermes/hermes-agent"
-        if _p not in sys.path:
-            sys.path.insert(0, _p)
-        from hermes_cli import kanban_db  # noqa: F401
-        _KANBAN_AVAILABLE = True
-    except ImportError:
-        _KANBAN_AVAILABLE = False
-    return _KANBAN_AVAILABLE
-
-
-def _kanban_db():
-    try:
-        from hermes_cli import kanban_db
-        return kanban_db
-    except ImportError:
-        return None
-
-
-def _kanban_profile() -> str:
-    return os.environ.get("HERMES_PROFILE", "default")
-
 
 def get_session_id() -> str:
     """Get the current Hermes session ID, with fallback.
@@ -125,55 +93,7 @@ def get_drift_warnings() -> list[str]:
 
 
 def _update_plans_index(plan: dict) -> None:
-    """Write active plan info — via Kanban-DB or JSON index."""
-    kdb = _kanban_db()
-    if kdb:
-        try:
-            profile = _kanban_profile()
-            plan_id = plan["plan_id"]
-            goal = plan.get("goal", "")[:80]
-            now = datetime.now(timezone.utc).isoformat()
-            body = json.dumps({
-                "type": "plan_index",
-                "plan_id": plan_id,
-                "goal": goal,
-                "updated": now,
-                "current_task": plan.get("current_task"),
-            })
-            # Upsert: create if not exists, update body if exists
-            tid = f"plan_index:{_kanban_profile()}"
-            conn = kdb.connect(board='plans')
-            try:
-                existing = kdb.get_task(conn, tid)
-                if existing:
-                    kdb.add_comment(conn, tid, author="system", body=body)  # Update via comment
-                else:
-                    from .state import STATE
-                    plist = [STATE.kanban_root_id] if STATE.kanban_root_id else []
-                    kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
-                                    assignee=profile, initial_status="running",
-                                    workspace_kind="dir",
-                                    skills=[],
-                                    max_runtime_seconds=7200,
-                                    max_retries=1,
-                                    session_id=get_session_id(),
-                                    parents=plist)
-            except Exception:
-                try:
-                    from .state import STATE
-                    plist = [STATE.kanban_root_id] if STATE.kanban_root_id else []
-                    kdb.create_task(conn, title=f"active-plan:{profile}", body=body,
-                                    assignee=profile, initial_status="running",
-                                    parents=plist)
-                except Exception:
-                    pass
-            finally:
-                conn.close()
-            return
-        except Exception:
-            logger.debug("Kanban plans_index update failed, fallback to JSON")
-
-    # JSON-Fallback
+    """Write active plan info to a small index file for session recovery."""
     index = {}
     if resolve_plans_index().exists():
         try:
@@ -209,44 +129,15 @@ def _clear_plans_index() -> None:
 
 
 def _recover_plan_from_disk() -> Optional[str]:
-    """Find the most recent active plan — via Kanban-DB oder JSON.
+    """Find the most recent active plan on disk.
 
     Search order:
-    1. Kanban-DB: active_plan task for current profile
-    2. plans_index.json → active_plan_id, only if plan has a current_task
-    3. Newest .json with current_task set
+    1. plans_index.json → active_plan_id, only if plan has a current_task
+    2. Newest .json with current_task set (actively in progress)
 
-    Returns plan_id or None (no in-progress plan found).
+    Returns plan_id or None (no in-progress plan on disk).
     """
-    # 1. Kanban-DB: look for active plan marker for this profile
-    kdb = _kanban_db()
-    if kdb:
-        try:
-            profile = _kanban_profile()
-            conn = kdb.connect()
-            rows = conn.execute(
-                "SELECT id, body FROM tasks WHERE "
-                "body LIKE '%\"type\":\"plan_index\"%' "
-                "AND assignee = ? "
-                "ORDER BY created_at DESC LIMIT 1",
-                (profile,)
-            ).fetchall()
-            for row in rows:
-                body = {}
-                try:
-                    body = json.loads(row[1]) if row[1] else {}
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                plan_id = body.get("plan_id")
-                if plan_id and _plan_path(plan_id).exists():
-                    plan = _load_plan(plan_id)
-                    if plan and plan.get("current_task"):
-                        logger.info("Disk-Recovery (Kanban): Plan '%s' recovered", plan_id)
-                        return plan_id
-        except Exception as e:
-            logger.debug("Kanban recovery failed (fallback to JSON): %s", e)
-
-    # 2. Index file — only if the plan has a valid current_task
+    # 1. Index file — only if the plan has a valid current_task
     if resolve_plans_index().exists():
         try:
             index = json.loads(resolve_plans_index().read_text(encoding="utf-8"))

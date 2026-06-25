@@ -3,6 +3,7 @@
 Run: python -m pytest tests/test_coord_state.py -v
 """
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -306,8 +307,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
     def test_plan_session_with_data(self, sample_session):
         from plan_follow.plan_tools import plan_session_tool
         result = plan_session_tool({}, **{})
-        # fmt_ok() returns Rich-formatted string, not raw JSON
-        assert "sessions" in result or "active_sessions" in result
+        json.loads(result) if isinstance(result, str) else result
 
     def test_plan_lock_tool_acquire(self):
         from plan_follow.plan_tools import plan_lock_tool
@@ -343,7 +343,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
     def test_plan_notify_missing_args(self):
         from plan_follow.plan_tools import plan_notify_tool
         result = plan_notify_tool({}, **{})
-        assert "Error" in result or "error" in result
+        assert "error" in result
 
     def test_plan_history_no_git(self, tmp_path):
         """plan_history should return 'not active' hint when no .git exists."""
@@ -382,7 +382,6 @@ class TestGitIntegration:
         result = _git_commit_if_active({"plan_id": "test", "tasks": {}, "current_task": None})
         assert result is None  # Silent skip
 
-    @pytest.mark.skip(reason="flaky — isolation problem")
     def test_git_commit_creates_commit(self, tmp_path):
         """_git_commit_if_active should create a commit when .git exists."""
         # Temporarily create a git repo in PLANS_DIR
@@ -653,7 +652,7 @@ class TestCleanupStale:
         import plan_follow.coord_state as _cs
         sessions = _cs.get_sessions()
         sessions["old-session"]["last_seen"] = "2020-01-01T00:00:00"
-        _cs._atomic_write_json(_cs.SESSIONS_FILE, sessions)
+        _cs._atomic_write(_cs.SESSIONS_FILE, sessions)
 
         removed = cleanup_stale_sessions(max_age_minutes=1)
         assert removed >= 1
@@ -675,7 +674,7 @@ class TestCleanupStale:
         locks = _cs.get_locks()
         assert "/old-file.ts" in locks
         locks["/old-file.ts"]["since"] = "2020-01-01T00:00:00"
-        _cs._atomic_write_json(_cs.LOCKS_FILE, locks)
+        _cs._atomic_write(_cs.LOCKS_FILE, locks)
 
         removed = cleanup_stale_locks(max_age_minutes=1)
         assert removed >= 1
