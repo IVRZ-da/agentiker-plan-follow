@@ -280,7 +280,7 @@ def plan_migrate_tool(args: dict, **kwargs) -> str:
             "detail": p.get("message") or p.get("error", "") or "",
         })
 
-    table = fmt_table(details, headers=["Plan", "Status", "Detail"])
+    table = fmt_table(details, columns=["Plan", "Status", "Detail"])
 
     if dry_run:
         lines.insert(0, "🔍 TROCKENLAUF — Setze dry_run=False für echten Import")

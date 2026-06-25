@@ -178,6 +178,34 @@ def _create_kanban_plan(
             pass
 
     logger.info("✅ Plan '%s' als Kanban-Task-Graph erstellt (%d Tasks)", plan_id, len(tasks))
+
+    # Save JSON plan as backup (für STATE-Konsistenz + Fallback)
+    try:
+        from datetime import datetime, timezone
+        plan_dict = {
+            "plan_id": plan_id,
+            "goal": goal,
+            "created": now,
+            "current_task": tasks[0].get("id", "") if tasks else None,
+            "tasks": {t["id"]: {
+                "id": t["id"],
+                "status": "in_progress" if t.get("id") == (tasks[0].get("id", "") if tasks else None) else "pending",
+                "name": t.get("name", ""),
+                "files": t.get("files", []),
+                "verify": t.get("verify", ""),
+                "review_profile": t.get("review_profile", "none"),
+                "depends_on": t.get("depends_on", []),
+            } for t in tasks},
+            "repo": repo,
+            "repos": repos or [],
+            "parallel_groups": parallel_groups or {},
+        }
+        from .base import _save_plan
+        _save_plan(plan_dict)
+        logger.debug("JSON-Backup für Plan %s gespeichert", plan_id)
+    except Exception as plan_save_err:
+        logger.warning("JSON-Backup fehlgeschlagen (non-fatal): %s", plan_save_err)
+
     return plan_id
 
 
