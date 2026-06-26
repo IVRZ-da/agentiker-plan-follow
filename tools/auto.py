@@ -5,11 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
+from .. import plan_core
 from .base import (
     _get_active_plan,
     logger,
 )
-
 
 # ─── Re-exports from plan_review ──────────────────────────────────────────────
 
@@ -218,6 +218,50 @@ def _commit_in_repo(repo: str, task_id: str, files: list[str]) -> dict:
         return {"status": "error", "repo": repo, "message": str(e)}
 
 
+def _warn_other_sessions(repos: list[str]) -> list[str]:
+    """Warn if other sessions work in overlapping repos. Returns warnings."""
+    try:
+        from .. import coord_state
+
+        my_sid = plan_core.get_session_id()
+        if not my_sid:
+            return []
+        sessions = coord_state.get_sessions()
+        others = {sid: s for sid, s in sessions.items() if sid != my_sid}
+        if not others:
+            return []
+
+        warnings = []
+
+        plans_dir = plan_core.PLANS_DIR
+        for sid, s in others.items():
+            plan_id = s.get("plan_id", "")
+            if not plan_id:
+                continue
+            plan_file = plans_dir / f"{plan_id}.json"
+            if not plan_file.exists():
+                continue
+            try:
+                import json
+
+                other_plan = json.loads(plan_file.read_text())
+                other_repos = other_plan.get("repos", other_plan.get("repo", []))
+                if isinstance(other_repos, str):
+                    other_repos = [other_repos]
+                overlap = [r for r in repos if r in other_repos]
+                if overlap:
+                    label = plan_id[:25]
+                    warnings.append(
+                        f"⚠️ Session '{label}' arbeitet in {', '.join(overlap)}. "
+                        f"Git-Operation kann Konflikte verursachen!"
+                    )
+            except Exception:
+                continue
+        return warnings
+    except Exception:
+        return []
+
+
 def auto_commit(task_id: str, files: list[str], repo: str = "",
                 repos: list[str] | None = None) -> dict:
     """Git-commit task files across one or more repositories."""
@@ -232,6 +276,12 @@ def auto_commit(task_id: str, files: list[str], repo: str = "",
 
     if not target_repos:
         return {"status": "skipped", "message": "No git repo configured."}
+
+    # Cross-Session Check
+    conflicts = _warn_other_sessions(target_repos)
+    if conflicts:
+        return {"status": "cancelled", "message": "\n".join(conflicts) +
+                " — Auto-Commit abgebrochen, andere Session aktiv in diesem Repo."}
 
     results = []
     for r in target_repos:
@@ -263,6 +313,12 @@ def auto_commit(task_id: str, files: list[str], repo: str = "",
 def auto_push(repos: list[str], remote: str = "origin",
               branch: str | None = None) -> dict:
     """Git-push to remote for one or more repos."""
+    # Cross-Session Check
+    conflicts = _warn_other_sessions(repos)
+    if conflicts:
+        return {"results": [{"status": "cancelled", "message": "\n".join(conflicts) +
+                            " — Push abgebrochen, andere Session aktiv in diesem Repo."}]}
+
     import subprocess
     results = []
     for repo in repos:

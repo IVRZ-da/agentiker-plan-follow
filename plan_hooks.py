@@ -356,6 +356,42 @@ def _build_coordination_banner() -> list[str]:
             msg_preview = latest.get("message", "")[:35]
             lines.append(f"║    • {from_msg}: {msg_preview}         ║")
             lines.append("║    → plan_notify(action='check')          ║")
+
+        # ─── Repo-Konflikt-Warnung ────────────────────────────────────────
+        # Prüfen ob andere Sessions im gleichen Repo arbeiten
+        current_plan = plan_core._get_active_plan()
+        if current_plan and len(sessions) > 1:
+            my_repos = plan_core._get_repos(current_plan)
+            if my_repos:
+
+                plans_dir = plan_core.PLANS_DIR
+                other_session_repos = set()
+                for sid, s in sessions.items():
+                    if sid == my_sid:
+                        continue
+                    other_pid = s.get("plan_id", "")
+                    if not other_pid:
+                        continue
+                    other_file = plans_dir / f"{other_pid}.json"
+                    if not other_file.exists():
+                        continue
+                    try:
+                        import json
+
+                        other_plan = json.loads(other_file.read_text())
+                        other_repos = other_plan.get("repos", other_plan.get("repo", []))
+                        if isinstance(other_repos, str):
+                            other_repos = [other_repos]
+                        overlap = set(other_repos) & set(my_repos)
+                        other_session_repos.update(overlap)
+                    except Exception:
+                        continue
+                if other_session_repos:
+                    lines.append("║  ⚠️  Repo-Konflikt mit anderen Sessions!  ║")
+                    for r in list(other_session_repos)[:2]:
+                        short = r.rsplit("/", 1)[-1] if "/" in r else r
+                        lines.append(f"║    • {short[:45]}                    ║")
+                    lines.append("║    Git-Operationen können kollidieren   ║")
     except Exception:
         logger.debug("_build_coordination_banner failed (non-blocking)", exc_info=True)
     return lines
@@ -595,6 +631,56 @@ def on_post_tool_call(**kwargs: Any) -> None:
     )
 
     record_tool_call(tool_name, duration, status)
+
+    # ─── Cross-Session Warning für Tests/Builds/Git ────────────────────────
+    # Wenn terminal() mit pytest/build/git-commit aufgerufen wird und andere
+    # Sessions aktiv sind, warnen — unabhängig von Git-Repos.
+    if tool_name == "terminal":
+        args = kwargs.get("args", {}) or {}
+        cmd = (args.get("command", "") if isinstance(args, dict) else "")[:200]
+        if cmd and any(
+            cmd.startswith(p) or f" {p}" in cmd
+            for p in ("pytest", "medusa build", "next build", "npm run build",
+                      "yarn build", "git commit", "git push", "git merge", "git rebase")
+        ):
+            try:
+                from . import coord_state
+
+                my_sid = plan_core.get_session_id()
+                sessions = coord_state.get_sessions()
+                other_sessions = {
+                    sid: s for sid, s in sessions.items()
+                    if sid != my_sid
+                }
+                if other_sessions:
+                    other_names = []
+                    for sid, s in list(other_sessions.items())[:3]:
+                        label = s.get("plan_id", "")[:25] or sid[:16]
+                        other_names.append(label)
+                    msg = (
+                        f"⚠️ Cross-Session Konflikt: '{cmd[:50]}' ausgeführt, "
+                        f"während {len(other_sessions)} andere Session(s) aktiv sind: "
+                        f"{', '.join(other_names)}. Ergebnisse können inkonsistent sein!"
+                    )
+                    record_drift_warning(msg)
+
+                    # Auto-notify the other sessions
+                    for sid in other_sessions:
+                        try:
+                            coord_state.send_notification(
+                                from_session=my_sid,
+                                to_session=sid,
+                                message=f"⚠️ Führe '{cmd[:60]}' aus — bin in deinem Projekt aktiv!",
+                                kind="warning",
+                            )
+                        except Exception:
+                            logger.debug(
+                                "cross-session notify to %s failed", sid[:16]
+                            )
+            except Exception:
+                logger.debug(
+                    "cross-session terminal check failed", exc_info=True
+                )
 
     # ─── Auto-Drift-Tracking ──────────────────────────────────────────────
     # When code_*/patch writes to files outside the current task's allowed files,

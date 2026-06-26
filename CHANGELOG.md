@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.16] - 2026-06-26
+
+### Added
+- Cross-Session Warnung in post_tool_call Hook (terminal() auf test/build/git)
+- Cross-Session Git-Check in handlers_git.py (sync/push prüft andere Sessions)
+- Cross-Session Git-Check in auto.py (auto_commit/auto_push prüft andere Sessions)
+- Coordination-Banner: Repo-Konflikt-Warnung bei Überschneidungen
+
 ## [0.5.15] - 2026-06-26
 
 ### Fixed

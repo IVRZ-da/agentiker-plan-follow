@@ -4,9 +4,56 @@ from __future__ import annotations
 import logging
 
 from .. import plan_core
-from .._fmt import fmt_err, fmt_info, fmt_ok
+from .._fmt import fmt_err, fmt_info, fmt_ok, fmt_warn
 
 logger = logging.getLogger("plan_follow")
+
+
+def _check_other_sessions_in_repo(repos: list[str]) -> list[str]:
+    """Check if other active sessions work in overlapping repos.
+
+    Returns a list of warning messages (empty if no conflicts).
+    """
+    try:
+        from .. import coord_state
+
+        my_sid = plan_core.get_session_id()
+        if not my_sid:
+            return []
+        sessions = coord_state.get_sessions()
+        others = {sid: s for sid, s in sessions.items() if sid != my_sid}
+        if not others:
+            return []
+
+        warnings = []
+
+        plans_dir = plan_core.PLANS_DIR
+        for sid, s in others.items():
+            plan_id = s.get("plan_id", "")
+            if not plan_id:
+                continue
+            plan_file = plans_dir / f"{plan_id}.json"
+            if not plan_file.exists():
+                continue
+            try:
+                other_plan = __import__("json").loads(plan_file.read_text())
+                other_repos = other_plan.get("repos", other_plan.get("repo", []))
+                if isinstance(other_repos, str):
+                    other_repos = [other_repos]
+                overlap = [r for r in repos if r in other_repos]
+                if overlap:
+                    label = plan_id[:25]
+                    warnings.append(
+                        f"⚠️ Session '{label}' arbeitet ebenfalls in Repo(s): "
+                        f"{', '.join(overlap)}. Git-Operation kann Konflikte verursachen!"
+                    )
+            except Exception:
+                continue
+        return warnings
+    except Exception:
+        return []
+
+
 def plan_git_branch_tool(args: dict, **kwargs) -> str:
     """Manage branches in configured repos.
 
@@ -101,6 +148,12 @@ def plan_git_push_tool(args: dict, **kwargs) -> str:
     if not repos:
         return fmt_err("No repos configured in plan.")
 
+    # Cross-Session Check
+    conflicts = _check_other_sessions_in_repo(repos)
+    if conflicts:
+        return fmt_warn("\n".join(conflicts) +
+                         "\n\n💡 Git-push abgebrochen — bitte koordinieren mit der anderen Session.")
+
     remote = args.get("remote", "origin")
     branch = args.get("branch", None)
 
@@ -170,6 +223,12 @@ def plan_git_sync_tool(args: dict, **kwargs) -> str:
     repos = plan_core._get_repos(plan)
     if not repos:
         return fmt_err("No repos configured in plan.")
+
+    # Cross-Session Check
+    conflicts = _check_other_sessions_in_repo(repos)
+    if conflicts:
+        return fmt_warn("\n".join(conflicts) +
+                         "\n\n💡 Git-sync abgebrochen — bitte koordinieren mit der anderen Session.")
 
     task_id = plan.get("current_task", "unknown")
     task = plan.get("tasks", {}).get(task_id, {})
