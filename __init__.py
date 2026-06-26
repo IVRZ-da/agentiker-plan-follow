@@ -754,8 +754,8 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["send", "check"],
-                "description": "Aktion: send (Nachricht senden), check (eigene Nachrichten prüfen)",
+                "enum": ["send", "check", "list", "clear"],
+                "description": "Aktion: send (senden), check (ungelesene), list (alle), clear (löschen)",
             },
             "to": {"type": "string", "description": "Ziel-Session-ID (erforderlich für send)"},
             "message": {"type": "string", "description": "Nachrichtentext (erforderlich für send)"},

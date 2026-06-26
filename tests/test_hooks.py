@@ -1904,3 +1904,120 @@ class TestCoordCleanup:
 
         assert "fresh-session" in coord_state.get_sessions()
         assert coord_state.get_lock("/fresh.ts") is not None
+
+
+# ─────────────── P4: Notification + Conflict Tests ───────────────────────────
+
+
+class TestNotifyTool:
+    """Tests for plan_notify actions: send, check, list, clear."""
+
+    def test_notify_send_and_check(self, monkeypatch):
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_notify_tool
+        from plan_follow.tools import base as _tb
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        result = plan_notify_tool({"action": "send", "to": "session-b", "message": "Hi!", "kind": "info"})
+        assert '"action": "sent"' in result
+
+        # session-b should have the notification
+        result2 = plan_notify_tool({"action": "check", "session_id": "session-b"})
+        assert '"count": 1' in result2
+        assert "Hi!" in result2
+
+    def test_notify_list(self, monkeypatch):
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_notify_tool
+        from plan_follow.tools import base as _tb
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        plan_notify_tool({"action": "send", "to": "session-a", "message": "Test1"})
+        plan_notify_tool({"action": "send", "to": "session-a", "message": "Test2"})
+
+        result = plan_notify_tool({"action": "list"})
+        assert '"count": 2' in result
+        assert "Test1" in result
+        assert "Test2" in result
+
+    def test_notify_clear(self, monkeypatch):
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_notify_tool
+        from plan_follow.tools import base as _tb
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        plan_notify_tool({"action": "send", "to": "session-a", "message": "X"})
+        result = plan_notify_tool({"action": "clear"})
+        assert '"status": "cleared"' in result
+
+        result2 = plan_notify_tool({"action": "list"})
+        assert '"count": 0' in result2
+
+    def test_notify_invalid_action(self):
+        from plan_follow.plan_tools import plan_notify_tool
+        result = plan_notify_tool({"action": "invalid"})
+        assert "error" in result.lower() or "unknown" in result.lower()
+
+
+class TestAutoNotifyOnConflict:
+    """Acquire_lock should auto-notify the holder on conflict."""
+
+    def test_auto_notify_on_lock_conflict(self, monkeypatch):
+        from plan_follow import coord_state
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-b")
+        _tb.reset_session_id()
+
+        # session-a holds lock
+        coord_state.acquire_lock("/shared/file.ts", "session-a")
+
+        # session-b tries to acquire → should trigger auto-notification
+        result = coord_state.acquire_lock("/shared/file.ts", "session-b")
+        assert result["status"] == "exists"
+
+        # session-a should now have a notification about the conflict
+        notifs = coord_state.get_notifications("session-a", mark_read=False)
+        assert len(notifs) >= 1
+        assert any("Lock-Konflikt" in n.get("message", "") for n in notifs)
+        assert any("session-b" in n.get("from", "") for n in notifs)
+
+    def test_auto_notify_same_session_no_conflict(self, monkeypatch):
+        """Same session re-acquiring lock should NOT send notification."""
+        from plan_follow import coord_state
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.acquire_lock("/shared/file.ts", "session-a")
+        # Clear any existing notifications
+        coord_state.clear_notifications("session-a")
+
+        # Same session re-acquires
+        result = coord_state.acquire_lock("/shared/file.ts", "session-a")
+        assert result["status"] == "acquired"
+
+        notifs = coord_state.get_notifications("session-a", mark_read=False)
+        conflict_msgs = [n for n in notifs if "Lock-Konflikt" in n.get("message", "")]
+        assert len(conflict_msgs) == 0
+
+    def test_notification_banner_shows_preview(self, monkeypatch, mock_time):
+        """Coordination banner should show notification preview."""
+        from plan_follow import coord_state
+        from plan_follow.plan_hooks import _build_coordination_banner
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "my-session")
+        _tb.reset_session_id()
+
+        # Send a notification to current session
+        coord_state.send_notification("other-session", "my-session", "Test message", "info")
+
+        lines = _build_coordination_banner()
+        assert any("Test message" in l for l in lines), f"No preview in banner:\n" + "\n".join(lines)
+        assert any("other-session" in l for l in lines)
+

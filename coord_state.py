@@ -149,6 +149,7 @@ def cleanup_stale_sessions(max_age_minutes: int = 60) -> int:
 def acquire_lock(path: str, session_id: str) -> dict:
     """Acquire a lock on a file/path for a session.
 
+    Auto-sends notification to the current holder if lock is taken.
     Returns:
         {"status": "acquired" | "exists" | "error",
          "locked_by": session_id or current holder}
@@ -157,6 +158,16 @@ def acquire_lock(path: str, session_id: str) -> dict:
     if path in locks:
         holder = locks[path].get("session_id", "unknown")
         if holder != session_id:
+            # Auto-Notify the current holder about the conflict
+            try:
+                send_notification(
+                    from_session=session_id,
+                    to_session=holder,
+                    message=f"Lock-Konflikt: {path}",
+                    kind="warning",
+                )
+            except Exception:
+                pass  # Best-effort
             return {"status": "exists", "locked_by": holder}
         # Same session — renew
         locks[path]["since"] = datetime.now(timezone.utc).isoformat()

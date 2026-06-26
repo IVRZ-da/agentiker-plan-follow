@@ -349,6 +349,11 @@ def _build_coordination_banner() -> list[str]:
         )
         if notifs:
             lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
+            # Show preview of latest notification
+            latest = notifs[-1]
+            from_msg = latest.get("from", "?")[:16]
+            msg_preview = latest.get("message", "")[:35]
+            lines.append(f"║    • {from_msg}: {msg_preview}         ║")
             lines.append("║    → plan_notify(action='check')          ║")
     except Exception:
         pass

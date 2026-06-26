@@ -853,10 +853,10 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
 
 
 def plan_notify_tool(args: dict, **kwargs) -> str:
-    """Send a notification to another session or check own notifications.
+    """Send notifications to other sessions or manage own notifications.
 
     Parameters:
-    - action (str, required): 'send' or 'check'
+    - action (str, required): 'send', 'check', 'list', or 'clear'
     - to (str, optional): Target session ID (required for 'send')
     - message (str, optional): Message text (required for 'send')
     - kind (str, optional): 'info', 'warning', 'alert' (default: 'info')
@@ -870,7 +870,7 @@ def plan_notify_tool(args: dict, **kwargs) -> str:
     session_id = args.get("session_id") or plan_core.get_session_id()
 
     if not action:
-        return fmt_err("action is required (send|check)")
+        return fmt_err("action is required (send|check|list|clear)")
 
     if action == "send":
         if not to:
@@ -888,8 +888,21 @@ def plan_notify_tool(args: dict, **kwargs) -> str:
             "notifications": pending,
         })
 
+    elif action == "list":
+        all_notifs = coord_state._atomic_read(coord_state.NOTIFICATIONS_FILE)
+        mine = all_notifs.get(session_id, [])
+        return fmt_ok({
+            "action": "list",
+            "count": len(mine),
+            "notifications": mine,
+        })
+
+    elif action == "clear":
+        coord_state.clear_notifications(session_id)
+        return fmt_ok({"action": "clear", "status": "cleared"})
+
     else:
-        return fmt_err(f"Unknown action: {action}. Use send|check.")
+        return fmt_err(f"Unknown action: {action}. Use send|check|list|clear.")
 
 
 # ─── Git-Integration Tools (OPTIONAL) ────────────────────────────────────────
