@@ -103,6 +103,7 @@ def _cached_or_fresh(key: str, fetcher, ttl: int = _HOOK_CACHE_TTL):
             _hook_cache[key] = (val, time.monotonic())
         return val
     except Exception:
+        logger.debug("_cached_or_fresh: fetcher failed for key '%s'", key, exc_info=True)
         return None
 
 
@@ -156,7 +157,7 @@ def _build_roadmap_banner() -> list[str]:
             blocked_names = [p.get("name", p.get("id", "?"))[:25] for p in blocked[:2]]
             lines.append(f"║     🔒 Blockiert: {', '.join(blocked_names)}")
     except Exception:
-        pass
+        logger.debug("_build_roadmap_banner failed (non-blocking)", exc_info=True)
     return lines
 
 
@@ -225,7 +226,7 @@ def _build_drift_banner() -> list[str]:
                 lines.append(f"║    ... and {len(drift_warnings) - 2} more")
             lines.append("║  → Task-Eigenschaften prüfen          ║")
     except Exception:
-        pass
+        logger.debug("_build_drift_banner failed (non-blocking)", exc_info=True)
     return lines
 
 
@@ -248,7 +249,7 @@ def _build_due_banner() -> list[str]:
                 f"║    Noch {due_info['days_remaining']} Tag(e): {due_info['due']}             ║"
             )
     except Exception:
-        pass
+        logger.debug('_build_due_banner failed (non-blocking)', exc_info=True)
     return lines
 
 
@@ -356,7 +357,7 @@ def _build_coordination_banner() -> list[str]:
             lines.append(f"║    • {from_msg}: {msg_preview}         ║")
             lines.append("║    → plan_notify(action='check')          ║")
     except Exception:
-        pass
+        logger.debug("_build_coordination_banner failed (non-blocking)", exc_info=True)
     return lines
 
 
@@ -495,7 +496,7 @@ def _build_health_banner() -> list[str]:
                     lines.append(f"║    ... and {len(issues) - 3} more")
                 lines.append("║  (Arbeit trotzdem möglich)           ║")
     except Exception:
-        pass
+        logger.debug("_build_health_banner failed (non-blocking)", exc_info=True)
     return lines
 
 
@@ -645,7 +646,7 @@ def on_post_tool_call(**kwargs: Any) -> None:
                                     kind="warning",
                                 )
                             except Exception:
-                                pass
+                                logger.debug('on_post_tool_call: auto-notify failed', exc_info=True)
 
                     # Auto-Lock: Acquire lock on the file being edited
                     if my_sid:
@@ -656,7 +657,7 @@ def on_post_tool_call(**kwargs: Any) -> None:
                                 file_path, my_sid[:20]
                             )
                 except Exception:
-                    pass  # Best-effort
+                    logger.debug('on_post_tool_call: auto-lock/check failed', exc_info=True)
 
     # Append to session log file
     try:
@@ -702,7 +703,7 @@ def on_session_end(**kwargs: Any) -> None:
                 if released:
                     logger.info("Released %d lock(s) at session end", released)
         except Exception:
-            pass  # Best-effort
+            logger.debug('on_session_end: lock release failed', exc_info=True)
 
         # 3. Unregister session
         try:
@@ -713,7 +714,7 @@ def on_session_end(**kwargs: Any) -> None:
                 coord_state.unregister_session(session_id)
                 logger.info("Session '%s' unregistered at session end", session_id[:20])
         except Exception:
-            pass  # Best-effort
+            logger.debug('on_session_end: unregister failed', exc_info=True)
 
         # 4. Finalize session log
         try:
@@ -726,7 +727,7 @@ def on_session_end(**kwargs: Any) -> None:
             with open(log_file, "a") as f:
                 f.write(f"[{iso}] SESSION_END\n")
         except Exception:
-            pass
+            logger.debug('on_session_end: log finalize failed', exc_info=True)
 
     except Exception as e:
         logger.warning("on_session_end failed (non-blocking): %s", e)

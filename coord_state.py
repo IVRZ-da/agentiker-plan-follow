@@ -8,12 +8,16 @@ Atomic Writes via tempfile + rename. KEINE Git-Abhängigkeit.
 Fehlertolerant — Einzelfehler blockieren nicht die gesamte Koordination.
 """
 
+import fcntl
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger("plan_follow")
 
 SHARED_DIR = Path.home() / ".hermes" / "shared"
 SESSIONS_FILE = SHARED_DIR / "sessions.json"
@@ -32,6 +36,36 @@ def set_shared_dir(path: Path) -> None:
     _SHARED_DIR_INIT = False
 
 
+def _acquire_file_lock(path: Path, shared: bool = False) -> int:
+    """Acquire fcntl flock on a .lock file for the given path.
+
+    Creates/open a .lock file next to the target and acquires:
+    - exclusive lock (shared=False, default) for writes
+    - shared lock (shared=True) for reads
+
+    Returns the fd (caller MUST close it or use contextmanager).
+    """
+    lock_path = path.with_suffix(path.suffix + ".lock")
+    if not lock_path.exists():
+        lock_path.touch()
+    flag = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+    fd = os.open(str(lock_path), os.O_RDONLY)
+    try:
+        fcntl.flock(fd, flag)
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _release_file_lock(fd: int) -> None:
+    """Release a flock and close the fd."""
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
 def _ensure_shared_dir():
     """Einmalige Initialisierung des shared-Verzeichnisses."""
     global _SHARED_DIR_INIT
@@ -41,30 +75,45 @@ def _ensure_shared_dir():
 
 
 def _atomic_write(path: Path, data: dict) -> None:
-    """Atomic write: tempfile → rename. Verhindert corrupted reads."""
+    """Atomic write: tempfile → rename. Verhindert corrupted reads.
+
+    Uses fcntl flock on a .lock file for cross-session coordination.
+    """
     _ensure_shared_dir()
-    fd, tmp = tempfile.mkstemp(dir=str(SHARED_DIR), suffix=".tmp")
+    lock_fd = _acquire_file_lock(path, shared=False)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp, str(path))
-    except Exception:
-        # Aufräumen bei Fehler
+        fd, tmp = tempfile.mkstemp(dir=str(SHARED_DIR), suffix=".tmp")
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            os.replace(tmp, str(path))
+        except Exception as e:
+            logger.warning("atomic_write failed for %s: %s", path, e)
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    finally:
+        _release_file_lock(lock_fd)
 
 
 def _atomic_read(path: Path) -> dict:
-    """Read JSON with fallback auf leeres Dict."""
+    """Read JSON with flock guard and fallback auf leeres Dict.
+
+    Uses shared fcntl flock to prevent reading stale/corrupted data
+    while another session is writing.
+    """
     if not path.exists():
         return {}
+    lock_fd = _acquire_file_lock(path, shared=True)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return {}
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return {}
+    finally:
+        _release_file_lock(lock_fd)
 
 
 # ─── Session Management ───────────────────────────────────────────────────────
@@ -167,7 +216,7 @@ def acquire_lock(path: str, session_id: str) -> dict:
                     kind="warning",
                 )
             except Exception:
-                pass  # Best-effort
+                logger.debug("acquire_lock: notification to %s failed", holder)
             return {"status": "exists", "locked_by": holder}
         # Same session — renew
         locks[path]["since"] = datetime.now(timezone.utc).isoformat()

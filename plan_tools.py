@@ -77,8 +77,8 @@ def plan_create_tool(args: dict, **kwargs) -> str:
                 remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
                 if remaining_critical:
                     logger.warning(
-                        f"Plan '{plan_id}' blocked: {len(remaining_critical)} "
-                        f"critical findings survived auto-fix."
+                        "Plan '%s' blocked: %d critical findings survived auto-fix.",
+                        plan_id, len(remaining_critical),
                     )
                     return fmt_ok({
                         "error": "Plan could not be created — critical issues remain after auto-fix.",
@@ -1284,8 +1284,15 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
                 "pr_number": response_data.get("number", ""),
             })
         except Exception as e:
+            # Nur non-sensitive Fehlerinformation weitergeben
+            msg = str(e)[:200]
+            # HttpError enthält evtl. sensitive Daten im Response-Body
+            if hasattr(e, "code"):
+                msg = f"HTTP {e.code}: {e.reason[:100] if hasattr(e, 'reason') else 'API error'}"
+            elif hasattr(e, "status"):
+                msg = f"HTTP {e.status}: {str(e)[:100]}"
             results.append({"status": "error", "repo": repo,
-                            "message": str(e)[:200]})
+                            "message": msg})
 
     return fmt_ok({"results": results})
 
