@@ -285,15 +285,19 @@ def plan_status_tool(args: dict, **kwargs) -> str:
 
 
 def plan_update_tool(args: dict, **kwargs) -> str:
-    """Update a task's properties (files, verify, depends_on, name)."""
+    """Update a task's properties (files, verify, depends_on, name, review_profile).
+
+    Supports optional plan_id to update a different plan than the active one.
+    """
     task_id = args.get("task_id", "")
     changes = args.get("changes", {})
+    plan_id = args.get("plan_id", "")
     if not task_id:
         return fmt_err("task_id is required")
     if not changes:
         return fmt_err("changes is required (at least one field)")
 
-    result = plan_core.update_task(task_id, changes)
+    result = plan_core.update_task(task_id, changes, plan_id)
     if result is None:
         return fmt_err(
             f"Task '{task_id}' not found, no changes applied, "
@@ -393,8 +397,7 @@ def plan_template_tool(args: dict, **kwargs) -> str:
     - save name=X tasks=Y: Save a user template
     - delete name=X: Delete a user template
     """
-    from .plan_templates import (get_template_names, get_template_detail,
-                                  save_user_template, delete_user_template)
+    from .plan_templates import delete_user_template, get_template_detail, get_template_names, save_user_template
     cmd = args.get("action", "list")
 
     if cmd == "list":
@@ -508,7 +511,7 @@ def plan_sync_tool(args: dict, **kwargs) -> str:
     - repo (str, optional): GitHub repo (owner/repo, for github action)
     - markdown (str, optional): Markdown content (for import action)
     """
-    from .plan_sync import sync_to_github, export_to_markdown, import_from_markdown
+    from .plan_sync import export_to_markdown, import_from_markdown, sync_to_github
     action = args.get("action", "")
     if not action:
         return fmt_err("action is required (github, export, import)")
@@ -564,7 +567,7 @@ def plan_decompose_tool(args: dict, **kwargs) -> str:
     - name (str, optional): Compound task name for create
     - subtasks (list, optional): Sub-task definitions for create
     """
-    from .plan_decompose import expand_task, collapse_task, get_subtask_status, create_compound_task
+    from .plan_decompose import collapse_task, create_compound_task, expand_task, get_subtask_status
     action = args.get("action", "")
     if not action:
         return fmt_err("action is required (expand, collapse, status, create)")
@@ -831,7 +834,7 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
     elif action in ("list", "my"):
         all_locks = coord_state.get_locks()
         if action == "my":
-            filtered = {p: l for p, l in all_locks.items() if l.get("session_id") == session_id}
+            filtered = {p: lk for p, lk in all_locks.items() if lk.get("session_id") == session_id}
         else:
             filtered = all_locks
         return fmt_ok({
@@ -840,10 +843,10 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
             "locks": [
                 {
                     "path": p,
-                    "session_id": l.get("session_id", "?"),
-                    "since": l.get("since", "?"),
+                    "session_id": lk.get("session_id", "?"),
+                    "since": lk.get("since", "?"),
                 }
-                for p, l in sorted(filtered.items())
+                for p, lk in sorted(filtered.items())
             ],
         })
     else:

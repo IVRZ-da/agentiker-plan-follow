@@ -363,20 +363,28 @@ def _advance_linear(plan: dict) -> None:
         _save_plan_state_to_honcho(plan["plan_id"], "active", "false")
 
 
-def update_task(task_id: str, changes: dict) -> Optional[dict]:
+def update_task(task_id: str, changes: dict, plan_id: str = "") -> Optional[dict]:
     """Update a task's properties (files, verify, depends_on, name, review_profile).
 
     Also supports updating plan-level properties (parallel_groups) by passing
     parallel_groups in changes — these are applied to the plan, not the task.
+
+    If plan_id is provided, updates the specified plan instead of the active one.
 
     Returns the updated task dict if any keys were changed, or None if no
     supported keys matched (silent-ignore prevention).
     """
     if not isinstance(changes, dict):
         return None
-    plan = _get_active_plan()
-    if not plan:
-        return None
+
+    if plan_id:
+        plan = _load_plan(plan_id)
+        if not plan:
+            return None
+    else:
+        plan = _get_active_plan()
+        if not plan:
+            return None
     task = plan["tasks"].get(task_id)
     if not task:
         return None
