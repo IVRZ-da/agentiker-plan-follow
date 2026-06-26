@@ -803,8 +803,8 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
     """Manage resource locks for cross-session coordination.
 
     Parameters:
-    - action (str, required): 'lock', 'unlock', or 'status'
-    - path (str, required): File or directory path to lock/unlock
+    - action (str, required): 'lock', 'unlock', 'status', 'list', or 'my'
+    - path (str, required for lock/unlock/status): File or directory path
     - session_id (str, optional): Session ID (default: auto-detected)
     """
     from . import coord_state
@@ -814,8 +814,8 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
     session_id = args.get("session_id") or plan_core.get_session_id()
 
     if not action:
-        return fmt_err("action is required (lock|unlock|status)")
-    if not path:
+        return fmt_err("action is required (lock|unlock|status|list|my)")
+    if action in ("lock", "unlock", "status") and not path:
         return fmt_err("path is required")
 
     if action == "lock":
@@ -828,8 +828,26 @@ def plan_lock_tool(args: dict, **kwargs) -> str:
             result = {"status": "locked", "path": path, "locked_by": lock.get("session_id"), "since": lock.get("since")}
         else:
             result = {"status": "free", "path": path}
+    elif action in ("list", "my"):
+        all_locks = coord_state.get_locks()
+        if action == "my":
+            filtered = {p: l for p, l in all_locks.items() if l.get("session_id") == session_id}
+        else:
+            filtered = all_locks
+        return fmt_ok({
+            "action": action,
+            "count": len(filtered),
+            "locks": [
+                {
+                    "path": p,
+                    "session_id": l.get("session_id", "?"),
+                    "since": l.get("since", "?"),
+                }
+                for p, l in sorted(filtered.items())
+            ],
+        })
     else:
-        return fmt_err(f"Unknown action: {action}. Use lock|unlock|status.")
+        return fmt_err(f"Unknown action: {action}. Use lock|unlock|status|list|my.")
 
     return fmt_ok({"action": action, "path": path, **result})
 

@@ -741,13 +741,12 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["lock", "unlock", "status"],
-                "description": "Aktion: lock (sperren), unlock (freigeben), status (prüfen)",
+                "enum": ["lock", "unlock", "status", "list", "my"],
+                "description": "Aktion: lock (sperren), unlock (freigeben), status (prüfen), list (alle), my (eigene)",
             },
-            "path": {"type": "string", "description": "Datei- oder Verzeichnispfad"},
+            "path": {"type": "string", "description": "Datei- oder Verzeichnispfad (benötigt für lock/unlock/status)"},
             "session_id": {"type": "string", "description": "Session-ID (optional, auto-detect)"},
         },
-        "required": ["action", "path"],
     },
     "plan_notify": {
         "type": "object",

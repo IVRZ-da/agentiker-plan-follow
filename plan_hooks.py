@@ -303,6 +303,29 @@ def _build_coordination_banner() -> list[str]:
                 if len(my_locks) > 2:
                     lines.append(f"║    ... und {len(my_locks) - 2} weitere            ║")
 
+        # Warning for LOCKS older than 30 minutes (stale)
+        if locks:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc)
+            stale = []
+            for path, lock in locks.items():
+                since_str = lock.get("since", "")
+                try:
+                    age = (now - datetime.fromisoformat(since_str)).total_seconds() / 60
+                    if age > 30:
+                        stale.append((path, lock, int(age)))
+                except (ValueError, TypeError):
+                    pass
+            if stale:
+                stale.sort(key=lambda x: -x[2])  # oldest first
+                lines.append(f"║  ⏳ Stale-Locks ({len(stale)} >30 Min alt)      ║")
+                for lpath, lock_info, age_min in stale[:2]:
+                    fname = lpath.rsplit("/", 1)[-1]
+                    locker_sid = lock_info.get("session_id", "?")[:16]
+                    lines.append(
+                        f"║    • {fname[:35]} ({locker_sid}, {age_min}m)  ║"
+                    )
+
         # Show locks by OTHER sessions on our task files
         if current and locks:
             other_locks = []

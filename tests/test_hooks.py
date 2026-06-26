@@ -1728,3 +1728,107 @@ class TestCoordinationHousekeeping:
         result = _do_coordination_housekeeping(current)
         # Lock already exists (held by other), so acquire returns "exists"
         assert result == 0  # no NEW locks acquired
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# plan_lock action=list + action=my
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestPlanLockTool:
+    """Tests for plan_lock action=list and action=my."""
+
+    def test_plan_lock_list(self, monkeypatch):
+        """plan_lock action=list should return all locks."""
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_lock_tool
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.acquire_lock("/file1.ts", "session-a")
+        coord_state.acquire_lock("/file2.ts", "session-b")
+
+        result = plan_lock_tool({"action": "list"})
+        assert '"action": "list"' in result
+        assert '"count": 2' in result
+        assert "file1.ts" in result
+        assert "file2.ts" in result
+
+    def test_plan_lock_my(self, monkeypatch):
+        """plan_lock action=my should return only own session's locks."""
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_lock_tool
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.acquire_lock("/file1.ts", "session-a")
+        coord_state.acquire_lock("/file2.ts", "session-b")
+
+        result = plan_lock_tool({"action": "my"})
+        assert '"action": "my"' in result
+        assert '"count": 1' in result
+        assert "file1.ts" in result
+        assert "file2.ts" not in result
+
+    def test_plan_lock_list_empty(self, monkeypatch):
+        """plan_lock action=list with no locks should return count=0."""
+        from plan_follow.plan_tools import plan_lock_tool
+        result = plan_lock_tool({"action": "list"})
+        assert '"count": 0' in result
+        assert '"locks": []' in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stale Lock Banner
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestStaleLockBanner:
+    """Stale-Lock Warning im Coordination Banner."""
+
+    def test_stale_lock_warning(self, monkeypatch, mock_time):
+        """Locks older than 30 minutes should trigger stale warning."""
+        from plan_follow import coord_state
+        from plan_follow.plan_hooks import _build_coordination_banner
+
+        # Create a stale lock by setting 'since' to 60 min ago
+        from datetime import datetime, timezone, timedelta
+        old_ts = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
+        locks_file = coord_state.LOCKS_FILE
+        locks_file.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        locks_file.write_text(json.dumps({
+            "/stale/file.ts": {
+                "session_id": "old-session",
+                "since": old_ts,
+            }
+        }), encoding="utf-8")
+
+        lines = _build_coordination_banner()
+        assert any("Stale-Locks" in l for l in lines), f"No stale lock warning in banner:\n" + "\n".join(lines)
+
+    def test_no_stale_warning_for_fresh(self, monkeypatch, mock_time):
+        """Locks newer than 30 minutes should NOT show stale warning."""
+        from plan_follow import coord_state
+        from plan_follow.plan_hooks import _build_coordination_banner
+
+        # Create a fresh lock
+        from datetime import datetime, timezone
+        fresh_ts = datetime.now(timezone.utc).isoformat()
+        locks_file = coord_state.LOCKS_FILE
+        locks_file.parent.mkdir(parents=True, exist_ok=True)
+        import json
+        locks_file.write_text(json.dumps({
+            "/fresh/file.ts": {
+                "session_id": "my-session",
+                "since": fresh_ts,
+            }
+        }), encoding="utf-8")
+
+        lines = _build_coordination_banner()
+        stale_lines = [l for l in lines if "Stale-Locks" in l]
+        assert len(stale_lines) == 0, f"Unexpected stale lock warning:\n" + "\n".join(stale_lines)
