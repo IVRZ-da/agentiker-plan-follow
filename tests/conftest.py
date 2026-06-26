@@ -51,10 +51,36 @@ def temp_shared_dir(tmp_path):
 
 @pytest.fixture(autouse=True)
 def mock_fmt():
-    """Mock _fmt output functions to return JSON."""
-    with patch("plan_follow.plan_tools.fmt_ok", side_effect=lambda d, **kw: json.dumps(d, ensure_ascii=False)):
-        with patch("plan_follow.plan_tools.fmt_err", side_effect=lambda m, **kw: json.dumps({"error": m})):
-            with patch("plan_follow.plan_tools.fmt_info", side_effect=lambda m, **kw: json.dumps({"info": m, "status": "no_active_plan", "message": m})):
-                with patch("plan_follow.plan_tools.fmt_table", side_effect=lambda rows, **kw: json.dumps(rows, ensure_ascii=False)):
-                    with patch("plan_follow.plan_todo.fmt_ok", side_effect=lambda d, **kw: json.dumps(d, ensure_ascii=False)):
-                        yield
+    """Mock _fmt output functions to return JSON.
+
+    Patches ALL handler submodules because they import from _fmt at
+    module level, which captures the reference before the fixture runs.
+    Uses create=True so modules that don't import a specific fmt_*
+    function still get the patch.
+    """
+    handler_modules = [
+        "plan_follow.tools.handlers_crud",
+        "plan_follow.tools.handlers_git",
+        "plan_follow.tools.handlers_misc",
+        "plan_follow.tools.handlers_review",
+        "plan_follow.plan_todo",
+    ]
+    _fmt_funcs = {
+        "fmt_ok": lambda d, **kw: json.dumps(d, ensure_ascii=False),
+        "fmt_err": lambda m, **kw: json.dumps({"error": m}),
+        "fmt_info": lambda m, **kw: json.dumps({"info": m, "status": "no_active_plan", "message": m}),
+        "fmt_table": lambda rows, **kw: json.dumps(rows, ensure_ascii=False),
+    }
+
+    patchers = []
+    for mod_name in handler_modules:
+        for name, side_effect_fn in _fmt_funcs.items():
+            p = patch(f"{mod_name}.{name}", side_effect=side_effect_fn, create=True)
+            p.start()
+            patchers.append(p)
+
+    try:
+        yield
+    finally:
+        for p in patchers:
+            p.stop()

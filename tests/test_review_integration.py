@@ -53,12 +53,12 @@ class TestPlanCreateAutoPeerReview:
 
         mock_plan = make_mock_plan()
 
-        with patch("plan_follow.plan_tools.plan_core.create_plan") as mock_create:
+        with patch("plan_follow.plan_core.create_plan") as mock_create:
             mock_create.return_value = "test-plan-1"
-            with patch("plan_follow.plan_tools.plan_core._get_active_plan",
+            with patch("plan_follow.plan_core._get_active_plan",
                        return_value=mock_plan):
-                with patch("plan_follow.plan_tools.plan_core._save_plan") as _ms:
-                    with patch("plan_follow.plan_tools.plan_core._reset_cache"):
+                with patch("plan_follow.plan_core._save_plan") as _ms:
+                    with patch("plan_follow.plan_core._reset_cache"):
 
                         result = plan_create_tool({
                             "goal": "Integration test",
@@ -78,7 +78,7 @@ class TestPlanCreateAutoPeerReview:
         """plan_create_tool should automatically call run_peer_review()."""
         from plan_follow.plan_tools import plan_create_tool
 
-        with patch("plan_follow.plan_tools.plan_peer_review.run_peer_review") as mock_review:
+        with patch("plan_follow.plan_peer_review.run_peer_review") as mock_review:
             mock_review.return_value = []
 
             result = plan_create_tool({
@@ -101,9 +101,9 @@ class TestPlanCreateAutoPeerReview:
              "description": "No files declared", "task_id": "p1"},
         ]
 
-        with patch("plan_follow.plan_tools.plan_peer_review.run_peer_review",
+        with patch("plan_follow.plan_peer_review.run_peer_review",
                     return_value=fake_findings):
-            with patch("plan_follow.plan_tools.plan_peer_review.apply_findings",
+            with patch("plan_follow.plan_peer_review.apply_findings",
                        side_effect=lambda plan, findings: plan):
 
                 result = plan_create_tool({
@@ -127,7 +127,7 @@ class TestPlanCompleteTTS:
 
         mock_plan = make_mock_plan(task_id="p1")
 
-        with patch("plan_follow.plan_tools.plan_core.get_current_task") as mock_current:
+        with patch("plan_follow.plan_core.get_current_task") as mock_current:
             mock_current.return_value = {
                 "task_id": "p1",
                 "name": "Complete me",
@@ -135,12 +135,12 @@ class TestPlanCompleteTTS:
                 "verify": "",
                 "progress": "0/1",
             }
-            with patch("plan_follow.plan_tools.plan_core.complete_task") as mock_complete:
+            with patch("plan_follow.plan_core.complete_task") as mock_complete:
                 mock_complete.return_value = {"status": "completed", "next_task": None}
-                with patch("plan_follow.plan_tools.plan_core._get_active_plan",
+                with patch("plan_follow.plan_core._get_active_plan",
                            return_value=mock_plan):
-                    with patch("plan_follow.plan_tools.plan_core._save_plan") as _ms:
-                        with patch("plan_follow.plan_tools.plan_core.check_drift",
+                    with patch("plan_follow.plan_core._save_plan") as _ms:
+                        with patch("plan_follow.plan_core.check_drift",
                                    return_value=[]):
 
                             result = plan_complete_tool({
@@ -170,7 +170,7 @@ class TestTTSPeerReviewChain:
         mock_plan = make_mock_plan(task_id="p1")
 
         # Step 1: Create plan (should auto peer-review)
-        with patch("plan_follow.plan_tools.plan_peer_review.run_peer_review") as mock_review:
+        with patch("plan_follow.plan_peer_review.run_peer_review") as mock_review:
             mock_review.return_value = []
 
             create_result = plan_create_tool({
@@ -184,17 +184,17 @@ class TestTTSPeerReviewChain:
                 f"Chain: plan_create failed: {parsed}"
 
         # Step 2: Complete task (should set TTS flag)
-        with patch("plan_follow.plan_tools.plan_core.get_current_task") as mock_current:
+        with patch("plan_follow.plan_core.get_current_task") as mock_current:
             mock_current.return_value = {
                 "task_id": "p1", "name": "First task",
                 "files": ["a.py"], "verify": "", "progress": "1/2",
             }
-            with patch("plan_follow.plan_tools.plan_core.complete_task") as mock_complete:
+            with patch("plan_follow.plan_core.complete_task") as mock_complete:
                 mock_complete.return_value = {"status": "completed", "next_task": "p2"}
-                with patch("plan_follow.plan_tools.plan_core._get_active_plan",
+                with patch("plan_follow.plan_core._get_active_plan",
                            return_value=mock_plan):
-                    with patch("plan_follow.plan_tools.plan_core._save_plan") as _ms:
-                        with patch("plan_follow.plan_tools.plan_core.check_drift",
+                    with patch("plan_follow.plan_core._save_plan") as _ms:
+                        with patch("plan_follow.plan_core.check_drift",
                                    return_value=[]):
 
                             complete_result = plan_complete_tool({

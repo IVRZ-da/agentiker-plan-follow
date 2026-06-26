@@ -1792,10 +1792,8 @@ class TestStaleLockBanner:
 
     def test_stale_lock_warning(self, monkeypatch, mock_time):
         """Locks older than 30 minutes should trigger stale warning."""
-        from plan_follow import coord_state
-        from plan_follow.plan_hooks import _build_coordination_banner
-
-        # Create a stale lock by setting 'since' to 60 min ago
+        from plan_follow import coord_state  # noqa: I001
+        from plan_follow.plan_hooks import _build_coordination_banner  # noqa: I001
         from datetime import datetime, timezone, timedelta
         old_ts = (datetime.now(timezone.utc) - timedelta(minutes=60)).isoformat()
         locks_file = coord_state.LOCKS_FILE
@@ -1809,14 +1807,12 @@ class TestStaleLockBanner:
         }), encoding="utf-8")
 
         lines = _build_coordination_banner()
-        assert any("Stale-Locks" in l for l in lines), f"No stale lock warning in banner:\n" + "\n".join(lines)
+        assert any("Stale-Locks" in ln for ln in lines), "No stale lock warning in banner:\n" + "\n".join(lines)
 
     def test_no_stale_warning_for_fresh(self, monkeypatch, mock_time):
         """Locks newer than 30 minutes should NOT show stale warning."""
-        from plan_follow import coord_state
-        from plan_follow.plan_hooks import _build_coordination_banner
-
-        # Create a fresh lock
+        from plan_follow import coord_state  # noqa: I001
+        from plan_follow.plan_hooks import _build_coordination_banner  # noqa: I001
         from datetime import datetime, timezone
         fresh_ts = datetime.now(timezone.utc).isoformat()
         locks_file = coord_state.LOCKS_FILE
@@ -1830,8 +1826,8 @@ class TestStaleLockBanner:
         }), encoding="utf-8")
 
         lines = _build_coordination_banner()
-        stale_lines = [l for l in lines if "Stale-Locks" in l]
-        assert len(stale_lines) == 0, f"Unexpected stale lock warning:\n" + "\n".join(stale_lines)
+        stale_lines = [ln for ln in lines if "Stale-Locks" in ln]
+        assert len(stale_lines) == 0, "Unexpected stale lock warning:\n" + "\n".join(stale_lines)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1913,7 +1909,6 @@ class TestNotifyTool:
     """Tests for plan_notify actions: send, check, list, clear."""
 
     def test_notify_send_and_check(self, monkeypatch):
-        from plan_follow import coord_state
         from plan_follow.plan_tools import plan_notify_tool
         from plan_follow.tools import base as _tb
         monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
@@ -1928,7 +1923,6 @@ class TestNotifyTool:
         assert "Hi!" in result2
 
     def test_notify_list(self, monkeypatch):
-        from plan_follow import coord_state
         from plan_follow.plan_tools import plan_notify_tool
         from plan_follow.tools import base as _tb
         monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
@@ -1943,7 +1937,6 @@ class TestNotifyTool:
         assert "Test2" in result
 
     def test_notify_clear(self, monkeypatch):
-        from plan_follow import coord_state
         from plan_follow.plan_tools import plan_notify_tool
         from plan_follow.tools import base as _tb
         monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
@@ -2018,6 +2011,6 @@ class TestAutoNotifyOnConflict:
         coord_state.send_notification("other-session", "my-session", "Test message", "info")
 
         lines = _build_coordination_banner()
-        assert any("Test message" in l for l in lines), f"No preview in banner:\n" + "\n".join(lines)
-        assert any("other-session" in l for l in lines)
+        assert any("Test message" in ln for ln in lines), "No preview in banner:\n" + "\n".join(lines)
+        assert any("other-session" in ln for ln in lines)
 

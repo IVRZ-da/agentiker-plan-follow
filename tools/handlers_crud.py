@@ -1,5 +1,4 @@
-"""handlers_crud."""
-from __future__ import annotations
+"""CRUD handlers for plan-follow plugin — extracted from plan_tools.py."""
 
 import logging
 
@@ -7,20 +6,126 @@ from .. import plan_core, plan_peer_review
 from .._fmt import fmt_err, fmt_info, fmt_ok, fmt_table
 
 logger = logging.getLogger("plan_follow")
-def plan_abort_tool(args: dict, **kwargs) -> str:
-    """Abort the active plan or a specific task."""
-    task_id = args.get("task_id", "")
-    result = plan_core.abort_plan(task_id)
-    return fmt_ok(result)
 
 
-def plan_archive_tool(args: dict, **kwargs) -> str:
-    """Move a plan to the archive directory."""
-    plan_id = args.get("plan_id", "")
-    if not plan_id:
-        return fmt_err("plan_id is required.")
-    result = plan_core.archive_plan(plan_id)
-    return fmt_ok(result)
+def plan_create_tool(args: dict, **kwargs) -> str:
+    """Create a new structured plan with enforceable tasks."""
+    goal = args.get("goal", "")
+    repo = args.get("repo", "")
+    plan_id_override = args.get("plan_id", "")
+    template_name = args.get("template", "")
+    template_params = args.get("params", {})
+    parallel_groups = args.get("parallel_groups")
+
+    if template_name:
+        # Template expansion
+        from ..plan_templates import expand_template
+        expanded = expand_template(template_name, goal, template_params)
+        if "error" in expanded:
+            return fmt_ok(expanded)
+        tasks = expanded["tasks"]
+        # Use goal from template description if no goal provided
+        if not goal and expanded.get("description"):
+            goal = expanded["description"]
+    else:
+        # Direct tasks (for tests/expert use — template is preferred)
+        tasks = args.get("tasks", [])
+        if not tasks:
+            return fmt_err(
+                "template is required — kein Template = kein Plan.\n"
+                "Available templates: deploy, bugfix, feature, refactoring, research, analysis, fix"
+            )
+
+    if not goal:
+        return fmt_err("goal is required")
+    if not tasks:
+        return fmt_err("tasks is required (at least 1 task)")
+
+    for t in tasks:
+        if "id" not in t or "name" not in t:
+            return fmt_err("Each task needs 'id' and 'name'")
+
+    plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups, plan_id_override=plan_id_override)
+    status = plan_core.get_plan_status()
+
+    # ─── Auto Peer Review (immer aktiv — kein Feature-Toggle) ────────────
+    # Nach plan_create() wird der Plan automatisch gegen die 8-Punkte-Checkliste
+    # geprüft. Findings werden via apply_findings() eingearbeitet.
+    # Wenn nach apply_findings noch CRITICAL-Findings übrig sind, wird der
+    # Plan NICHT erstellt (blockierend).
+    peer_review_findings = []
+    try:
+        plan = plan_core._get_active_plan()
+        if plan:
+            findings = plan_peer_review.run_peer_review(plan)
+            if findings:
+                peer_review_findings = findings
+                # Apply automatic fixes (safe: verify commands, files, profiles)
+                updated = plan_peer_review.apply_findings(plan, findings)
+
+                # ─── Post-Apply-Validierung ────────────────────────────
+                # Prüft ob nach apply_findings noch CRITICAL-Findings übrig sind.
+                # Das passiert wenn z.B. verify-Commands weder leer noch echo
+                # noch ein echter Testbefehl sind (kann nicht automatisch gefixt werden).
+                # Solche Pläne werden blockiert — der Agent muss manuell fixen.
+                remaining = plan_peer_review.run_peer_review(updated)
+                remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
+                if remaining_critical:
+                    logger.warning(
+                        "Plan '%s' blocked: %d critical findings survived auto-fix.",
+                        plan_id, len(remaining_critical),
+                    )
+                    return fmt_ok({
+                        "error": "Plan could not be created — critical issues remain after auto-fix.",
+                        "plan_id": plan_id,
+                        "status": "blocked",
+                        "original_findings": peer_review_findings,
+                        "remaining_findings": remaining_critical,
+                        "suggestion": (
+                            "Fix die verbleibenden CRITICAL-Findings manuell "
+                            "(z.B. verify-Commands setzen, Dateien deklarieren) "
+                            "und dann plan_create() erneut aufrufen."
+                        ),
+                    })
+
+                # Alle CRITICAL-Findings gefixt — Plan speichern
+                plan_core._save_plan(updated)
+    except Exception as e:
+        logger.warning("Auto peer review failed (non-blocking): %s", e)
+
+    # ─── TTS Flag: Plan Created ──────────────────────────────────────────
+    try:
+        plan = plan_core._get_active_plan()
+        if plan:
+            if "tts_flags" not in plan:
+                plan["tts_flags"] = {}
+            plan["tts_flags"]["plan_created"] = True
+            plan_core._save_plan(plan)
+    except Exception as e:
+        logger.warning("TTS flag setting failed (non-blocking): %s", e)
+
+    response = {
+        "status": "created",
+        "plan_id": plan_id,
+        "current_task": status["current_task"] if status else None,
+    }
+    if peer_review_findings:
+        response["peer_review"] = peer_review_findings
+        critical = [f for f in peer_review_findings if f.get("severity") == "critical"]
+        if critical:
+            response["status"] = "warning"
+            response["peer_review_summary"] = f"{len(critical)} critical finding(s) — auto-fixes applied"
+    if template_name:
+        response["template"] = template_name
+    return fmt_ok(response)
+
+
+def plan_current_tool(args: dict, **kwargs) -> str:
+    """Show the current task. Only ONE task is visible at a time."""
+    current = plan_core.get_current_task()
+    if not current:
+        return fmt_info("No active plan. Use plan_create() to start one.")
+    return fmt_ok(current)
 
 
 def plan_complete_tool(args: dict, **kwargs) -> str:
@@ -142,193 +247,28 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
     return fmt_ok(result)
 
 
-def plan_create_tool(args: dict, **kwargs) -> str:
-    """Create a new structured plan with enforceable tasks."""
-    goal = args.get("goal", "")
-    repo = args.get("repo", "")
-    plan_id_override = args.get("plan_id", "")
-    template_name = args.get("template", "")
-    template_params = args.get("params", {})
-    parallel_groups = args.get("parallel_groups")
-
-    if template_name:
-        # Template expansion
-        from ..plan_templates import expand_template
-        expanded = expand_template(template_name, goal, template_params)
-        if "error" in expanded:
-            return fmt_ok(expanded)
-        tasks = expanded["tasks"]
-        # Use goal from template description if no goal provided
-        if not goal and expanded.get("description"):
-            goal = expanded["description"]
-    else:
-        # Direct tasks (for tests/expert use — template is preferred)
-        tasks = args.get("tasks", [])
-        if not tasks:
-            return fmt_err(
-                "template is required — kein Template = kein Plan.\n"
-                "Available templates: deploy, bugfix, feature, refactoring, research, analysis, fix"
-            )
-
-    if not goal:
-        return fmt_err("goal is required")
-    if not tasks:
-        return fmt_err("tasks is required (at least 1 task)")
-
-    for t in tasks:
-        if "id" not in t or "name" not in t:
-            return fmt_err("Each task needs 'id' and 'name'")
-
-    plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups, plan_id_override=plan_id_override)
-    status = plan_core.get_plan_status()
-
-    # ─── Auto Peer Review (immer aktiv — kein Feature-Toggle) ────────────
-    # Nach plan_create() wird der Plan automatisch gegen die 8-Punkte-Checkliste
-    # geprüft. Findings werden via apply_findings() eingearbeitet.
-    # Wenn nach apply_findings noch CRITICAL-Findings übrig sind, wird der
-    # Plan NICHT erstellt (blockierend).
-    peer_review_findings = []
-    try:
-        plan = plan_core._get_active_plan()
-        if plan:
-            findings = plan_peer_review.run_peer_review(plan)
-            if findings:
-                peer_review_findings = findings
-                # Apply automatic fixes (safe: verify commands, files, profiles)
-                updated = plan_peer_review.apply_findings(plan, findings)
-
-                # ─── Post-Apply-Validierung ────────────────────────────
-                # Prüft ob nach apply_findings noch CRITICAL-Findings übrig sind.
-                # Das passiert wenn z.B. verify-Commands weder leer noch echo
-                # noch ein echter Testbefehl sind (kann nicht automatisch gefixt werden).
-                # Solche Pläne werden blockiert — der Agent muss manuell fixen.
-                remaining = plan_peer_review.run_peer_review(updated)
-                remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
-                if remaining_critical:
-                    logger.warning(
-                        f"Plan '{plan_id}' blocked: {len(remaining_critical)} "
-                        f"critical findings survived auto-fix."
-                    )
-                    return fmt_ok({
-                        "error": "Plan could not be created — critical issues remain after auto-fix.",
-                        "plan_id": plan_id,
-                        "status": "blocked",
-                        "original_findings": peer_review_findings,
-                        "remaining_findings": remaining_critical,
-                        "suggestion": (
-                            "Fix die verbleibenden CRITICAL-Findings manuell "
-                            "(z.B. verify-Commands setzen, Dateien deklarieren) "
-                            "und dann plan_create() erneut aufrufen."
-                        ),
-                    })
-
-                # Alle CRITICAL-Findings gefixt — Plan speichern
-                plan_core._save_plan(updated)
-    except Exception as e:
-        logger.warning("Auto peer review failed (non-blocking): %s", e)
-
-    # ─── TTS Flag: Plan Created ──────────────────────────────────────────
-    try:
-        plan = plan_core._get_active_plan()
-        if plan:
-            if "tts_flags" not in plan:
-                plan["tts_flags"] = {}
-            plan["tts_flags"]["plan_created"] = True
-            plan_core._save_plan(plan)
-    except Exception as e:
-        logger.warning("TTS flag setting failed (non-blocking): %s", e)
-
-    response = {
-        "status": "created",
-        "plan_id": plan_id,
-        "current_task": status["current_task"] if status else None,
-    }
-    if peer_review_findings:
-        response["peer_review"] = peer_review_findings
-        critical = [f for f in peer_review_findings if f.get("severity") == "critical"]
-        if critical:
-            response["status"] = "warning"
-            response["peer_review_summary"] = f"{len(critical)} critical finding(s) — auto-fixes applied"
-    if template_name:
-        response["template"] = template_name
-    return fmt_ok(response)
-
-
-def plan_current_tool(args: dict, **kwargs) -> str:
-    """Show the current task. Only ONE task is visible at a time."""
+def plan_verify_tool(args: dict, **kwargs) -> str:
+    """Check for drift: unplanned changes compared to the current plan."""
     current = plan_core.get_current_task()
     if not current:
-        return fmt_info("No active plan. Use plan_create() to start one.")
-    return fmt_ok(current)
+        return fmt_info("No active plan.")
 
+    drift = plan_core.check_drift()
+    if not drift:
+        return fmt_ok({
+            "status": "clean",
+            "plan_id": current["plan_id"],
+            "task_id": current["task_id"],
+            "message": "Keine ungeplanten Änderungen.",
+        })
 
-def plan_delete_tool(args: dict, **kwargs) -> str:
-    """Permanently delete a plan from disk."""
-    plan_id = args.get("plan_id", "")
-    if not plan_id:
-        return fmt_err("plan_id is required.")
-    result = plan_core.delete_plan(plan_id)
-    return fmt_ok(result)
-
-
-def plan_duedate_tool(args: dict, **kwargs) -> str:
-    """Set or view the due date for a task.
-
-    Parameters:
-    - task_id (str, optional): Task ID. If empty, shows current task's due date.
-    - due (str, optional): ISO-8601 date string (e.g. '2026-06-25'). Omit to view.
-      Pass empty string to clear the due date.
-    """
-    task_id = args.get("task_id", "")
-    due = args.get("due")
-
-    if due is not None:
-        # Set/clear due date
-        if not task_id:
-            # If no task_id specified, use current task
-            current = plan_core.get_current_task()
-            if not current:
-                return fmt_err("No active task and no task_id provided.")
-            task_id = current["task_id"]
-        result = plan_core.set_task_due(task_id, due)
-        return fmt_ok(result)
-    else:
-        info = plan_core.get_task_due_info(task_id)
-        if not info:
-            return fmt_info("No due date set.")
-        return fmt_ok({"status": "ok", **info})
-
-
-def plan_list_tool(args: dict, **kwargs) -> str:
-    """List all plans (including completed/aborted), newest first."""
-    include_archived = args.get("include_archived", False)
-    plans = plan_core.list_plans(include_archived=include_archived)
     return fmt_ok({
-        "status": "ok",
-        "count": len(plans),
-        "plans": plans,
+        "status": "drift_detected",
+        "plan_id": current["plan_id"],
+        "task_id": current["task_id"],
+        "unplanned_files": drift,
+        "suggestion": "plan_update(task_id, {files: [...]}) oder Änderungen reverten.",
     })
-
-
-def plan_restore_tool(args: dict, **kwargs) -> str:
-    """Restore a plan from the archive back to the plans directory."""
-    plan_id = args.get("plan_id", "")
-    if not plan_id:
-        return fmt_err("plan_id is required.")
-    result = plan_core.restore_plan(plan_id)
-    return fmt_ok(result)
-
-
-# ─── Cross-Session Coordination Tools ─────────────────────────────────────────
-
-
-def plan_select_tool(args: dict, **kwargs) -> str:
-    """Switch to a different saved plan as the active one."""
-    plan_id = args.get("plan_id", "")
-    if not plan_id:
-        return fmt_err("plan_id is required.")
-    result = plan_core.select_plan(plan_id)
-    return fmt_ok(result)
 
 
 def plan_status_tool(args: dict, **kwargs) -> str:
@@ -337,6 +277,30 @@ def plan_status_tool(args: dict, **kwargs) -> str:
     if not status:
         return fmt_info("No active plan.")
     return fmt_ok(status)
+
+
+def plan_update_tool(args: dict, **kwargs) -> str:
+    """Update a task's properties (files, verify, depends_on, name, review_profile).
+
+    Supports optional plan_id to update a different plan than the active one.
+    """
+    task_id = args.get("task_id", "")
+    changes = args.get("changes", {})
+    plan_id = args.get("plan_id", "")
+    if not task_id:
+        return fmt_err("task_id is required")
+    if not changes:
+        return fmt_err("changes is required (at least one field)")
+
+    result = plan_core.update_task(task_id, changes, plan_id)
+    if result is None:
+        return fmt_err(
+            f"Task '{task_id}' not found, no changes applied, "
+            f"or 'changes' contains no supported keys. "
+            f"Supported keys: files, verify, depends_on, name, review_profile, parallel_groups"
+        )
+
+    return fmt_ok({"status": "updated", "task_id": task_id})
 
 
 def plan_template_tool(args: dict, **kwargs) -> str:
@@ -395,24 +359,58 @@ def plan_template_tool(args: dict, **kwargs) -> str:
     return fmt_err(f"Unknown action '{cmd}'. Supported: list, detail, save, delete")
 
 
-def plan_update_tool(args: dict, **kwargs) -> str:
-    """Update a task's properties (files, verify, depends_on, name)."""
+def plan_suggest_tool(args: dict, **kwargs) -> str:
+    """Suggest a plan decomposition for a goal by analyzing the project.
+
+    Parameters:
+    - goal (str, required): The goal to generate suggestions for.
+    - project_root (str, optional): Project root path (auto-detected if empty).
+
+    Returns suggested template name, task list, and project info.
+    """
+    from ..plan_suggest import suggest_plan
+    goal = args.get("goal", "")
+    if not goal:
+        return fmt_err("goal is required for plan suggestions")
+    project_root = args.get("project_root", "")
+    result = suggest_plan(goal, project_root)
+    return fmt_ok(result)
+
+
+def plan_list_tool(args: dict, **kwargs) -> str:
+    """List all plans (including completed/aborted), newest first."""
+    include_archived = args.get("include_archived", False)
+    plans = plan_core.list_plans(include_archived=include_archived)
+    return fmt_ok({
+        "status": "ok",
+        "count": len(plans),
+        "plans": plans,
+    })
+
+
+def plan_abort_tool(args: dict, **kwargs) -> str:
+    """Abort the active plan or a specific task."""
     task_id = args.get("task_id", "")
-    changes = args.get("changes", {})
-    if not task_id:
-        return fmt_err("task_id is required")
-    if not changes:
-        return fmt_err("changes is required (at least one field)")
+    result = plan_core.abort_plan(task_id)
+    return fmt_ok(result)
 
-    result = plan_core.update_task(task_id, changes)
-    if result is None:
-        return fmt_err(
-            f"Task '{task_id}' not found, no changes applied, "
-            f"or 'changes' contains no supported keys. "
-            f"Supported keys: files, verify, depends_on, name, review_profile, parallel_groups"
-        )
 
-    return fmt_ok({"status": "updated", "task_id": task_id})
+def plan_delete_tool(args: dict, **kwargs) -> str:
+    """Permanently delete a plan from disk."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.delete_plan(plan_id)
+    return fmt_ok(result)
+
+
+def plan_select_tool(args: dict, **kwargs) -> str:
+    """Switch to a different saved plan as the active one."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.select_plan(plan_id)
+    return fmt_ok(result)
 
 
 def plan_validate_tool(args: dict, **kwargs) -> str:
@@ -422,25 +420,47 @@ def plan_validate_tool(args: dict, **kwargs) -> str:
     return fmt_ok(result)
 
 
-def plan_verify_tool(args: dict, **kwargs) -> str:
-    """Check for drift: unplanned changes compared to the current plan."""
-    current = plan_core.get_current_task()
-    if not current:
-        return fmt_info("No active plan.")
+def plan_duedate_tool(args: dict, **kwargs) -> str:
+    """Set or view the due date for a task.
 
-    drift = plan_core.check_drift()
-    if not drift:
-        return fmt_ok({
-            "status": "clean",
-            "plan_id": current["plan_id"],
-            "task_id": current["task_id"],
-            "message": "Keine ungeplanten Änderungen.",
-        })
+    Parameters:
+    - task_id (str, optional): Task ID. If empty, shows current task's due date.
+    - due (str, optional): ISO-8601 date string (e.g. '2026-06-25'). Omit to view.
+      Pass empty string to clear the due date.
+    """
+    task_id = args.get("task_id", "")
+    due = args.get("due")
 
-    return fmt_ok({
-        "status": "drift_detected",
-        "plan_id": current["plan_id"],
-        "task_id": current["task_id"],
-        "unplanned_files": drift,
-        "suggestion": "plan_update(task_id, {files: [...]}) oder Änderungen reverten.",
-    })
+    if due is not None:
+        # Set/clear due date
+        if not task_id:
+            # If no task_id specified, use current task
+            current = plan_core.get_current_task()
+            if not current:
+                return fmt_err("No active task and no task_id provided.")
+            task_id = current["task_id"]
+        result = plan_core.set_task_due(task_id, due)
+        return fmt_ok(result)
+    else:
+        info = plan_core.get_task_due_info(task_id)
+        if not info:
+            return fmt_info("No due date set.")
+        return fmt_ok({"status": "ok", **info})
+
+
+def plan_archive_tool(args: dict, **kwargs) -> str:
+    """Move a plan to the archive directory."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.archive_plan(plan_id)
+    return fmt_ok(result)
+
+
+def plan_restore_tool(args: dict, **kwargs) -> str:
+    """Restore a plan from the archive back to the plans directory."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.restore_plan(plan_id)
+    return fmt_ok(result)

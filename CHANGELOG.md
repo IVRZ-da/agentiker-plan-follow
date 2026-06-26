@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.17] - 2026-06-27
+
+### Changed
+- plan_tools.py Module-Split: 37 Handler in tools/handlers_*.py ausgelagert
+- plan_tools.py ist jetzt eine Re-Export Facade (Rückwärtskompatibel)
+- Coverage von 71% → 83% durch Wegfall von 914 Zeilen Dead Code
+
+### Removed
+- tools/handlers_crud.py, handlers_git.py, handlers_misc.py, handlers_review.py:
+  Alte ungenutzte Duplikate gelöscht, durch echte Implementierungen ersetzt
+
 ## [0.5.16] - 2026-06-26
 
 ### Added

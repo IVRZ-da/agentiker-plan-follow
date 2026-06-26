@@ -1,84 +1,65 @@
-"""handlers_git."""
+"""Git tool handlers for plan_follow plugin."""
 from __future__ import annotations
 
 import logging
 
 from .. import plan_core
-from .._fmt import fmt_err, fmt_info, fmt_ok, fmt_warn
+from .._fmt import fmt_err, fmt_info, fmt_ok
 
 logger = logging.getLogger("plan_follow")
 
 
-def _check_other_sessions_in_repo(repos: list[str]) -> list[str]:
-    """Check if other active sessions work in overlapping repos.
-
-    Returns a list of warning messages (empty if no conflicts).
-    """
-    try:
-        from .. import coord_state
-
-        my_sid = plan_core.get_session_id()
-        if not my_sid:
-            return []
-        sessions = coord_state.get_sessions()
-        others = {sid: s for sid, s in sessions.items() if sid != my_sid}
-        if not others:
-            return []
-
-        warnings = []
-
-        plans_dir = plan_core.PLANS_DIR
-        for sid, s in others.items():
-            plan_id = s.get("plan_id", "")
-            if not plan_id:
-                continue
-            plan_file = plans_dir / f"{plan_id}.json"
-            if not plan_file.exists():
-                continue
-            try:
-                other_plan = __import__("json").loads(plan_file.read_text())
-                other_repos = other_plan.get("repos", other_plan.get("repo", []))
-                if isinstance(other_repos, str):
-                    other_repos = [other_repos]
-                overlap = [r for r in repos if r in other_repos]
-                if overlap:
-                    label = plan_id[:25]
-                    warnings.append(
-                        f"⚠️ Session '{label}' arbeitet ebenfalls in Repo(s): "
-                        f"{', '.join(overlap)}. Git-Operation kann Konflikte verursachen!"
-                    )
-            except Exception:
-                continue
-        return warnings
-    except Exception:
-        return []
-
-
-def plan_git_branch_tool(args: dict, **kwargs) -> str:
-    """Manage branches in configured repos.
+def plan_history_tool(args: dict, **kwargs) -> str:
+    """Show git-based plan history or hint to activate Git.
 
     Parameters:
-    - action (str, required): 'current', 'list', 'create', 'switch', 'delete'
-    - name (str, optional): Branch name (for create/switch/delete)
-    - start_point (str, optional): Start point for branch creation
+    - plan_id (str, optional): Plan ID. If empty, shows current plan's history.
+    - lines (int, optional): Number of log lines to show (default: 10)
     """
 
-    plan = plan_core._get_active_plan()
-    if not plan:
-        return fmt_err("No active plan.")
+    plan_id = args.get("plan_id", "")
+    lines = args.get("lines", 10)
 
-    repos = plan_core._get_repos(plan)
-    if not repos:
-        return fmt_err("No repos configured in plan.")
+    # Get plan_id from active plan if not specified
+    if not plan_id:
+        current = plan_core.get_current_task()
+        if not current:
+            return fmt_err("No active plan and no plan_id provided.")
+        plan_id = current["plan_id"]
 
-    action = args.get("action", "current")
-    name = args.get("name", "")
-    start_point = args.get("start_point", "")
+    git_dir = plan_core.PLANS_DIR / ".git"
+    if not git_dir.exists():
+        return fmt_info(
+            "Keine Git-Versionierung aktiv.\n"
+            "  Verwende plan_git_init() um Git zu aktivieren.\n"
+            "  Oder: cd ~/.hermes/plans && git init && git add . && git commit -m 'initial'\n"
+            "  Aktuell ist nur der letzte Plan-Stand gespeichert."
+        )
 
-    results = []
-    for repo in repos:
-        results.append(plan_core.git_branch(repo, action, name, start_point))
-    return fmt_ok({"results": results})
+    import subprocess
+    try:
+        # Get git log for this plan
+        result = subprocess.run(
+            ["git", "log", "--oneline", f"-{lines}", "--", f"{plan_id}.json"],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+        if not result.stdout.strip():
+            return fmt_info(f"Keine Git-History für Plan '{plan_id[:50]}'.")
+
+        # Add stats per commit
+        detailed = subprocess.run(
+            ["git", "log", "--oneline", f"-{lines}", "--stat", "--", f"{plan_id}.json"],
+            cwd=plan_core.PLANS_DIR, capture_output=True, text=True, timeout=10,
+        )
+
+        return fmt_ok({
+            "status": "active",
+            "plan_id": plan_id,
+            "history": result.stdout.strip(),
+            "details": detailed.stdout.strip(),
+        })
+    except Exception as e:
+        return fmt_err(f"Git history failed: {e}")
 
 
 def plan_git_init_tool(args: dict, **kwargs) -> str:
@@ -148,42 +129,11 @@ def plan_git_push_tool(args: dict, **kwargs) -> str:
     if not repos:
         return fmt_err("No repos configured in plan.")
 
-    # Cross-Session Check
-    conflicts = _check_other_sessions_in_repo(repos)
-    if conflicts:
-        return fmt_warn("\n".join(conflicts) +
-                         "\n\n💡 Git-push abgebrochen — bitte koordinieren mit der anderen Session.")
-
     remote = args.get("remote", "origin")
     branch = args.get("branch", None)
 
     result = plan_core.auto_push(repos, remote, branch)
     return fmt_ok(result)
-
-
-def plan_git_stash_tool(args: dict, **kwargs) -> str:
-    """Stash or unstash changes in configured repos.
-
-    Parameters:
-    - action (str, required): 'push' (stash), 'pop' (restore), 'list' (show)
-    - message (str, optional): Stash message (push only)
-    """
-
-    plan = plan_core._get_active_plan()
-    if not plan:
-        return fmt_err("No active plan.")
-
-    repos = plan_core._get_repos(plan)
-    if not repos:
-        return fmt_err("No repos configured in plan.")
-
-    action = args.get("action", "push")
-    message = args.get("message", "")
-
-    results = []
-    for repo in repos:
-        results.append(plan_core.git_stash(repo, action, message))
-    return fmt_ok({"results": results})
 
 
 def plan_git_status_tool(args: dict, **kwargs) -> str:
@@ -224,12 +174,6 @@ def plan_git_sync_tool(args: dict, **kwargs) -> str:
     if not repos:
         return fmt_err("No repos configured in plan.")
 
-    # Cross-Session Check
-    conflicts = _check_other_sessions_in_repo(repos)
-    if conflicts:
-        return fmt_warn("\n".join(conflicts) +
-                         "\n\n💡 Git-sync abgebrochen — bitte koordinieren mit der anderen Session.")
-
     task_id = plan.get("current_task", "unknown")
     task = plan.get("tasks", {}).get(task_id, {})
     files = task.get("files", []) if task else []
@@ -243,6 +187,58 @@ def plan_git_sync_tool(args: dict, **kwargs) -> str:
         results.append(plan_core.git_sync(repo, task_id, files, remote, branch, push))
 
     return fmt_ok({"status": "ok", "results": results})
+
+
+def plan_git_stash_tool(args: dict, **kwargs) -> str:
+    """Stash or unstash changes in configured repos.
+
+    Parameters:
+    - action (str, required): 'push' (stash), 'pop' (restore), 'list' (show)
+    - message (str, optional): Stash message (push only)
+    """
+
+    plan = plan_core._get_active_plan()
+    if not plan:
+        return fmt_err("No active plan.")
+
+    repos = plan_core._get_repos(plan)
+    if not repos:
+        return fmt_err("No repos configured in plan.")
+
+    action = args.get("action", "push")
+    message = args.get("message", "")
+
+    results = []
+    for repo in repos:
+        results.append(plan_core.git_stash(repo, action, message))
+    return fmt_ok({"results": results})
+
+
+def plan_git_branch_tool(args: dict, **kwargs) -> str:
+    """Manage branches in configured repos.
+
+    Parameters:
+    - action (str, required): 'current', 'list', 'create', 'switch', 'delete'
+    - name (str, optional): Branch name (for create/switch/delete)
+    - start_point (str, optional): Start point for branch creation
+    """
+
+    plan = plan_core._get_active_plan()
+    if not plan:
+        return fmt_err("No active plan.")
+
+    repos = plan_core._get_repos(plan)
+    if not repos:
+        return fmt_err("No repos configured in plan.")
+
+    action = args.get("action", "current")
+    name = args.get("name", "")
+    start_point = args.get("start_point", "")
+
+    results = []
+    for repo in repos:
+        results.append(plan_core.git_branch(repo, action, name, start_point))
+    return fmt_ok({"results": results})
 
 
 def plan_git_tag_tool(args: dict, **kwargs) -> str:
@@ -349,8 +345,9 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
                 )
                 head = br.stdout.strip()
 
-            api_base = _os.environ.get("FORGEJO_API_BASE", "https://git.agentiker.de")
-            api_url = f"{api_base}/api/v1/repos/{owner}/{repo_name}/pulls"
+            api_url = f"https://git.agentiker.de/api/v1/repos/{owner}/{repo_name}/pulls"
+            if "git.ivory.green" in remote_url:
+                api_url = f"https://git.ivory.green/api/v1/repos/{owner}/{repo_name}/pulls"
 
             payload = _json.dumps({
                 "title": title,
@@ -376,7 +373,14 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
                 "pr_number": response_data.get("number", ""),
             })
         except Exception as e:
+            # Nur non-sensitive Fehlerinformation weitergeben
+            msg = str(e)[:200]
+            # HttpError enthält evtl. sensitive Daten im Response-Body
+            if hasattr(e, "code"):
+                msg = f"HTTP {e.code}: {e.reason[:100] if hasattr(e, 'reason') else 'API error'}"
+            elif hasattr(e, "status"):
+                msg = f"HTTP {e.status}: {str(e)[:100]}"
             results.append({"status": "error", "repo": repo,
-                            "message": str(e)[:200]})
+                            "message": msg})
 
     return fmt_ok({"results": results})
