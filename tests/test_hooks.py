@@ -1832,3 +1832,75 @@ class TestStaleLockBanner:
         lines = _build_coordination_banner()
         stale_lines = [l for l in lines if "Stale-Locks" in l]
         assert len(stale_lines) == 0, f"Unexpected stale lock warning:\n" + "\n".join(stale_lines)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# plan_coord_cleanup Tool
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestCoordCleanup:
+    """Tests for plan_coord_cleanup_tool."""
+
+    def test_cleanup_dry_run(self, monkeypatch):
+        """Dry run should report counts without removing."""
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_coord_cleanup_tool
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.register_session("old-session", plan_id="p1")
+        coord_state.acquire_lock("/old.ts", "old-session")
+
+        result = plan_coord_cleanup_tool({"session_max_age": 0, "lock_max_age": 0, "dry_run": True})
+        assert '"action": "dry_run"' in result
+        assert '"stale_sessions": 1' in result
+        assert '"stale_locks": 1' in result
+
+        # Verify nothing was actually removed
+        assert len(coord_state.get_sessions()) >= 1
+        assert len(coord_state.get_locks()) >= 1
+
+    def test_cleanup_executes(self, monkeypatch):
+        """Cleanup should remove stale sessions and locks."""
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_coord_cleanup_tool
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.register_session("old-session", plan_id="p1")
+        coord_state.acquire_lock("/old.ts", "old-session")
+
+        result = plan_coord_cleanup_tool({"session_max_age": 0, "lock_max_age": 0})
+        assert '"action": "cleanup"' in result
+        assert '"removed_sessions": 1' in result
+        assert '"removed_locks": 1' in result
+
+        # Verify removal
+        assert "old-session" not in coord_state.get_sessions()
+        assert coord_state.get_lock("/old.ts") is None
+
+    def test_cleanup_keeps_fresh(self, monkeypatch):
+        """Fresh sessions/locks should NOT be removed."""
+        from plan_follow import coord_state
+        from plan_follow.plan_tools import plan_coord_cleanup_tool
+        from plan_follow.tools import base as _tb
+
+        monkeypatch.setenv("HERMES_SESSION_ID", "session-a")
+        _tb.reset_session_id()
+
+        coord_state.register_session("fresh-session", plan_id="p1")
+        coord_state.acquire_lock("/fresh.ts", "fresh-session")
+
+        # max_age=999 should keep everything
+        result = plan_coord_cleanup_tool({"session_max_age": 999, "lock_max_age": 999})
+        assert '"action": "cleanup"' in result
+        assert '"removed_sessions": 0' in result
+        assert '"removed_locks": 0' in result
+
+        assert "fresh-session" in coord_state.get_sessions()
+        assert coord_state.get_lock("/fresh.ts") is not None

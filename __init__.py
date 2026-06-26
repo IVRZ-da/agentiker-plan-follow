@@ -401,6 +401,7 @@ PLAN_TOOLS = [
     ("plan_git_branch", plan_tools.plan_git_branch_tool),
     ("plan_git_tag", plan_tools.plan_git_tag_tool),
     ("plan_pr_create", plan_tools.plan_pr_create_tool),
+    ("plan_coord_cleanup", plan_tools.plan_coord_cleanup_tool),
 ]
 
 # Per-tool schemas for each individual tool
@@ -849,6 +850,14 @@ PER_TOOL_SCHEMAS = {
             "repo_name": {"type": "string", "description": "Repo-Name (default: aus Git-Remote)"},
         },
         "required": ["title"],
+    },
+    "plan_coord_cleanup": {
+        "type": "object",
+        "properties": {
+            "session_max_age": {"type": "integer", "description": "Session-Max-Alter in Minuten (default: 60)"},
+            "lock_max_age": {"type": "integer", "description": "Lock-Max-Alter in Minuten (default: 120)"},
+            "dry_run": {"type": "boolean", "description": "Nur Report, keine Löschung (default: false)"},
+        },
     },
 }
 

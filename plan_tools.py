@@ -1272,3 +1272,56 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
                             "message": str(e)[:200]})
 
     return fmt_ok({"results": results})
+
+def plan_coord_cleanup_tool(args: dict, **kwargs) -> str:
+    """Clean up stale sessions and locks from shared coordination state.
+
+    Parameters:
+    - session_max_age (int, optional): Session max age in minutes (default: 60)
+    - lock_max_age (int, optional): Lock max age in minutes (default: 120)
+    - dry_run (bool, optional): If true, only report what would be removed (default: false)
+    """
+    from . import coord_state
+
+    session_max_age = args.get("session_max_age", 60)
+    lock_max_age = args.get("lock_max_age", 120)
+    dry_run = args.get("dry_run", False)
+
+    if dry_run:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        stale_sessions = 0
+        for s in coord_state.get_sessions().values():
+            last = s.get("last_seen", s.get("registered", ""))
+            try:
+                age = (now - datetime.fromisoformat(last)).total_seconds() / 60
+                if age > session_max_age:
+                    stale_sessions += 1
+            except (ValueError, TypeError):
+                stale_sessions += 1
+        stale_locks = 0
+        for lock in coord_state.get_locks().values():
+            since = lock.get("since", "")
+            try:
+                age = (now - datetime.fromisoformat(since)).total_seconds() / 60
+                if age > lock_max_age:
+                    stale_locks += 1
+            except (ValueError, TypeError):
+                stale_locks += 1
+        return fmt_ok({
+            "action": "dry_run",
+            "stale_sessions": stale_sessions,
+            "stale_locks": stale_locks,
+            "session_max_age": session_max_age,
+            "lock_max_age": lock_max_age,
+        })
+
+    removed_sessions = coord_state.cleanup_stale_sessions(session_max_age)
+    removed_locks = coord_state.cleanup_stale_locks(lock_max_age)
+    return fmt_ok({
+        "action": "cleanup",
+        "removed_sessions": removed_sessions,
+        "removed_locks": removed_locks,
+        "session_max_age": session_max_age,
+        "lock_max_age": lock_max_age,
+    })
