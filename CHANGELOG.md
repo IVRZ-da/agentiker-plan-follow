@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.21] - 2026-06-27
+
+### Removed
+- **P6: Dead Code Bereinigung** — backward-compat stubs tools/handlers_*.py gelöscht (51 Zeilen)
+- **conftest.py:** Veraltete handler_*-Einträge aus mock_fmt-Fixture entfernt
+
 ## [0.5.20] - 2026-06-27
 
 ### Added

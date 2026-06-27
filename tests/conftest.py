@@ -61,11 +61,6 @@ def mock_fmt():
     function still get the patch.
     """
     handler_modules = [
-        # Original handler files (backward-compat stubs)
-        "plan_follow.tools.handlers_crud",
-        "plan_follow.tools.handlers_git",
-        "plan_follow.tools.handlers_misc",
-        "plan_follow.tools.handlers_review",
         # New locations after module split
         "plan_follow.tools.git",
         "plan_follow.tools.review",
