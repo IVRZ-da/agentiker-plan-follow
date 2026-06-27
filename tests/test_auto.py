@@ -897,7 +897,8 @@ class TestCheckDrift:
             "tasks": {"T001": {"files": ["allowed.py"]}},
         }
         with patch("plan_follow.tools.auto._get_active_plan", return_value=plan):
-            result = check_drift()
+            with patch("plan_follow.tools.auto.os.getcwd", return_value="/tmp"):
+                result = check_drift()
         assert result == []
 
 
@@ -936,14 +937,16 @@ class TestGetRepos:
         from plan_follow.tools.auto import _get_repos
 
         plan = {}
-        assert _get_repos(plan) == []
+        with patch("plan_follow.tools.auto.os.getcwd", return_value="/tmp"):
+            assert _get_repos(plan) == []
 
     def test_returns_empty_when_empty_list(self):
         """Empty repos list → empty list."""
         from plan_follow.tools.auto import _get_repos
 
         plan = {"repos": []}
-        assert _get_repos(plan) == []
+        with patch("plan_follow.tools.auto.os.getcwd", return_value="/tmp"):
+            assert _get_repos(plan) == []
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

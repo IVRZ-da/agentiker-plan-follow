@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.5.24] - 2026-06-27
+
+### Fixed
+- **Test-Failures:** 3 pre-existing Failures in test_auto.py gefixt (_get_repos os.getcwd Mock)
+- **Coverage-Lücken:** health.py 100%, validation.py 93.58%, roadmap_data.py 88.28%
+- **mcp_server.py:** sys.path.insert(0) durch from . import plan_core ersetzt
+
+### Added
+- **test_health.py:** 16 Tests für health.py Error-Pfade
+- **test_validation.py:** 19 Tests für validate_plan (deps, profiles, groups, git-branch)
+- **test_roadmap_data.py:** 23 Tests für roadmap CRUD + Parser
+
 ## [0.5.23] - 2026-06-27
 
 ### Added

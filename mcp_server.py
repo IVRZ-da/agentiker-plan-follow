@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import logging
 import sys
-from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format="%(name)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("plan-mcp")
@@ -29,8 +28,7 @@ logger = logging.getLogger("plan-mcp")
 
 def _get_core():
     """Lazy import plan_core to avoid circular imports on plugin load."""
-    sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import plan_core  # noqa: F811
+    from . import plan_core  # noqa: F811
     return plan_core
 
 
@@ -178,7 +176,6 @@ def _summarize_status(tasks: dict) -> dict:
 
 def run_stdio():
     """Run MCP server via stdio transport."""
-    import sys
 
     logger.info("plan-mcp: Starting stdio MCP server...")
     while True:
@@ -309,7 +306,7 @@ def run_http(host: str = "127.0.0.1", port: int = 8123):
         host: Bind address.
         port: Port number.
     """
-    from http.server import HTTPServer, BaseHTTPRequestHandler
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
     class MCPHandler(BaseHTTPRequestHandler):
         def do_POST(self):
