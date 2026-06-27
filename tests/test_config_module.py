@@ -213,16 +213,19 @@ class TestToolSchemas:
                         f"Key '{key}' required field '{field}' missing from properties"
                     )
 
-    def test_schema_for_plan_create_has_goal_and_template(self) -> None:
-        """plan_create schema should have goal and template as required."""
+    def test_schema_for_plan_create_has_goal_required_and_template_optional(self) -> None:
+        """plan_create schema should have goal as required, template as optional."""
         from plan_follow.tools.schemas import PER_TOOL_SCHEMAS
 
         schema = PER_TOOL_SCHEMAS.get("plan_create", {})
         assert "goal" in schema.get("properties", {})
         assert "template" in schema.get("properties", {})
+        assert "tasks" in schema.get("properties", {})
+        assert "plan_id" in schema.get("properties", {})
         required = schema.get("required", [])
         assert "goal" in required
-        assert "template" in required
+        assert "template" not in required  # Template ist jetzt optional — tasks ist die Alternative
+        # Entweder template ODER tasks muss gesetzt sein
 
 
 # ─── hooks (plan_hooks) ──────────────────────────────────────────────────────
