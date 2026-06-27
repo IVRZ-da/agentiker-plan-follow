@@ -370,7 +370,7 @@ These tests import via plan_follow.plan_tools so relative imports work.
             if had_git:
                 import os
                 import subprocess as _sp
-                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
+                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)  # noqa: E501
                 _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
 
@@ -466,7 +466,7 @@ class TestGitIntegration:
             if had_git:
                 import os
                 import subprocess as _sp
-                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)
+                _sp.run(["cp", "-a", os.path.join(backup, ".git"), str(git_dir.parent)], capture_output=True, timeout=30)  # noqa: E501
                 _sp.run(["rm", "-rf", backup], capture_output=True, timeout=30)
 
     def test_history_tool_custom_plan_id(self):

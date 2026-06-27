@@ -31,6 +31,8 @@ if "tools" not in sys.modules:
     tools_mod.registry = types.ModuleType("tools.registry")
     tools_mod.registry.get_entry = lambda n: None
     tools_mod.registry.deregister = lambda n: None
+    # Allow `from tools.registry import registry` to work
+    tools_mod.registry.registry = tools_mod.registry
     sys.modules["tools"] = tools_mod
     sys.modules["tools.registry"] = tools_mod.registry
 

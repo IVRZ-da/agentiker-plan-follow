@@ -153,7 +153,7 @@ phases:
         """JSON format is handled by _load_roadmap, not the simple parser."""
         import tempfile
         from pathlib import Path
-        data = '{"name": "JSON-Roadmap", "goal": "Test", "created": "2026-01-01", "phases": [{"id": "a", "name": "A", "priority": "high", "status": "pending"}]}'
+        data = '{"name": "JSON-Roadmap", "goal": "Test", "created": "2026-01-01", "phases": [{"id": "a", "name": "A", "priority": "high", "status": "pending"}]}'  # noqa: E501
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False, dir=ROADMAPS_DIR) as f:
             name = Path(f.name).stem
             f.write(data)

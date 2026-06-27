@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.19] - 2026-06-27
+
+### Added
+- **Coverage-Sprint P1:** Coverage von 82.88% auf 90.34% gesteigert
+  - `hooks/breaker.py` 0%→100%, `hooks/__init__.py` 0%→100%
+  - `tools/config.py` 0%→100%, `tools/schemas.py` 0%→100%, `tools/descriptions.py` 0%→100%
+  - `tools/coordination.py` 68%→100%
+  - `plan_hooks.py` 87%→100%, `plan_review.py` 81%→100%, `plan_sync.py` 87%→100%
+  - `plan_templates.py` 52%→99%, `plan_todo.py` 70%→92%
+  - `plan_decompose.py` 85%→96%, `plan_peer_review.py` 88%→93%
+- **Neue Test-Dateien:** test_breaker, test_config_module, test_coordination, test_templates_and_todo, test_hooks_coverage, test_decompose_coverage, test_sync_coverage, test_review_coverage, test_peer_review_coverage
+- **Bug gefunden:** `multi` Template in plan_templates.py Z.462 — falscher Indent, immer Error
+
 ## [0.5.18] - 2026-06-27
 
 ### Changed

@@ -184,7 +184,7 @@ class TestLoadUserTemplates:
         monkeypatch.setattr("plan_follow.plan_templates.TEMPLATES_DIR", tmp_path)
         for name in ["alpha", "beta"]:
             (tmp_path / f"{name}.yaml").write_text(
-                yaml.dump({"name": name, "tasks": [{"id": "t1", "name": name, "files": [], "verify": "", "depends_on": []}]})
+                yaml.dump({"name": name, "tasks": [{"id": "t1", "name": name, "files": [], "verify": "", "depends_on": []}]})  # noqa: E501
             )
         result = _load_user_templates()
         assert "alpha" in result

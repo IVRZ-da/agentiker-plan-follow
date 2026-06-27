@@ -13,7 +13,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-
 # ─── Ensure the plugin package is on sys.path ──────────────────────────
 _PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent  # → plugins/
 if str(_PLUGIN_ROOT) not in sys.path:
@@ -24,7 +23,7 @@ if str(_PLUGIN_ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 MODULE_PATH = "plan_follow.plan_sync"
 
-from plan_follow.plan_sync import (
+from plan_follow.plan_sync import (  # noqa: E402
     _check_gh,
     _run_gh,
     export_to_markdown,

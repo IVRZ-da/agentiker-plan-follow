@@ -169,7 +169,7 @@ class TestInjectSteeringHints:
     def test_skips_hint_when_already_present(self):
         """Does not add duplicate hint to plan_create description."""
         from plan_follow.__init__ import _inject_steering_hints
-        hint = "\n\nAfter creating a plan, call plan_current() to see the first task. Complete tasks in order: plan_complete(task_id) when done, then plan_current() shows the next one."
+        hint = "\n\nAfter creating a plan, call plan_current() to see the first task. Complete tasks in order: plan_complete(task_id) when done, then plan_current() shows the next one."  # noqa: E501
         mock_entry = MagicMock()
         mock_entry.schema = {"description": "Basic creation." + hint}
         registry = MagicMock()
