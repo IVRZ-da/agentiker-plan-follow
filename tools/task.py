@@ -76,6 +76,23 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
 
     # Parallel groups
     if parallel_groups:
+        # Auto-create missing tasks referenced in parallel_groups
+        all_group_ids: set[str] = set()
+        for g in parallel_groups.values():
+            all_group_ids.update(g.get("tasks", []))
+        for tid in all_group_ids:
+            if tid not in tasks_dict:
+                tasks_dict[tid] = {
+                    "id": tid,
+                    "status": "pending",
+                    "name": tid,
+                    "files": [],
+                    "verify": "",
+                    "review_profile": "none",
+                    "review_result": None,
+                    "depends_on": [],
+                }
+
         plan["parallel_groups"] = {}
         ordered = sorted(parallel_groups.keys())
         for i, gid in enumerate(ordered):

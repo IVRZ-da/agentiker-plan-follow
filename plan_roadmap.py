@@ -217,6 +217,9 @@ def _format_phase_detail(phase: dict) -> str:
     lines.append(f"     Impact: {phase.get('impact', '?')}")
 
     tasks = phase.get("tasks", [])
+    # Guard: if tasks is a string (YAML serialization artifact), convert to list
+    if isinstance(tasks, str):
+        tasks = [t.strip() for t in tasks.split(",")] if "," in tasks else [tasks]
     if tasks:
         lines.append(f"     Tasks ({len(tasks)}):")
         for t in tasks:
@@ -244,6 +247,9 @@ def _format_roadmap_list(roadmaps: list[dict]) -> str:
 def _phase_to_plan_tasks(phase: dict) -> list[dict]:
     """Convert a roadmap phase into plan_follow compatible tasks."""
     tasks = phase.get("tasks", [])
+    # Guard: if tasks is a string (YAML serialization artifact), convert to list
+    if isinstance(tasks, str):
+        tasks = [t.strip() for t in tasks.split(",")] if "," in tasks else [tasks]
     if not tasks:
         return [{
             "id": phase.get("id", "phase"),

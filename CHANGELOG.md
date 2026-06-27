@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.22] - 2026-06-27
+
+### Fixed
+- **parallel_groups KeyError:** Auto-Create fehlender Task-IDs aus parallel_groups in create_plan()
+- **plan_roadmap to_plan character-split:** Type-Guard in _phase_to_plan_tasks() bei tasks-als-String
+- **plan_roadmap show character-split:** Gleicher Type-Guard in _format_phase_detail()
+
 ## [0.5.21] - 2026-06-27
 
 ### Removed
