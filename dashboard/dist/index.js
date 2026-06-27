@@ -218,4 +218,4 @@
         icon: 'list-checks',
     });
 
-})(window.__HERMES_DASHBOARD_SDK__);
+})(window.__HERMES_PLUGIN_SDK__);

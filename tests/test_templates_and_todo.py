@@ -158,17 +158,19 @@ class TestDeleteUserTemplate:
 class TestExpandTemplateEdgeCases:
     """Edge cases for expand_template — uncovered lines."""
 
-    def test_multi_template_with_custom_tasks_always_returns_error(self):
-        """expand_template 'multi' processes tasks but code always returns error (lines 450-462)."""
+    def test_multi_template_with_custom_tasks_succeeds(self):
+        """expand_template 'multi' processes custom tasks and returns them (bug fixed: line 462 was outside the if)."""
         from plan_follow.plan_templates import expand_template
         tasks = [
-            {"id": "m1", "name": "Custom {{env}} deploy", "files": [], "verify": "echo {{env}}", "depends_on": []},
-            {"id": "m2", "name": "Verify {{url}}", "files": [], "verify": "curl {{url}}", "depends_on": ["m1"]},
+            {"id": "m1", "name": "Custom staging deploy", "files": [], "verify": "echo staging", "depends_on": []},
+            {"id": "m2", "name": "Verify http://test.com", "files": [], "verify": "curl http://test.com", "depends_on": ["m1"]},
         ]
         result = expand_template("multi", params={"tasks": tasks, "env": "staging", "url": "http://test.com"})
-        # NOTE: The multi template always returns error due to line 462 being outside the inner if.
-        # The task substitution code at lines 450-461 IS executed, but then the error is returned.
-        assert "error" in result
+        assert "error" not in result, f"Bug fix regression: multi template should not return error: {result}"
+        assert "tasks" in result
+        assert len(result["tasks"]) >= 3  # p0 + 2 custom tasks
+        assert result["tasks"][1]["id"] == "m1"
+        assert result["tasks"][2]["id"] == "m2"
 
     def test_multi_template_without_tasks_key_falls_through(self):
         """multi template without 'tasks' in params falls through to p0 insertion (no error)."""

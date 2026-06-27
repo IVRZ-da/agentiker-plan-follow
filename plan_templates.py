@@ -459,7 +459,8 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
                         if field in task:
                             result["tasks"][i][field] = _substitute_params(task[field], merged_params)
             # Continue to p0 insertion below
-        return {"error": "multi-Template erfordert params.tasks als Liste mit mindestens einem Task"}
+        else:
+            return {"error": "multi-Template erfordert params.tasks als Liste mit mindestens einem Task"}
 
     # ─── Auto p0: Peer-Review-Task vor alle anderen Tasks ────────────────
     # JEDER Plan hat einen p0-review Task als Task 0. Der Review prüft den

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.20] - 2026-06-27
+
+### Added
+- **P2: tools/git.py Coverage 42%→100%** — 59 neue Tests für alle 9 Git-Handler
+- **P5: mcp_server.py Coverage 74%→94.74%** — 15 neue Tests für MCP-Server
+- **Multi-Template Bugfix:** Falscher Indent in Zeile 462 gefixt (ERROR immer returned)
+
+### Changed
+- **Gesamt-Coverage: 90.42% → 93.52%** (4584 Stmts, 297 Miss)
+- **1388 Tests** (+75 seit v0.5.19)
+
 ## [0.5.19] - 2026-06-27
 
 ### Added
