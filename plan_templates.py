@@ -19,6 +19,8 @@ from typing import Any, Optional
 
 import yaml
 
+from ._fmt import fmt_err, fmt_ok, fmt_table
+
 logger = logging.getLogger("plan_follow")
 
 TEMPLATES_DIR = Path.home() / ".hermes" / "plans" / "templates"
@@ -520,3 +522,63 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
                     result["tasks"][i][field] = _substitute_params(task[field], merged_params)
 
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRUD Handler Functions (moved from handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_template_tool(args: dict, **kwargs) -> str:
+    """Manage user-defined templates.
+
+    Subcommands:
+    - list: List all templates (built-in + user)
+    - detail name=X: Show template details
+    - save name=X tasks=Y: Save a user template
+    - delete name=X: Delete a user template
+    """
+    cmd = args.get("action", "list")
+
+    if cmd == "list":
+        names = get_template_names()
+        if not names:
+            return fmt_ok({"templates": [], "message": "Keine Templates verfügbar."})
+        details = []
+        for n in names:
+            d = get_template_detail(n)
+            if d:
+                details.append(d)
+        return fmt_table(details, title="Verfügbare Templates")
+
+    elif cmd == "detail":
+        name = args.get("name", "")
+        if not name:
+            return fmt_err("name is required for detail action")
+        d = get_template_detail(name)
+        if not d:
+            return fmt_err(f"Template '{name}' not found.")
+        return fmt_ok(d)
+
+    elif cmd == "save":
+        name = args.get("name", "")
+        tasks = args.get("tasks", [])
+        if not name or not tasks:
+            return fmt_err("name and tasks are required for save action")
+        description = args.get("description", "")
+        review_profile = args.get("review_profile", "none")
+        result = save_user_template(name, tasks, description, review_profile)
+        if result.get("status") == "saved":
+            return fmt_ok(result)
+        return fmt_err(result.get("message", "Save failed"))
+
+    elif cmd == "delete":
+        name = args.get("name", "")
+        if not name:
+            return fmt_err("name is required for delete action")
+        result = delete_user_template(name)
+        if result.get("status") == "deleted":
+            return fmt_ok(result)
+        return fmt_err(result.get("message", "Delete failed"))
+
+    return fmt_err(f"Unknown action '{cmd}'. Supported: list, detail, save, delete")

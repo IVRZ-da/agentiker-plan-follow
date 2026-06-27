@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
+from .. import plan_core
+from .._fmt import fmt_err, fmt_info, fmt_ok
 from .base import (
     _clear_plans_index,
     _get_active_plan,
@@ -152,7 +154,10 @@ def set_task_due(task_id: str, due_date: str) -> dict:
     if due_date:
         # Basic ISO-8601 validation
         if not (len(due_date) >= 10 and due_date[4] == "-" and due_date[7] == "-"):
-            return {"status": "error", "message": f"Invalid date format '{due_date}'. Expected: ISO-8601 (e.g. 2026-06-25)."}
+            return {
+                "status": "error",
+                "message": f"Invalid date format '{due_date}'. Expected: ISO-8601 (e.g. 2026-06-25).",
+            }
         plan["tasks"][task_id]["due"] = due_date
     else:
         plan["tasks"][task_id].pop("due", None)
@@ -238,9 +243,14 @@ def archive_plan(plan_id: str) -> dict:
         except Exception:
             logger.debug("Plans index clear failed (best-effort)")
 
+    archive_rel = (
+        resolve_archive_dir().relative_to(Path.home())
+        if Path.home() in resolve_archive_dir().parents
+        else resolve_archive_dir()
+    )
     return {
         "status": "archived", "plan_id": plan_id,
-        "message": f"Plan '{plan_id}' archived (→ {resolve_archive_dir().relative_to(Path.home()) if Path.home() in resolve_archive_dir().parents else resolve_archive_dir()}/).",
+        "message": f"Plan '{plan_id}' archived (→ {archive_rel}/).",
     }
 
 
@@ -255,7 +265,11 @@ def restore_plan(plan_id: str) -> dict:
     """
     archived = resolve_archive_dir() / f"{plan_id}.json"
     if not archived.exists():
-        return {"status": "error", "message": f"Archived plan '{plan_id}' not found. Use plan_list(include_archived=true) to search."}
+        return {
+            "status": "error",
+            "message": f"Archived plan '{plan_id}' not found. "
+            "Use plan_list(include_archived=true) to search.",
+        }
 
     dest = _plan_path(plan_id)
     import shutil
@@ -268,3 +282,70 @@ def restore_plan(plan_id: str) -> dict:
         "status": "restored", "plan_id": plan_id,
         "message": f"Plan '{plan_id}' restored from archive.",
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRUD Handler Functions (moved from handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_abort_tool(args: dict, **kwargs) -> str:
+    """Abort the active plan or a specific task."""
+    task_id = args.get("task_id", "")
+    result = plan_core.abort_plan(task_id)
+    return fmt_ok(result)
+
+
+def plan_delete_tool(args: dict, **kwargs) -> str:
+    """Permanently delete a plan from disk."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.delete_plan(plan_id)
+    return fmt_ok(result)
+
+
+def plan_duedate_tool(args: dict, **kwargs) -> str:
+    """Set or view the due date for a task.
+
+    Parameters:
+    - task_id (str, optional): Task ID. If empty, shows current task's due date.
+    - due (str, optional): ISO-8601 date string (e.g. '2026-06-25'). Omit to view.
+      Pass empty string to clear the due date.
+    """
+    task_id = args.get("task_id", "")
+    due = args.get("due")
+
+    if due is not None:
+        # Set/clear due date
+        if not task_id:
+            # If no task_id specified, use current task
+            current = plan_core.get_current_task()
+            if not current:
+                return fmt_err("No active task and no task_id provided.")
+            task_id = current["task_id"]
+        result = plan_core.set_task_due(task_id, due)
+        return fmt_ok(result)
+    else:
+        info = plan_core.get_task_due_info(task_id)
+        if not info:
+            return fmt_info("No due date set.")
+        return fmt_ok({"status": "ok", **info})
+
+
+def plan_archive_tool(args: dict, **kwargs) -> str:
+    """Move a plan to the archive directory."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.archive_plan(plan_id)
+    return fmt_ok(result)
+
+
+def plan_restore_tool(args: dict, **kwargs) -> str:
+    """Restore a plan from the archive back to the plans directory."""
+    plan_id = args.get("plan_id", "")
+    if not plan_id:
+        return fmt_err("plan_id is required.")
+    result = plan_core.restore_plan(plan_id)
+    return fmt_ok(result)

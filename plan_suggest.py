@@ -389,3 +389,68 @@ def simulate_plan(plan: dict) -> dict:
         results["current_parallel_groups"] = dict(parallel_groups)
 
     return results
+
+
+# ─── Tool Handlers (moved from tools/handlers_misc.py) ──────────────────────
+
+from . import plan_core  # noqa: E402
+from ._fmt import fmt_err, fmt_ok  # noqa: E402
+
+
+def plan_simulate_tool(args: dict, **kwargs) -> str:
+    """Simulate a plan to find critical path and parallelization opportunities.
+
+    Parameters:
+    - plan_id (str, optional): Plan ID to simulate (defaults to active plan).
+    """
+    plan_id = args.get("plan_id", "")
+    plan = None
+    if plan_id:
+        plan = plan_core._load_plan(plan_id)
+        if not plan:
+            return fmt_err(f"Plan '{plan_id}' not found.")
+    else:
+        plan = plan_core._get_active_plan()
+        if not plan:
+            return fmt_err("No active plan.")
+    result = simulate_plan(plan)
+    return fmt_ok(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Tool Handler (moved from tools/handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_suggest_tool(args: dict, **kwargs) -> str:
+    """Suggest a plan decomposition for a goal by analyzing the project.
+
+    Parameters:
+    - goal (str, required): The goal to generate suggestions for.
+    - project_root (str, optional): Project root path (auto-detected if empty).
+
+    Returns suggested template name, task list, and project info.
+    """
+    goal = args.get("goal", "")
+    if not goal:
+        return fmt_err("goal is required for plan suggestions")
+    project_root = args.get("project_root", "")
+    result = suggest_plan(goal, project_root)
+    return fmt_ok(result)
+
+
+def plan_time_tool(args: dict, **kwargs) -> str:
+    """Track time for tasks (start/stop/status/history).
+
+    Parameters:
+    - action (str, required): 'start', 'stop', 'status', or 'history'
+    - task_id (str, optional): Task ID
+    - plan_id (str, optional): Plan ID
+    """
+    action = args.get("action", "")
+    if not action:
+        return fmt_err("action is required (start, stop, status, history)")
+    task_id = args.get("task_id", "")
+    plan_id = args.get("plan_id", "")
+    result = time_track(action, task_id, plan_id)
+    return fmt_ok(result)

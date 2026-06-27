@@ -6,6 +6,7 @@ import os
 from typing import Any, Optional
 
 from .. import plan_core
+from .._fmt import fmt_info, fmt_ok
 from .base import (
     _get_active_plan,
     logger,
@@ -673,3 +674,32 @@ def check_drift() -> list:
 # ─── Alias ─────────────────────────────────────────────────────────────────────
 
 auto_commit_task = auto_commit
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRUD Handler Functions (moved from handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_verify_tool(args: dict, **kwargs) -> str:
+    """Check for drift: unplanned changes compared to the current plan."""
+    current = plan_core.get_current_task()
+    if not current:
+        return fmt_info("No active plan.")
+
+    drift = plan_core.check_drift()
+    if not drift:
+        return fmt_ok({
+            "status": "clean",
+            "plan_id": current["plan_id"],
+            "task_id": current["task_id"],
+            "message": "Keine ungeplanten Änderungen.",
+        })
+
+    return fmt_ok({
+        "status": "drift_detected",
+        "plan_id": current["plan_id"],
+        "task_id": current["task_id"],
+        "unplanned_files": drift,
+        "suggestion": "plan_update(task_id, {files: [...]}) oder Änderungen reverten.",
+    })

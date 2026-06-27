@@ -1,6 +1,8 @@
 """validation.py — Plan validation for plan_follow tools/ subpackage."""
 
 
+from .. import plan_core
+from .._fmt import fmt_ok
 from .base import (
     _get_active_plan,
     _load_plan,
@@ -169,3 +171,15 @@ def validate_plan(plan_id: str = "") -> dict:
     if not errors and not warnings:
         result["summary"] = "Plan ist konsistent und vollständig."
     return result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRUD Handler Functions (moved from handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_validate_tool(args: dict, **kwargs) -> str:
+    """Validate the integrity of a plan (deps, cycles, profiles, orphan tasks)."""
+    plan_id = args.get("plan_id", "")
+    result = plan_core.validate_plan(plan_id)
+    return fmt_ok(result)

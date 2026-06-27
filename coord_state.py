@@ -353,3 +353,212 @@ def clear_notifications(session_id: str) -> None:
 # ─── Init beim Laden ──────────────────────────────────────────────────────────
 
 _ensure_shared_dir()
+
+
+# ─── Tool Handlers (moved from tools/handlers_misc.py) ──────────────────────
+
+from . import plan_core  # noqa: E402
+from ._fmt import fmt_err, fmt_ok  # noqa: E402
+
+
+def plan_session_tool(args: dict, **kwargs) -> str:
+    """Show active sessions, their plans, and lock status.
+
+    Reads from coord_state.py — no Git required.
+    If Git is active, additionally shows branch info.
+
+    Parameters:
+    - include_history (bool, optional): Show git-based plan history (default: false)
+    """
+    include_history = args.get("include_history", False)
+
+    sessions = get_sessions()
+    locks = get_locks()
+
+    notifications = get_notifications(plan_core.get_session_id(), mark_read=False)
+
+    # Build lock overview per session
+    lock_map = {}
+    for path, lock in locks.items():
+        sid = lock.get("session_id", "unknown")
+        lock_map.setdefault(sid, []).append(path)
+
+    sessions_out = {}
+    for sid, s in sessions.items():
+        entry = {
+            "since": s.get("registered", ""),
+            "plan_id": s.get("plan_id", ""),
+            "goal": s.get("goal", "")[:60],
+            "locks": lock_map.get(sid, []),
+        }
+        if include_history:
+            plans_dir_git = SHARED_DIR.parent / "plans" / ".git"
+            entry["git_hint"] = (
+                "Git nicht aktiv — verwende plan_git_init() für Versionierung"
+                if not plans_dir_git.exists()
+                else "Git aktiv — History via plan_history()"
+            )
+        sessions_out[sid] = entry
+
+    result = {
+        "active_sessions": len(sessions_out),
+        "active_locks": len(locks),
+        "pending_notifications": sum(len(n) for n in [notifications] if notifications),
+        "sessions": sessions_out,
+        "locks": locks,
+    }
+    return fmt_ok(result)
+
+
+def plan_lock_tool(args: dict, **kwargs) -> str:
+    """Manage resource locks for cross-session coordination.
+
+    Parameters:
+    - action (str, required): 'lock', 'unlock', 'status', 'list', or 'my'
+    - path (str, required for lock/unlock/status): File or directory path
+    - session_id (str, optional): Session ID (default: auto-detected)
+    """
+    action = args.get("action", "")
+    path = args.get("path", "")
+    session_id = args.get("session_id") or plan_core.get_session_id()
+
+    if not action:
+        return fmt_err("action is required (lock|unlock|status|list|my)")
+    if action in ("lock", "unlock", "status") and not path:
+        return fmt_err("path is required")
+
+    if action == "lock":
+        result = acquire_lock(path, session_id)
+    elif action == "unlock":
+        result = release_lock(path, session_id)
+    elif action == "status":
+        lock = get_lock(path)
+        if lock:
+            result = {"status": "locked", "path": path, "locked_by": lock.get("session_id"), "since": lock.get("since")}
+        else:
+            result = {"status": "free", "path": path}
+    elif action in ("list", "my"):
+        all_locks = get_locks()
+        if action == "my":
+            filtered = {p: lk for p, lk in all_locks.items() if lk.get("session_id") == session_id}
+        else:
+            filtered = all_locks
+        return fmt_ok({
+            "action": action,
+            "count": len(filtered),
+            "locks": [
+                {
+                    "path": p,
+                    "session_id": lk.get("session_id", "?"),
+                    "since": lk.get("since", "?"),
+                }
+                for p, lk in sorted(filtered.items())
+            ],
+        })
+    else:
+        return fmt_err(f"Unknown action: {action}. Use lock|unlock|status|list|my.")
+
+    return fmt_ok({"action": action, "path": path, **result})
+
+
+def plan_notify_tool(args: dict, **kwargs) -> str:
+    """Send notifications to other sessions or manage own notifications.
+
+    Parameters:
+    - action (str, required): 'send', 'check', 'list', or 'clear'
+    - to (str, optional): Target session ID (required for 'send')
+    - message (str, optional): Message text (required for 'send')
+    - kind (str, optional): 'info', 'warning', 'alert' (default: 'info')
+    """
+    action = args.get("action", "")
+    to = args.get("to", "")
+    message = args.get("message", "")
+    kind = args.get("kind", "info")
+    session_id = args.get("session_id") or plan_core.get_session_id()
+
+    if not action:
+        return fmt_err("action is required (send|check|list|clear)")
+
+    if action == "send":
+        if not to:
+            return fmt_err("'to' (target session) is required for send")
+        if not message:
+            return fmt_err("'message' is required for send")
+        result = send_notification(session_id, to, message, kind)
+        return fmt_ok({"action": "sent", "to": to, "notification": result})
+
+    elif action == "check":
+        pending = get_notifications(session_id)
+        return fmt_ok({
+            "action": "check",
+            "count": len(pending),
+            "notifications": pending,
+        })
+
+    elif action == "list":
+        all_notifs = _atomic_read(NOTIFICATIONS_FILE)
+        mine = all_notifs.get(session_id, [])
+        return fmt_ok({
+            "action": "list",
+            "count": len(mine),
+            "notifications": mine,
+        })
+
+    elif action == "clear":
+        clear_notifications(session_id)
+        return fmt_ok({"action": "clear", "status": "cleared"})
+
+    else:
+        return fmt_err(f"Unknown action: {action}. Use send|check|list|clear.")
+
+
+def plan_coord_cleanup_tool(args: dict, **kwargs) -> str:
+    """Clean up stale sessions and locks from shared coordination state.
+
+    Parameters:
+    - session_max_age (int, optional): Session max age in minutes (default: 60)
+    - lock_max_age (int, optional): Lock max age in minutes (default: 120)
+    - dry_run (bool, optional): If true, only report what would be removed (default: false)
+    """
+    session_max_age = args.get("session_max_age", 60)
+    lock_max_age = args.get("lock_max_age", 120)
+    dry_run = args.get("dry_run", False)
+
+    if dry_run:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        stale_sessions = 0
+        for s in get_sessions().values():
+            last = s.get("last_seen", s.get("registered", ""))
+            try:
+                age = (now - datetime.fromisoformat(last)).total_seconds() / 60
+                if age > session_max_age:
+                    stale_sessions += 1
+            except (ValueError, TypeError):
+                stale_sessions += 1
+        stale_locks = 0
+        for lock in get_locks().values():
+            since = lock.get("since", "")
+            try:
+                age = (now - datetime.fromisoformat(since)).total_seconds() / 60
+                if age > lock_max_age:
+                    stale_locks += 1
+            except (ValueError, TypeError):
+                stale_locks += 1
+        return fmt_ok({
+            "action": "dry_run",
+            "stale_sessions": stale_sessions,
+            "stale_locks": stale_locks,
+            "session_max_age": session_max_age,
+            "lock_max_age": lock_max_age,
+        })
+
+    removed_sessions = cleanup_stale_sessions(session_max_age)
+    removed_locks = cleanup_stale_locks(lock_max_age)
+    return fmt_ok({
+        "action": "cleanup",
+        "removed_sessions": removed_sessions,
+        "removed_locks": removed_locks,
+        "session_max_age": session_max_age,
+        "lock_max_age": lock_max_age,
+    })

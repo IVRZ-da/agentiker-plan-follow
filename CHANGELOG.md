@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.18] - 2026-06-27
+
+### Changed
+- **Modul-Split abgeschlossen:** handlers_*.py Funktionen in logische Module verteilt
+  - `tools/handlers_crud.py` → `tools/task.py`, `tools/status.py`, `tools/auto.py`, `tools/plan_mgmt.py`, `tools/validation.py`, `plan_templates.py`, `plan_suggest.py`
+  - `tools/handlers_git.py` → `tools/git.py`
+  - `tools/handlers_misc.py` → `coord_state.py`, `plan_decompose.py`, `plan_sync.py`, `plan_suggest.py`
+  - `tools/handlers_review.py` → `tools/review.py`
+- **plan_tools.py:** Importiert jetzt direkt aus neuen Modulen statt via backward-compat Stubs
+- **conftest.py:** `mock_fmt`-Fixture patcht jetzt alle neuen Modul-Standorte
+
 ## [0.5.17] - 2026-06-27
 
 ### Changed

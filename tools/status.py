@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Optional
 
+from .. import plan_core
+from .._fmt import fmt_info, fmt_ok
 from .base import (
     _get_active_plan,
 )
@@ -123,3 +125,35 @@ def _format_progress(plan: dict) -> str:
         else:
             parts.append(f"\u2b1c{tid}")
     return f"{done}/{total} " + " \u2192 ".join(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CRUD Handler Functions (moved from handlers_crud.py)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def plan_current_tool(args: dict, **kwargs) -> str:
+    """Show the current task. Only ONE task is visible at a time."""
+    current = plan_core.get_current_task()
+    if not current:
+        return fmt_info("No active plan. Use plan_create() to start one.")
+    return fmt_ok(current)
+
+
+def plan_status_tool(args: dict, **kwargs) -> str:
+    """Show all tasks with their status."""
+    status = plan_core.get_plan_status()
+    if not status:
+        return fmt_info("No active plan.")
+    return fmt_ok(status)
+
+
+def plan_list_tool(args: dict, **kwargs) -> str:
+    """List all plans (including completed/aborted), newest first."""
+    include_archived = args.get("include_archived", False)
+    plans = plan_core.list_plans(include_archived=include_archived)
+    return fmt_ok({
+        "status": "ok",
+        "count": len(plans),
+        "plans": plans,
+    })

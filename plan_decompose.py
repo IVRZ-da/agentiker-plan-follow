@@ -12,7 +12,6 @@ Usage:
 
 from __future__ import annotations
 
-
 from .tools.base import _get_active_plan, _save_plan
 
 
@@ -312,3 +311,70 @@ def prepare_delegation(task_id: str) -> dict:
         "toolsets": ["terminal", "file"],
         "suggestion": f"Nutze delegate_task(goal='{task_name}', context=delegation_prompt)",
     }
+
+
+# ─── Tool Handlers (moved from tools/handlers_misc.py) ──────────────────────
+
+from . import plan_core  # noqa: E402
+from ._fmt import fmt_err, fmt_ok  # noqa: E402
+
+
+def plan_decompose_tool(args: dict, **kwargs) -> str:
+    """Manage hierarchical task decomposition (compound tasks with sub-tasks).
+
+    Subcommands:
+    - expand task_id=X: Expand compound task into sub-tasks
+    - collapse task_id=X: Collapse sub-tasks back to compound
+    - status task_id=X: Show sub-task status breakdown
+    - create name=X subtasks=Y: Create a compound task
+
+    Parameters:
+    - action (str, required): 'expand', 'collapse', 'status', or 'create'
+    - task_id (str, optional): Task ID for expand/collapse/status
+    - name (str, optional): Compound task name for create
+    - subtasks (list, optional): Sub-task definitions for create
+    """
+    action = args.get("action", "")
+    if not action:
+        return fmt_err("action is required (expand, collapse, status, create)")
+
+    if action == "expand":
+        task_id = args.get("task_id", "")
+        if not task_id:
+            return fmt_err("task_id is required for expand")
+        result = expand_task(task_id)
+        return fmt_ok(result)
+    elif action == "collapse":
+        task_id = args.get("task_id", "")
+        if not task_id:
+            return fmt_err("task_id is required for collapse")
+        result = collapse_task(task_id)
+        return fmt_ok(result)
+    elif action == "status":
+        task_id = args.get("task_id", "")
+        if not task_id:
+            return fmt_err("task_id is required for status")
+        result = get_subtask_status(task_id)
+        return fmt_ok(result)
+    elif action == "create":
+        name = args.get("name", "")
+        subtasks = args.get("subtasks", [])
+        if not name or not subtasks:
+            return fmt_err("name and subtasks are required for create")
+        task_id = args.get("task_id", "")
+        result = create_compound_task(name, subtasks, task_id)
+        return fmt_ok(result)
+    elif action == "delegate":
+        task_id = args.get("task_id", "")
+        if not task_id:
+            return fmt_err("task_id is required for delegate")
+        # Prepare delegation prompt for a task
+        plan = plan_core._get_active_plan()
+        if not plan:
+            return fmt_err("No active plan.")
+        task = plan["tasks"].get(task_id)
+        if not task:
+            return fmt_err(f"Task '{task_id}' not found.")
+        result = prepare_delegation(task_id)
+        return fmt_ok(result)
+    return fmt_err(f"Unknown action '{action}'")

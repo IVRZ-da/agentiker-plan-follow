@@ -277,3 +277,64 @@ def import_from_markdown(markdown: str) -> Optional[dict]:
         "current_task": None,
         "tasks": tasks,
     }
+
+
+# ─── Tool Handlers (moved from tools/handlers_misc.py) ──────────────────────
+
+from . import plan_core  # noqa: E402
+from ._fmt import fmt_err, fmt_ok  # noqa: E402
+
+
+def plan_sync_tool(args: dict, **kwargs) -> str:
+    """Sync plans with external systems.
+
+    Subcommands:
+    - github: Sync plan tasks to GitHub Issues
+    - export: Export plan as Markdown
+    - import: Import plan from Markdown
+
+    Parameters:
+    - action (str, required): 'github', 'export', or 'import'
+    - plan_id (str, optional): Plan ID (defaults to active plan)
+    - repo (str, optional): GitHub repo (owner/repo, for github action)
+    - markdown (str, optional): Markdown content (for import action)
+    """
+    action = args.get("action", "")
+    if not action:
+        return fmt_err("action is required (github, export, import)")
+
+    # Load plan
+    plan_id = args.get("plan_id", "")
+    plan = None
+    if plan_id:
+        plan = plan_core._load_plan(plan_id)
+        if not plan:
+            return fmt_err(f"Plan '{plan_id}' not found.")
+    else:
+        plan = plan_core._get_active_plan()
+
+    if action == "github":
+        if not plan:
+            return fmt_err("No plan to sync (specify plan_id or have an active plan)")
+        repo = args.get("repo", "")
+        result = sync_to_github(plan, repo)
+        return fmt_ok(result)
+
+    elif action == "export":
+        if not plan:
+            return fmt_err("No plan to export")
+        markdown = export_to_markdown(plan)
+        return fmt_ok({"format": "markdown", "plan_id": plan.get("plan_id"), "content": markdown,
+                       "lines": len(markdown.split("\n"))})
+
+    elif action == "import":
+        markdown = args.get("markdown", "")
+        if not markdown:
+            return fmt_err("markdown content is required for import")
+        result = import_from_markdown(markdown)
+        if not result:
+            return fmt_err("Could not parse plan from markdown")
+        return fmt_ok({"status": "parsed", "plan_id": result.get("plan_id"),
+                       "goal": result.get("goal"), "task_count": len(result.get("tasks", {}))})
+
+    return fmt_err(f"Unknown action '{action}'")

@@ -59,10 +59,24 @@ def mock_fmt():
     function still get the patch.
     """
     handler_modules = [
+        # Original handler files (backward-compat stubs)
         "plan_follow.tools.handlers_crud",
         "plan_follow.tools.handlers_git",
         "plan_follow.tools.handlers_misc",
         "plan_follow.tools.handlers_review",
+        # New locations after module split
+        "plan_follow.tools.git",
+        "plan_follow.tools.review",
+        "plan_follow.tools.task",
+        "plan_follow.tools.status",
+        "plan_follow.tools.auto",
+        "plan_follow.tools.plan_mgmt",
+        "plan_follow.tools.validation",
+        "plan_follow.coord_state",
+        "plan_follow.plan_decompose",
+        "plan_follow.plan_sync",
+        "plan_follow.plan_suggest",
+        "plan_follow.plan_templates",
         "plan_follow.plan_todo",
     ]
     _fmt_funcs = {
