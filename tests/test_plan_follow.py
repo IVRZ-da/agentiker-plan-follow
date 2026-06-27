@@ -687,10 +687,15 @@ class TestMultiRepo:
         assert _get_repos(plan) == ["/home/jo/project1", "/home/jo/project2"]
 
     def test_get_repos_empty(self):
-        """Empty repos returns empty list."""
+        """Empty repos returns empty list when CWD has no .git or fallback is empty."""
         from plan_follow.plan_core import _get_repos
-        assert _get_repos({}) == []
-        assert _get_repos({"repo": ""}) == []
+        # Without fallback_repo, CWD .git is detected
+        cwd_has_git = os.path.isdir(os.path.join(os.getcwd(), ".git"))
+        if cwd_has_git:
+            assert _get_repos({}) == [os.getcwd()]
+            assert _get_repos({"repo": ""}) == [os.getcwd()]
+        # With explicit empty fallback, return empty
+        assert _get_repos({}, fallback_repo="") == []
 
     def test_get_repos_prefers_array(self):
         """If both repos and repo exist, repos wins."""

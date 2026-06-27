@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.23] - 2026-06-27
+
+### Added
+- **plan_duedate: relative Dates** — unterstützt jetzt +2d, +1w, tomorrow (ISO-8601 bleibt)
+- **plan_git_*: repo-Parameter** — optionaler repo=<path> pro Tool + CWD .git Fallback
+
+### Fixed
+- **_format_phase_detail character-split:** Gleicher Type-Guard wie in _phase_to_plan_tasks
+
 ## [0.5.22] - 2026-06-27
 
 ### Fixed

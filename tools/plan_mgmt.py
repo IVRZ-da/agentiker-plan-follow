@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -134,6 +136,34 @@ def select_plan(plan_id: str) -> dict:
     }
 
 
+def _parse_relative_date(s: str) -> str | None:
+    """Parse relative date shortcut into ISO-8601 date string.
+
+    Supported formats:
+      '+Nd' or '+N days'  — N days from now
+      '+Nw' or '+N weeks' — N weeks from now
+      'tomorrow'          — 1 day from now
+
+    Returns ISO-8601 date string (YYYY-MM-DD) or None if unparseable.
+    """
+    now = datetime.now(timezone.utc)
+    s = s.strip().lower()
+
+    if s == "tomorrow":
+        return (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    m = re.match(r"^\+(\d+)\s*(d|day|days|w|week|weeks)$", s)
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2)
+        if unit in ("d", "day", "days"):
+            return (now + timedelta(days=n)).strftime("%Y-%m-%d")
+        elif unit in ("w", "week", "weeks"):
+            return (now + timedelta(weeks=n)).strftime("%Y-%m-%d")
+
+    return None
+
+
 def set_task_due(task_id: str, due_date: str) -> dict:
     """Set a due date for a task.
 
@@ -152,11 +182,15 @@ def set_task_due(task_id: str, due_date: str) -> dict:
         return {"status": "error", "message": f"Task '{task_id}' not found."}
 
     if due_date:
+        # Try relative date parsing first
+        parsed = _parse_relative_date(due_date)
+        if parsed:
+            due_date = parsed
         # Basic ISO-8601 validation
-        if not (len(due_date) >= 10 and due_date[4] == "-" and due_date[7] == "-"):
+        elif not (len(due_date) >= 10 and due_date[4] == "-" and due_date[7] == "-"):
             return {
                 "status": "error",
-                "message": f"Invalid date format '{due_date}'. Expected: ISO-8601 (e.g. 2026-06-25).",
+                "message": f"Invalid date format '{due_date}'. Expected: ISO-8601 (e.g. 2026-06-25), +2d, +1w, or 'tomorrow'.",
             }
         plan["tasks"][task_id]["due"] = due_date
     else:

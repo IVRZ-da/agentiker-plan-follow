@@ -624,14 +624,29 @@ def git_tag(repo: str, tag_name: str, message: str = "", action: str = "create")
 # ─── Drift Detection ─────────────────────────────────────────────────────────
 
 
-def _get_repos(plan: dict) -> list[str]:
-    """Normalize repo/repos to a list."""
+def _get_repos(plan: dict, fallback_repo: str | None = None) -> list[str]:
+    """Normalize repo/repos to a list.
+
+    Fallback chain:
+      1. plan['repos'] (list)
+      2. plan['repo'] (single string)
+      3. fallback_repo parameter (from tool args or env)
+      4. Current working directory if it has a .git
+      5. Empty list
+    """
     repos = plan.get("repos", [])
     if isinstance(repos, list) and repos:
         return repos
     single = plan.get("repo", "")
     if single:
         return [single]
+    if fallback_repo is not None:
+        if fallback_repo:
+            return [fallback_repo]
+        return []
+    cwd = os.getcwd()
+    if os.path.isdir(os.path.join(cwd, ".git")):
+        return [cwd]
     return []
 
 

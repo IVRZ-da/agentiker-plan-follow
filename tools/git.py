@@ -125,9 +125,10 @@ def plan_git_push_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     remote = args.get("remote", "origin")
     branch = args.get("branch", None)
@@ -146,9 +147,10 @@ def plan_git_status_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     results = []
     for repo in repos:
@@ -170,9 +172,10 @@ def plan_git_sync_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     task_id = plan.get("current_task", "unknown")
     task = plan.get("tasks", {}).get(task_id, {})
@@ -201,9 +204,10 @@ def plan_git_stash_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     action = args.get("action", "push")
     message = args.get("message", "")
@@ -227,9 +231,10 @@ def plan_git_branch_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     action = args.get("action", "current")
     name = args.get("name", "")
@@ -254,9 +259,10 @@ def plan_git_tag_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     action = args.get("action", "create")
     tag_name = args.get("tag_name", "")
@@ -284,9 +290,10 @@ def plan_pr_create_tool(args: dict, **kwargs) -> str:
     if not plan:
         return fmt_err("No active plan.")
 
-    repos = plan_core._get_repos(plan)
+    repo_arg = args.get("repo")
+    repos = plan_core._get_repos(plan, fallback_repo=repo_arg)
     if not repos:
-        return fmt_err("No repos configured in plan.")
+        return fmt_err("No repos configured in plan. Use repo=<path> or add repo to plan.")
 
     title = args.get("title", "")
     if not title:
