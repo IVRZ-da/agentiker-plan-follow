@@ -17,7 +17,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 
 | Tool | Funktion |
 |------|----------|
-| `plan_create(goal, repo, template, parallel_groups)` | Plan anlegen (template=Pflicht, Tasks werden aus Template generiert) — **inkl. p0 (Peer Review) + TDD + Auto Peer Review + TTS** |
+| `plan_create(goal, repo, template, tasks, parallel_groups)` | Plan anlegen — entweder template (Vorlage) ODER tasks (eigene Tasks) angeben. **inkl. p0 (Peer Review) + TDD + Auto Peer Review + TTS** |
 | `plan_current()` | Zeigt den/die aktiven Task(s) |
 | `plan_complete(task_id, skip_review, auto_verify, auto_commit)` | Task abschliessen + Review-Gate + auto-verify + auto-commit + **TTS-Marker** |
 | `plan_verify()` | Drift-Check: ungeplante Änderungen? |
@@ -110,7 +110,7 @@ Injiziert in JEDEN Turn einen Banner mit:
 
 ## Verhalten
 
-- **Template-Pflicht:** `plan_create()` erfordert zwingend ein Template — manuelle Tasks werden nicht akzeptiert. Ohne Template: Fehler.
+- **Flexibles Plan-Erstellen:** `plan_create()` akzeptiert entweder ein `template` (Vorlage, z.B. fix/deploy/bugfix) ODER eine `tasks`-Liste mit eigenen Task-Definitionen. Ohne beides: Fehler.
 - **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch einen p0-Task (Peer Review) vor alle Template-Tasks. Der erste Code-Task hängt von p0 ab.
 - **TDD in Code-Templates:** `fix`, `bugfix`, `feature` haben RED→GREEN (→REFACTOR). Tests werden VOR Implementation geschrieben.
 - **pre_llm_call Hook** injiziert Task-Banner in JEDEN Turn

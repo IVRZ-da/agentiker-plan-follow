@@ -27,12 +27,13 @@ PER_TOOL_SCHEMAS = {
                     },
                     "required": ["id", "name"],
                 },
-                "description": "Liste der Tasks",
+                "description": "Liste der Tasks. Nur nutzbar wenn template nicht gesetzt ist (alternative zu template). Jeder Task braucht id und name, optional files/verify/review_profile/depends_on.",
             },
+            "plan_id": {"type": "string", "description": "Optionale eigene Plan-ID (sonst auto-generiert aus goal)"},
             "template": {
                 "type": "string",
-                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "go-setup", "infrastructure", "security"],
-                "description": "Template-Name (required — kein Template = kein Plan). Erzeugt automatisch Tasks aus der Vorlage.",
+                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "fix", "go-setup", "infrastructure", "security", "multi"],
+                "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, müssen tasks angegeben werden.\n  - multi: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},
             "parallel_groups": {
@@ -48,11 +49,10 @@ PER_TOOL_SCHEMAS = {
             },
             "params": {
                 "type": "object",
-                "description": "Optionale Parameter fuer Template-Placeholders {{var}}. Bsp: {\"env\": \"staging\"}",
-                "additionalProperties": {"type": "string"},
+                "description": "Optionale Parameter fuer Template-Placeholders {{var}}. Fuer multi-Template: params={'tasks': [{'id':'a', 'name':'...', ...}]}",
             },
         },
-        "required": ["goal", "template"],
+        "required": ["goal"],
     },
     "plan_current": {
         "type": "object",

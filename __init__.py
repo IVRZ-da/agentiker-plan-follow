@@ -29,10 +29,11 @@ VALID_REVIEW_PROFILES_WITH_AUTO = ["auto"] + VALID_REVIEW_PROFILES
 TOOL_DESCRIPTIONS = {
     "plan_create": (
         "Create a new structured plan with enforceable tasks. "
-        "TEMPLATE IS REQUIRED — manual tasks are not allowed. "
+        "Entweder template (Vorlage) ODER tasks (eigene Tasks) angeben. "
         "Parameters:\n"
         "- goal (str, required): The goal of the plan. Used for plan_id if plan_id not provided.\n"
-        "- template (str, required): Template name (deploy|bugfix|feature|refactoring|research|analysis|docs|infrastructure|go-setup|security|multi)\n"
+        "- template (str, optional): Template name (deploy|bugfix|feature|refactoring|research|analysis|docs|fix|go-setup|infrastructure|security|multi). Wenn nicht gesetzt, müssen tasks angegeben werden.\n"
+        "- tasks (list, optional): Eigene Task-Definitionen. Alternative zu template. Jeder Task: {'id', 'name', 'files':[], 'verify':'', 'depends_on':[]}\n"
         "- params (dict, optional): Template parameter substitution for {{placeholders}}. "
         "Use params={'tasks': [...]} for the 'multi' template to define custom tasks.\n"
         "- plan_id (str, optional): Custom plan ID. If provided, used instead of auto-generated ID from goal.\n"
