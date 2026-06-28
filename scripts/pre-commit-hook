@@ -576,7 +576,7 @@ def check_changelog(staged_files: list[str]) -> bool:
 MODULE_TEST_MAP = {
     # Core modules
     "__init__.py": ["test_plan_follow", "test_init"],
-    "plan_core.py": ["test_plan_follow"],
+    "plan_core.py": ["test_plan_core", "test_plan_follow"],
     "plan_tools.py": ["test_plan_follow"],
     "plan_hooks.py": ["test_plan_follow", "test_hooks", "test_hooks_coverage"],
     "plan_todo.py": ["test_plan_follow"],
@@ -595,7 +595,7 @@ MODULE_TEST_MAP = {
     "tools/auto.py": ["test_plan_follow"],
     "tools/review.py": ["test_plan_follow", "test_review_integration"],
     "tools/status.py": ["test_plan_follow"],
-    "tools/plan_mgmt.py": ["test_plan_follow"],
+    "tools/plan_mgmt.py": ["test_plan_mgmt", "test_plan_follow"],
     "tools/coordination.py": ["test_plan_follow"],
     "tools/health.py": ["test_plan_follow"],
     "tools/validation.py": ["test_plan_follow"],
