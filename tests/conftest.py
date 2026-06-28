@@ -95,3 +95,12 @@ def mock_fmt():
     finally:
         for p in patchers:
             p.stop()
+
+
+@pytest.fixture(autouse=True)
+def _reset_banner_globals():
+    """Reset banner frequency globals vor jedem Test, damit on_pre_llm_call() immer feuert."""
+    import plan_follow.plan_hooks as ph
+    ph._banner_turn_counter = 0
+    ph._last_task_id = None
+    yield

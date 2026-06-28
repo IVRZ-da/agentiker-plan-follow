@@ -20,6 +20,12 @@ logger = logging.getLogger("plan_follow")
 _hook_cache: dict = {}
 _HOOK_CACHE_TTL = 60  # seconds
 
+# ─── Banner-Frequenz-Reduzierung ────────────────────────────────────────────────
+# Vermeidet Banner-Injection auf jedem Turn bei unveraendertem Task
+_banner_turn_counter: int = 0
+_BANNER_FULL_EVERY_N_TURNS = 4  # Voller Banner nur alle N Turns
+_last_task_id: Optional[str] = None  # Task-Wechsel = sofort voller Banner
+
 # ─── Cross-Session Auto-Coordination ────────────────────────────────────────────
 # Track which task's files are currently locked, so we can release on task change.
 _LAST_LOCKED_TASK: Optional[str] = None
@@ -543,13 +549,30 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     """Pre-LLM-call hook: inject plan context into user message.
 
     Registered via PluginContext.register_hook("pre_llm_call", ...).
-    Builds banner from sub-functions, then returns formatted string.
+    Baut Banner mit reduzierter Frequenz (alle N Turns, es sei denn Task wechselt).
     ALWAYS returns None if no active plan (nothing to inject).
     """
+    global _banner_turn_counter, _last_task_id
+
     try:
         current = plan_core.get_current_task_cached()
         if not current:
             return None
+
+        # ─── Banner-Frequenz-Check ─────────────────────────────────────────
+        # Task gewechselt? → sofort voller Banner + Counter reset
+        task_id = current.get("task_id", "")
+        if task_id != _last_task_id:
+            _last_task_id = task_id
+            _banner_turn_counter = 0
+        else:
+            _banner_turn_counter += 1
+            if _banner_turn_counter < _BANNER_FULL_EVERY_N_TURNS:
+                # Bei gleichem Task: Banner nur alle _BANNER_FULL_EVERY_N_TURNS Turns
+                return None
+
+        # Counter reset fuer naechste Runde
+        _banner_turn_counter = 0
 
         # ─── Auto-Coordination Housekeeping ─────────────────────────────
         # Session heartbeat + auto-lock task files
