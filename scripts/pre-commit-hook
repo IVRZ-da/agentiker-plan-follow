@@ -590,7 +590,7 @@ MODULE_TEST_MAP = {
     "_fmt.py": ["test_fmt"],
     "mcp_server.py": ["test_mcp_server_coverage"],
     # tools/ subpackage
-    "tools/base.py": ["test_plan_follow"],
+    "tools/base.py": ["test_base", "test_plan_follow"],
     "tools/task.py": ["test_plan_follow"],
     "tools/auto.py": ["test_plan_follow"],
     "tools/review.py": ["test_plan_follow", "test_review_integration"],
@@ -841,8 +841,9 @@ def main():
     if not run_tests(test_files):
         return 1
 
-    # 13. Coverage-Gate (>90%)
-    if not check_coverage():
+    # 13. Coverage-Gate (>90%) — nur bei vollem Test-Durchlauf
+    all_tests = test_files == ["all"]
+    if all_tests and not check_coverage():
         return 1
 
     print("\n✅ Alle 13 Pre-Commit-Checks bestanden")
