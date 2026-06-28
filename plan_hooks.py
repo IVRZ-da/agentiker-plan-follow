@@ -259,12 +259,74 @@ def _build_due_banner() -> list[str]:
     return lines
 
 
-def _build_coordination_banner() -> list[str]:
-    """Build cross-session coordination lines (best-effort)."""
-    lines = []
+# ─── Coordination Cache ──────────────────────────────────────────────────────
+_coord_cache: dict = {}  # {key: (value, timestamp)}
+_COORD_CACHE_TTL = 30  # Sekunden
+_prev_coord_sig: str = ""  # Vorherige Signatur für Change-Detection
+
+
+def _get_coord_snapshot() -> dict:
+    """Hole gecachte coord_state-Snapshots (Sessions, Locks, Notifs)."""
+    global _coord_cache
+    now = time.monotonic()
+
+    cached = _coord_cache.get("snapshot")
+    if cached:
+        val, ts = cached
+        if now - ts < _COORD_CACHE_TTL:
+            return val
+
     try:
         from . import coord_state
 
+        val = {
+            "sessions": coord_state.get_sessions(),
+            "locks": coord_state.get_locks(),
+            "my_sid": plan_core.get_session_id(),
+            "notifs": coord_state.get_notifications(
+                plan_core.get_session_id(), mark_read=False
+            ),
+        }
+        _coord_cache["snapshot"] = (val, now)
+        return val
+    except Exception:
+        logger.debug("_get_coord_snapshot failed", exc_info=True)
+        return {}
+
+
+def _coord_signature(data: dict) -> str:
+    """Signatur: session_ids+lock_count+notif_count → Change-Detection."""
+    sessions = data.get("sessions", {})
+    locks = data.get("locks", {})
+    notifs = data.get("notifs", [])
+    sig = (
+        f"{sorted(sessions.keys())}|{len(locks)}|{len(notifs)}"
+        f"|{sum(1 for lk in locks.values() if lk.get('session_id') != data.get('my_sid'))}"
+    )
+    return sig
+
+
+def _build_coordination_banner() -> list[str]:
+    """Build cross-session coordination lines (best-effort, cached, compact-mode).
+
+    Nutzt TTL-Cache (30s) + Change-Detection:
+    - Unverändert → kompakter 1-Zeiler: "👥 3 Sessions, 🔒 2 Locks, 📬 1 Nachricht"
+    - Geändert → voller Banner mit Details
+    """
+    global _prev_coord_sig
+
+    data = _get_coord_snapshot()
+    if not data:
+        return []
+
+    sessions = data.get("sessions", {})
+    locks = data.get("locks", {})
+    notifs = data.get("notifs", [])
+    my_sid = data.get("my_sid")
+
+    # Cleanup stale entries (cached, 60s TTL)
+    try:
+        from . import coord_state
         _cached_or_fresh(
             "cleanup_stale",
             lambda: (
@@ -273,133 +335,139 @@ def _build_coordination_banner() -> list[str]:
                 "ok",
             ),
         )
-
-        sessions = coord_state.get_sessions()
-        locks = coord_state.get_locks()
-        my_sid = plan_core.get_session_id()
-        current = plan_core.get_current_task_cached()
-
-        if sessions:
-            lines.append(f"║  👥 {len(sessions)} aktive Session(s)         ║")
-            for sid, s in list(sessions.items())[:3]:
-                plan_label = s.get("plan_id", "")[:25]
-                last_seen = s.get("last_seen", "")[11:19] if s.get("last_seen") else "?"
-                lock_count = sum(
-                    1 for lock in locks.values()
-                    if lock.get("session_id") == sid
-                )
-                my_mark = " ← du" if sid == my_sid else ""
-                lines.append(
-                    f"║    • {sid[:16]} {plan_label} [{last_seen}]"
-                    f"{' 🔒' + str(lock_count) if lock_count else ''}{my_mark}    ║"
-                )
-            if len(sessions) > 3:
-                lines.append(f"║    ... und {len(sessions) - 3} weitere        ║")
-
-        # Show MY locks
-        if my_sid and locks:
-            my_locks = [
-                p for p, lock in locks.items()
-                if lock.get("session_id") == my_sid
-            ]
-            if my_locks:
-                lines.append(f"║  🔒 Eigene Locks ({len(my_locks)})                  ║")
-                for lp in my_locks[:2]:
-                    fname = lp.rsplit("/", 1)[-1]
-                    lines.append(f"║    • {fname[:45]}                      ║")
-                if len(my_locks) > 2:
-                    lines.append(f"║    ... und {len(my_locks) - 2} weitere            ║")
-
-        # Warning for LOCKS older than 30 minutes (stale)
-        if locks:
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc)
-            stale = []
-            for path, lock in locks.items():
-                since_str = lock.get("since", "")
-                try:
-                    age = (now - datetime.fromisoformat(since_str)).total_seconds() / 60
-                    if age > 30:
-                        stale.append((path, lock, int(age)))
-                except (ValueError, TypeError):
-                    pass
-            if stale:
-                stale.sort(key=lambda x: -x[2])  # oldest first
-                lines.append(f"║  ⏳ Stale-Locks ({len(stale)} >30 Min alt)      ║")
-                for lpath, lock_info, age_min in stale[:2]:
-                    fname = lpath.rsplit("/", 1)[-1]
-                    locker_sid = lock_info.get("session_id", "?")[:16]
-                    lines.append(
-                        f"║    • {fname[:35]} ({locker_sid}, {age_min}m)  ║"
-                    )
-
-        # Show locks by OTHER sessions on our task files
-        if current and locks:
-            other_locks = []
-            task_files = current.get("files", [])
-            for path, lock in locks.items():
-                if any(f in path for f in task_files):
-                    locker = lock.get("session_id", "")
-                    if locker and locker != my_sid:
-                        other_locks.append((path, lock))
-            if other_locks:
-                lines.append("║  ⚠️  LOCKS von anderen auf Task-Files    ║")
-                for lpath, lock_info in other_locks[:2]:
-                    fname = lpath.rsplit("/", 1)[-1]
-                    locker_sid = lock_info.get("session_id", "?")[:16]
-                    lines.append(
-                        f"║    • {fname[:40]} (🔒 {locker_sid})    ║"
-                    )
-
-        notifs = coord_state.get_notifications(
-            plan_core.get_session_id(), mark_read=False
-        )
-        if notifs:
-            lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen    ║")
-            # Show preview of latest notification
-            latest = notifs[-1]
-            from_msg = latest.get("from", "?")[:16]
-            msg_preview = latest.get("message", "")[:35]
-            lines.append(f"║    • {from_msg}: {msg_preview}         ║")
-            lines.append("║    → plan_notify(action='check')          ║")
-
-        # ─── Repo-Konflikt-Warnung ────────────────────────────────────────
-        # Prüfen ob andere Sessions im gleichen Repo arbeiten
-        current_plan = plan_core._get_active_plan()
-        if current_plan and len(sessions) > 1:
-            my_repos = plan_core._get_repos(current_plan)
-            if my_repos:
-
-                plans_dir = plan_core.PLANS_DIR
-                other_session_repos = set()
-                for sid, s in sessions.items():
-                    if sid == my_sid:
-                        continue
-                    other_pid = s.get("plan_id", "")
-                    if not other_pid:
-                        continue
-                    other_file = plans_dir / f"{other_pid}.json"
-                    if not other_file.exists():
-                        continue
-                    try:
-                        import json
-
-                        other_plan = json.loads(other_file.read_text())
-                        other_repos = other_plan.get("repos", other_plan.get("repo", []))
-                        if isinstance(other_repos, str):
-                            other_repos = [other_repos]
-                        overlap = set(other_repos) & set(my_repos)
-                        other_session_repos.update(overlap)
-                    except Exception:
-                        continue
-                if other_session_repos:
-                    lines.append("║  ⚠️  Repo-Konflikt mit anderen Sessions!  ║")
-                    for r in list(other_session_repos)[:2]:
-                        short = r.rsplit("/", 1)[-1] if "/" in r else r
-                        lines.append(f"║    • {short[:45]}                    ║")
-                    lines.append("║    Git-Operationen können kollidieren   ║")
     except Exception:
-        logger.debug("_build_coordination_banner failed (non-blocking)", exc_info=True)
+        pass
+
+    new_sig = _coord_signature(data)
+
+    # ─── Compact-Mode: Nichts geändert → nur 1 Zeile ────────────────────────
+    if new_sig == _prev_coord_sig:
+        parts = []
+        if sessions:
+            parts.append(f"👥 {len(sessions)} Session(s)")
+        if locks:
+            parts.append(f"🔒 {len(locks)} Lock(s)")
+        if notifs:
+            parts.append(f"📬 {len(notifs)} Nachricht(en)")
+        if parts:
+            return [f"║  {'  '.join(parts)}                ║"]
+        return []
+
+    # ─── Full Mode: Etwas hat sich geändert → voller Banner ─────────────────
+    _prev_coord_sig = new_sig
+    lines = []
+
+    # Session-Liste
+    if sessions:
+        lines.append(f"║  👥 {len(sessions)} aktive Session(s)                  ║")
+        for sid, s in list(sessions.items())[:3]:
+            plan_label = s.get("plan_id", "")[:25]
+            last_seen = s.get("last_seen", "")[11:19] if s.get("last_seen") else "?"
+            lock_count = sum(
+                1 for lock in locks.values()
+                if lock.get("session_id") == sid
+            )
+            my_mark = " ← du" if sid == my_sid else ""
+            lines.append(
+                f"║    • {sid[:16]} {plan_label} [{last_seen}]"
+                f"{' 🔒' + str(lock_count) if lock_count else ''}{my_mark}    ║"
+            )
+        if len(sessions) > 3:
+            lines.append(f"║    ... und {len(sessions) - 3} weitere           ║")
+
+    # Eigene Locks
+    if my_sid and locks:
+        my_locks = [
+            p for p, lock in locks.items()
+            if lock.get("session_id") == my_sid
+        ]
+        if my_locks:
+            lines.append(f"║  🔒 Eigene Locks ({len(my_locks)})                 ║")
+            for lp in my_locks[:2]:
+                fname = lp.rsplit("/", 1)[-1]
+                lines.append(f"║    • {fname[:45]}                       ║")
+            if len(my_locks) > 2:
+                lines.append(f"║    ... und {len(my_locks) - 2} weitere           ║")
+
+    # Stale-Locks (>30 Min)
+    if locks:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        stale = []
+        for path, lock in locks.items():
+            since_str = lock.get("since", "")
+            try:
+                age = (now - datetime.fromisoformat(since_str)).total_seconds() / 60
+                if age > 30:
+                    stale.append((path, lock, int(age)))
+            except (ValueError, TypeError):
+                pass
+        if stale:
+            stale.sort(key=lambda x: -x[2])
+            lines.append(f"║  ⏳ Stale-Locks ({len(stale)} >30 Min)             ║")
+            for lpath, lock_info, age_min in stale[:2]:
+                fname = lpath.rsplit("/", 1)[-1]
+                locker_sid = lock_info.get("session_id", "?")[:16]
+                lines.append(f"║    • {fname[:35]} ({locker_sid}, {age_min}m)    ║")
+
+    # Locks von anderen auf unseren Task-Files
+    current = plan_core.get_current_task_cached()
+    if current and locks:
+        task_files = current.get("files", [])
+        other_locks = [
+            (path, lock) for path, lock in locks.items()
+            if any(f in path for f in task_files)
+            and lock.get("session_id", "") != my_sid
+        ]
+        if other_locks:
+            lines.append("║  ⚠️  LOCKS von anderen auf Task-Files    ║")
+            for lpath, lock_info in other_locks[:2]:
+                fname = lpath.rsplit("/", 1)[-1]
+                locker_sid = lock_info.get("session_id", "?")[:16]
+                lines.append(f"║    • {fname[:40]} (🔒 {locker_sid})    ║")
+
+    # Notifications
+    if notifs:
+        lines.append(f"║  📬 {len(notifs)} Nachricht(en) von anderen       ║")
+        latest = notifs[-1]
+        from_msg = latest.get("from", "?")[:16]
+        msg_preview = latest.get("message", "")[:35]
+        lines.append(f"║    • {from_msg}: {msg_preview}            ║")
+        lines.append("║    → plan_notify(action='check')            ║")
+
+    # Repo-Konflikt
+    current_plan = plan_core._get_active_plan()
+    if current_plan and len(sessions) > 1:
+        my_repos = plan_core._get_repos(current_plan)
+        if my_repos:
+            plans_dir = plan_core.PLANS_DIR
+            other_repo_sessions = set()
+            for sid, s in sessions.items():
+                if sid == my_sid:
+                    continue
+                other_pid = s.get("plan_id", "")
+                if not other_pid:
+                    continue
+                other_file = plans_dir / f"{other_pid}.json"
+                if not other_file.exists():
+                    continue
+                try:
+                    import json
+                    other_plan = json.loads(other_file.read_text())
+                    other_repos = other_plan.get("repos", other_plan.get("repo", []))
+                    if isinstance(other_repos, str):
+                        other_repos = [other_repos]
+                    overlap = set(other_repos) & set(my_repos)
+                    other_repo_sessions.update(overlap)
+                except Exception:
+                    continue
+            if other_repo_sessions:
+                lines.append("║  ⚠️  Repo-Konflikt mit anderen Sessions!  ║")
+                for r in list(other_repo_sessions)[:2]:
+                    short = r.rsplit("/", 1)[-1] if "/" in r else r
+                    lines.append(f"║    • {short[:45]}                    ║")
+                lines.append("║    Git-Operationen können kollidieren   ║")
+
     return lines
 
 

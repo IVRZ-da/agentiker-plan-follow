@@ -1626,18 +1626,23 @@ class TestReviewBanner:
             assert "REVIEW" not in output.upper()
 
     def test_banner_shows_passed_state(self):
+        import plan_follow.plan_hooks as _hooks
         from plan_follow.plan_core import save_review_result
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "passed", "issues": []})
+        # Banner-Frequenz-Reduzierung umgehen: Counter auf Threshold setzen
+        _hooks._banner_turn_counter = _hooks._BANNER_FULL_EVERY_N_TURNS
         output2 = self._call_hook_mocked()
         assert "PASSED" in (output2 or "")
 
     def test_banner_shows_failed_state(self):
+        import plan_follow.plan_hooks as _hooks
         from plan_follow.plan_core import save_review_result
         self.setup_banner_test([{"id": "t1", "name": "T1", "files": [],
                                            "review_profile": "unit-test"}])
         save_review_result("t1", {"status": "failed", "issues": [{"check": "missing_tests"}]})
+        _hooks._banner_turn_counter = _hooks._BANNER_FULL_EVERY_N_TURNS
         output2 = self._call_hook_mocked()
         assert "FAILED" in (output2 or "").upper()
         assert "missing_tests" in (output2 or "")

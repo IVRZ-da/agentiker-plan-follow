@@ -51,7 +51,10 @@ def reset_hooks_state():
 
 @pytest.fixture
 def mock_time(monkeypatch):
-    """Control time.monotonic for deterministic tests."""
+    """Control time.monotonic for deterministic tests + reset coord cache."""
+    import plan_follow.plan_hooks as _hooks
+    _hooks._coord_cache.clear()
+    _hooks._prev_coord_sig = ""
     fake_time = [1000.0]
     def _monotonic():
         return fake_time[0]
@@ -606,7 +609,15 @@ class TestBuildDueBanner:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestBuildCoordinationBanner:
+    @staticmethod
+    def _reset_coord_cache(monkeypatch):
+        """Reset coord_cache + signature zwischen Tests."""
+        import plan_follow.plan_hooks as hooks
+        hooks._coord_cache.clear()
+        hooks._prev_coord_sig = ""
+
     def test_no_sessions_no_locks(self, monkeypatch, mock_time):
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
@@ -626,6 +637,7 @@ class TestBuildCoordinationBanner:
 
     def test_with_sessions(self, monkeypatch, mock_time):
         """Lines 228-233: active sessions listed."""
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {
@@ -651,6 +663,7 @@ class TestBuildCoordinationBanner:
 
     def test_with_sessions_truncated(self, monkeypatch, mock_time):
         """Line 232-233: more than 3 sessions → '... und N weitere'."""
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {f"s{i}": {"goal": f"Goal {i}"} for i in range(5)})
@@ -672,6 +685,7 @@ class TestBuildCoordinationBanner:
 
     def test_with_locks(self, monkeypatch, mock_time):
         """Lines 235-248: locks for current task files."""
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
@@ -696,6 +710,7 @@ class TestBuildCoordinationBanner:
 
     def test_with_notifications(self, monkeypatch, mock_time):
         """Lines 250-255: unread notifications."""
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})
@@ -717,6 +732,7 @@ class TestBuildCoordinationBanner:
 
     def test_coord_exception_handled(self, monkeypatch, mock_time):
         """Line 256-257: exception caught."""
+        self._reset_coord_cache(monkeypatch)
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -1558,6 +1574,9 @@ class TestEdgeCases:
 
     def test_coord_banner_empty_sessions_with_notifs(self, monkeypatch, mock_time):
         """Coordination banner with only notifications."""
+        import plan_follow.plan_hooks as hooks
+        hooks._coord_cache.clear()
+        hooks._prev_coord_sig = ""
         import plan_follow.coord_state as cs
         from plan_follow.plan_hooks import _build_coordination_banner
         monkeypatch.setattr(cs, "get_sessions", lambda: {})

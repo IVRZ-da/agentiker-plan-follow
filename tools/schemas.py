@@ -451,4 +451,12 @@ PER_TOOL_SCHEMAS = {
         },
         "required": ["title"],
     },
+    "plan_coord_cleanup": {
+        "type": "object",
+        "properties": {
+            "session_max_age": {"type": "integer", "description": "Session-Max-Alter in Minuten (default: 60)"},
+            "lock_max_age": {"type": "integer", "description": "Lock-Max-Alter in Minuten (default: 120)"},
+            "dry_run": {"type": "boolean", "description": "Nur Report, keine Löschung (default: false)"},
+        },
+    },
 }

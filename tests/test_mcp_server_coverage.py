@@ -132,26 +132,12 @@ class TestGetCoreReal:
     """
 
     def test_get_core_inserts_path_and_imports(self):
-        """_get_core inserts plugin dir into sys.path (line 32) and imports plan_core."""
-        plugin_dir = str(Path(mcp.__file__).resolve().parent)
-        orig_path = list(sys.path)
-
-        # The real fn calls sys.path.insert(0, plugin_dir) — ensure clean slate
-        while plugin_dir in sys.path:
-            sys.path.remove(plugin_dir)
-
-        try:
-            core = mcp._get_core()
-            # Successfully imported plan_core
-            assert core is not None
-            # Verify path was inserted at front
-            assert sys.path[0] == plugin_dir
-        except ImportError:
-            # If relative imports inside plan_core fail when loaded as
-            # top-level module, we still verify the path manipulation
-            assert plugin_dir in sys.path
-        finally:
-            sys.path[:] = orig_path
+        """_get_core imports plan_core via relative import (line 31)."""
+        core = mcp._get_core()
+        # Successfully imported plan_core via relative import
+        assert core is not None
+        assert hasattr(core, "list_plans")
+        assert hasattr(core, "_get_active_plan")
 
     def test_get_core_returns_plan_core_module(self):
         """_get_core returns the real plan_core module with expected attributes."""
@@ -352,9 +338,9 @@ class TestMainBlock:
         with open(filepath) as f:
             all_lines = f.readlines()
 
-        # Lines 373-385 (1-indexed) → indices 372-384 (0-indexed)
+        # Lines 371-382 (1-indexed) → indices 370-382 (0-indexed)
         # Include the 'if __name__ == "__main__":' guard + block body
-        block_code = "".join(all_lines[372:385])
+        block_code = "".join(all_lines[370:382])
 
         with patch.object(sys, "argv", list(argv)):
             p1 = patch("plan_follow.mcp_server.run_stdio")
@@ -367,10 +353,13 @@ class TestMainBlock:
                 globals_dict = dict(mcp.__dict__)
                 globals_dict["__name__"] = "__main__"
 
-                code_obj = compile(block_code, filepath, "exec")
+                # Dedent the if-main block so compile() sees valid top-level code
+                import textwrap
+                dedented = textwrap.dedent(block_code)
+                code_obj = compile(dedented, filepath, "exec")
                 # Adjust co_firstlineno so that coverage.py records the
-                # correct absolute line numbers (line 1 of snippet → line 373)
-                code_obj = code_obj.replace(co_firstlineno=373)
+                # correct absolute line numbers (line 0 of snippet → line 371)
+                code_obj = code_obj.replace(co_firstlineno=371)
 
                 exec(code_obj, globals_dict)
             finally:

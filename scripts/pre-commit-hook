@@ -578,7 +578,7 @@ MODULE_TEST_MAP = {
     "__init__.py": ["test_plan_follow", "test_init"],
     "plan_core.py": ["test_plan_follow"],
     "plan_tools.py": ["test_plan_follow"],
-    "plan_hooks.py": ["test_plan_follow"],
+    "plan_hooks.py": ["test_plan_follow", "test_hooks", "test_hooks_coverage"],
     "plan_todo.py": ["test_plan_follow"],
     "plan_review.py": ["test_plan_follow", "test_review_integration"],
     "plan_roadmap.py": ["test_roadmap"],
@@ -588,6 +588,7 @@ MODULE_TEST_MAP = {
     "review_profiles.py": ["test_plan_follow", "test_review_integration"],
     "plan_peer_review.py": ["test_peer_review", "test_review_integration"],
     "_fmt.py": ["test_fmt"],
+    "mcp_server.py": ["test_mcp_server_coverage"],
     # tools/ subpackage
     "tools/base.py": ["test_plan_follow"],
     "tools/task.py": ["test_plan_follow"],
@@ -602,6 +603,7 @@ MODULE_TEST_MAP = {
     "tools/state.py": ["test_plan_follow"],
     "tools/resolver.py": ["test_plan_follow"],
     "tools/config.py": ["test_plan_follow"],
+    "tools/schemas.py": ["test_init"],
     # Config / infrastructure
     "conftest.py": [],
     "hooks/__init__.py": ["test_plan_follow"],
@@ -620,7 +622,7 @@ MODULE_CHANGE_THRESHOLD = 6
 def determine_test_files(staged_files: list[str]) -> list[str]:
     """Determine which test files to run based on changed modules.
 
-    - If a test file itself changed → run only that test file
+    - If a test file itself changed → MERGE with source module tests
     - If ≤ MODULE_CHANGE_THRESHOLD modules changed → run matching tests
     - If > MODULE_CHANGE_THRESHOLD modules changed → run all tests
     """
@@ -628,12 +630,7 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
                     and not f.endswith("conftest.py") and not f.endswith("__init__.py")]
     changed_modules = set()
 
-    # First pass: check if test files themselves changed
-    if staged_tests:
-        # Run only the changed test files
-        return staged_tests
-
-    # Second pass: map source modules to test files
+    # Map ALL staged files (including test files) to their source modules
     for f in staged_files:
         f = f.replace("\\", "/")
         for module in MODULE_TEST_MAP:
@@ -641,7 +638,7 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
                 changed_modules.add(module)
 
     if not changed_modules:
-        return []  # No code changes — skip tests
+        return staged_tests  # Only test files changed, no source changes
 
     # If threshold exceeded, run all tests
     if len(changed_modules) > MODULE_CHANGE_THRESHOLD:
@@ -664,7 +661,13 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
             seen.add(tf)
             unique_test_files.append(tf)
 
-    return unique_test_files or ["all"]
+    # Merge in directly staged test files (if any)
+    for st in staged_tests:
+        if st not in seen:
+            seen.add(st)
+            unique_test_files.append(st)
+
+    return unique_test_files or staged_tests or ["all"]
 
 
 def run_tests(test_files: list[str]) -> bool:
