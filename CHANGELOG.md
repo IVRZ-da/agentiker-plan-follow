@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.25] - 2026-06-28
+
+### Changed
+- **Performance: Tool-Schema-Deduplizierung** — `__init__.py` von 933→143 Zeilen (-86%), Tool-Metadaten via Import aus `tools/descriptions.py` + `tools/schemas.py`
+- **Performance: Koordinations-Banner** — 30s TTL Cache + Change-Detection + Compact-Mode (1-Zeiler wenn unverändert)
+- **Pre-Commit Hook** — Coverage-Gate nur bei vollem Test-Durchlauf, MODULE_TEST_MAP erweitert
+
+### Fixed
+- **Test-Isolation:** 9 Test-Failures in test_hooks_coverage, TestReviewBanner, mcp_server_coverage gefixt
+- **Cache-Poisoning:** conftest.py mit autouse Fixture für Koordinations-Cache-Reset
+- **pre-commit hook:** Ruff I001 Import-Order in Tests
+
+### Added
+- **test_base.py:** 10 Tests für tools/base.py Error-Handling (uuid, JSON/OSError, __getattr__)
+- **test_task.py:** 6 Tests für tools/task.py Edge Cases (plan_id_override, parallel_groups)
+- **test_plan_mgmt.py:** 9 Tests für tools/plan_mgmt.py (relative dates, validation, errors)
+- **test_plan_core.py:** 14 Tests für plan_core.py (__getattr__ lazy imports, __setattr__, HONCHO defaults)
+
 ## [0.5.24] - 2026-06-27
 
 ### Fixed
