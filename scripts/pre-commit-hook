@@ -591,7 +591,7 @@ MODULE_TEST_MAP = {
     "mcp_server.py": ["test_mcp_server_coverage"],
     # tools/ subpackage
     "tools/base.py": ["test_base", "test_plan_follow"],
-    "tools/task.py": ["test_plan_follow"],
+    "tools/task.py": ["test_task", "test_plan_follow"],
     "tools/auto.py": ["test_plan_follow"],
     "tools/review.py": ["test_plan_follow", "test_review_integration"],
     "tools/status.py": ["test_plan_follow"],
