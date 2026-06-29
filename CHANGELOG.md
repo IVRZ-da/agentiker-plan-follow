@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.26 (2026-06-29)
+
+### Removed
+- **Hardcodierte Frameworks:** `_detect_project_type()` entfernt medusa, nextjs, react dependency-scan
+- **Dead Code:** Duplicate Tool-Handler aus plan_suggest.py (Relikt aus Monolith-Split v0.5.7)
+
+### Changed
+- **Framework Detection:** _detect_project_type() ist jetzt rein marker-basiert (package.json, go.mod, pyproject.toml, Cargo.toml, composer.json, Gemfile)
+
+### Tests
+- 5 Framework-spezifische Tests entfernt, 60 Tests passed
+
+
 ## [0.5.25] - 2026-06-28
 
 ### Changed

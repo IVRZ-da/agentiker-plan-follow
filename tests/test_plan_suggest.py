@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -115,49 +114,6 @@ class TestDetectProjectType:
         info = _detect_project_type(str(tmp_path))
         assert info["type"] == "ruby"
         assert "Gemfile" in info["markers"]
-
-    def test_node_with_react_nextjs(self, tmp_path):
-        """package.json with react and next dependencies detected."""
-        pkg = tmp_path / "package.json"
-        pkg.write_text(
-            json.dumps({"dependencies": {"react": "^18.0.0", "next": "^14.0.0"}}),
-            encoding="utf-8",
-        )
-        info = _detect_project_type(str(tmp_path))
-        assert info["type"] == "node"
-        assert "react" in info["frameworks"]
-        assert "nextjs" in info["frameworks"]
-
-    def test_node_with_medusa_dependency(self, tmp_path):
-        """@medusajs in dependencies adds medusa framework."""
-        pkg = tmp_path / "package.json"
-        pkg.write_text(
-            json.dumps({"dependencies": {"@medusajs/medusa": "^1.0.0"}}),
-            encoding="utf-8",
-        )
-        info = _detect_project_type(str(tmp_path))
-        assert info["type"] == "node"
-        assert "medusa" in info["frameworks"]
-
-    def test_medusa_config_detected(self, tmp_path):
-        """medusa-config.ts file adds medusa framework."""
-        (tmp_path / "medusa-config.ts").write_text("export default {}", encoding="utf-8")
-        info = _detect_project_type(str(tmp_path))
-        assert "medusa" in info["frameworks"]
-
-    def test_medusa_monorepo_detected(self, tmp_path):
-        """medusa-config.ts in apps/backend/ adds medusa-monorepo."""
-        backend = tmp_path / "apps" / "backend"
-        backend.mkdir(parents=True)
-        (backend / "medusa-config.ts").write_text("export default {}", encoding="utf-8")
-        info = _detect_project_type(str(tmp_path))
-        assert "medusa-monorepo" in info["frameworks"]
-
-    def test_nextjs_config_file(self, tmp_path):
-        """next.config.ts file adds nextjs framework."""
-        (tmp_path / "next.config.ts").write_text("module.exports = {}", encoding="utf-8")
-        info = _detect_project_type(str(tmp_path))
-        assert "nextjs" in info["frameworks"]
 
     def test_invalid_package_json_graceful(self, tmp_path):
         """Malformed package.json doesn't crash detection."""

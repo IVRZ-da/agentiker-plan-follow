@@ -51,31 +51,6 @@ def _detect_project_type(project_root: str) -> dict[str, Any]:
             info["type"] = ptype
             info["markers"].append(marker)
 
-    # Detect Medusa (backend + storefront monorepo)
-    if os.path.exists(os.path.join(project_root, "medusa-config.ts")):
-        info["frameworks"].append("medusa")
-    if os.path.exists(os.path.join(project_root, "apps/backend/medusa-config.ts")):
-        info["frameworks"].append("medusa-monorepo")
-    if os.path.exists(os.path.join(project_root, "next.config.js")) or \
-       os.path.exists(os.path.join(project_root, "next.config.ts")):
-        info["frameworks"].append("nextjs")
-
-    # Read package.json for dependencies
-    if info["type"] == "node":
-        pkg_path = os.path.join(project_root, "package.json")
-        if os.path.exists(pkg_path):
-            try:
-                pkg = json.loads(Path(pkg_path).read_text(encoding="utf-8"))
-                deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
-                if "@medusajs" in str(deps):
-                    info["frameworks"].append("medusa")
-                if "next" in deps:
-                    info["frameworks"].append("nextjs")
-                if "react" in deps:
-                    info["frameworks"].append("react")
-            except (json.JSONDecodeError, OSError):
-                pass
-
     return info
 
 
@@ -250,7 +225,6 @@ def time_track(action: str, task_id: str = "", plan_id: str = "") -> dict:
         Dict with tracking info.
     """
     _ensure_tracking_file()
-    import json
     from datetime import datetime, timezone
 
     try:
