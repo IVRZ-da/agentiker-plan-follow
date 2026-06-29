@@ -1,7 +1,8 @@
 # 📋 plan_follow — Hermes Plugin
 
-> **Strukturierte Plan-Erstellung, Task-Enforcement, Review-Gates, parallele Gruppen, Auto-Verify/Commit und Cross-Session-Koordination für Hermes Agent.**
-> 39 Tools — Pläne erstellen, verfolgen, reviewen, versionieren und archivieren.
+> **Structured plan creation, task enforcement, review gates, parallel groups, auto-verify/commit, plan validation, due dates, archive/restore, and session isolation.**
+
+> 24 tools · 2 hooks · 7 templates · 600+ tests · 0.5.17
 
 [![Version](https://img.shields.io/badge/version-0.5.26-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
@@ -257,100 +258,163 @@ cd ~/.hermes/plugins/plan_follow
 ## 🏗 Architecture
 
 ```
-┌───────────────────────────────────────────────────────────┐
-│                    plan_follow Plugin                      │
-├──────────────────────┬────────────────────────────────────┤
-│   Plan Lifecycle     │   Git Integration                  │
-│   (5 Tools)          │   (9 Tools)                        │
-│                      │                                    │
-│  ┌────────────────┐  │  ┌──────────────────────────────┐  │
-│  │ plan_create    │  │  │ plan_git_init/push/status    │  │
-│  │ plan_current   │  │  │ plan_git_stash/branch/tag   │  │
-│  │ plan_complete  │  │  │ plan_pr_create              │  │
-│  │ plan_abort     │  │  │ plan_history                │  │
-│  │ plan_todo      │  │  └──────────────────────────────┘  │
-│  └────────────────┘  │                                    │
-│                      │                                    │
-│  Status & Review     │  Cross-Session                     │
-│  (7 Tools)           │  (4 Tools)                         │
-│  ┌────────────────┐  │  ┌──────────────────────────────┐  │
-│  │ plan_status    │  │  │ plan_session                 │  │
-│  │ plan_review(*) │  │  │ plan_lock                    │  │
-│  │ plan_verify    │  │  │ plan_notify                  │  │
-│  │ plan_update    │  │  │ plan_coord_cleanup           │  │
-│  └────────────────┘  │  └──────────────────────────────┘  │
-│                      │                                    │
-│  Management          │  Roadmap                           │
-│  (7 Tools)           │  (3 Tools)                         │
-│  ┌────────────────┐  │  ┌──────────────────────────────┐  │
-│  │ plan_list      │  │  │ plan_roadmap                 │  │
-│  │ plan_select    │  │  │ plan_decompose               │  │
-│  │ plan_archive   │  │  │ plan_sync                    │  │
-│  │ plan_restore   │  │  └──────────────────────────────┘  │
-│  │ plan_template  │  │                                    │
-│  │ plan_suggest   │  │  Validation + Time                 │
-│  └────────────────┘  │  (4 Tools)                         │
-│                      │  ┌──────────────────────────────┐  │
-│                      │  │ plan_validate, plan_duedate  │  │
-│                      │  │ plan_time, plan_simulate     │  │
-│                      │  └──────────────────────────────┘  │
-├──────────────────────┴────────────────────────────────────┤
-│                    Shared Infrastructure                   │
-│  ┌────────────────────────────────────────────────────┐   │
-│  │ plan_core.py     — JSON persistence + CRUD         │   │
-│  │ plan_hooks.py    — pre_llm_call + post_tool_call   │   │
-│  │ plan_templates.py— 12 built-in + YAML templates    │   │
-│  │ plan_review.py   — 6 review profiles + subagent    │   │
-│  │ coord_state.py   — Cross-session coordination      │   │
-│  │ skills/          — Companion skill for LLM          │   │
-│  └────────────────────────────────────────────────────┘   │
-└───────────────────────────────────────────────────────────┘
+plugin.yaml          — v0.5.17 manifest
+__init__.py          — register() entry point, tool registration, schemas
+plan_core.py         — Data model, JSON persistence, plan CRUD, validation
+plan_tools.py        — Tool handler implementations (17 tools)
+plan_hooks.py        — pre_llm_call + post_tool_call hooks
+plan_templates.py    — 6 built-in templates + YAML user template support
+plan_review.py       — Review dispatch, prompt building, result validation
+review_profiles.py   — 6 review profile definitions
+skills/              — Companion skill for LLM awareness
+tests/               — 217 tests
+CHANGELOG.md         — Release history
 ```
 
-### Key Design Decisions
+<!-- README_AUTO -->
 
-- **Template-First:** `plan_create` requires a template (8 built-in) — manual tasks only via `multi` template with `params.tasks`
-- **Parallel Groups:** Tasks within a group run parallel, groups run sequentially
-- **Review Gates:** 6 profiles from `none` to `full` — independent reviewer subagent
-- **Auto-Verify/Commit:** Automatic `plan_complete(task_id, auto_verify=True, auto_commit=True)`
-- **Cross-Session:** Lock-based file coordination via `plan_lock` / `plan_notify`
-- **TTL Cache:** 30s browser + coordination data cached — reduces API calls per turn
+[![Version](https://img.shields.io/badge/version-0.5.27-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+
+**Version:** 0.5.27
+
+**Tests:** 1480 tests
+
+**Tools (39):**
+
+
+### Advanced (13 Tools)
+
+| Tool | Description |
+|------|-------------|
+| `plan_coord_cleanup` | — |
+| `plan_decompose` | Manage hierarchical task decomposition (compound tasks with sub-tasks). |
+| `plan_history` | Show git-based plan version history. |
+| `plan_lock` | Manage resource locks for cross-session coordination. |
+| `plan_notify` | Send a notification to another session or check own notifications. |
+| `plan_pr_create` | Create a Pull Request via Forgejo API for all configured repos. |
+| `plan_roadmap` | Manage roadmaps — strategic phase overviews. |
+| `plan_session` | Show active sessions with their plans, locks, and pending notifications. |
+| `plan_simulate` | Simulate a plan to find critical path and parallelization opportunities. |
+| `plan_suggest` | Suggest a plan decomposition for a goal by analyzing the project. |
+| `plan_sync` | Sync plans with external systems. |
+| `plan_time` | Track time spent on tasks. |
+| `plan_todo` | Manage your task list for the active plan.  Replaces the built-in `todo` tool.\n Read mode (no parameters):\n - Returns ALL tasks of the active plan as a compact todo list.\n - Output: {todos: [...], summary: {total, pending, in_progress, completed, cancelled}}\n Write mode (todos + merge=true):\n - Set status to 'completed' → completes the task via plan_complete\n - Other status changes are ignored (plan manages status internally)\n |
+
+
+### CRUD (15 Tools)
+
+| Tool | Description |
+|------|-------------|
+| `plan_abort` | Abort the active plan or a specific task. |
+| `plan_archive` | Move a plan to the archive directory (soft delete). |
+| `plan_complete` | Complete the current task, verify it, advance to the next one. |
+| `plan_create` | Create a new structured plan with enforceable tasks.  TEMPLATE IS REQUIRED — manual tasks are not allowed. |
+| `plan_current` | Show the current task. ONLY ONE task is returned at a time —  you see only what needs to be done now.  Returns task details including allowed files, verification command, and progress. |
+| `plan_delete` | Permanently delete a plan from disk. |
+| `plan_duedate` | Set or view a due date for a task. |
+| `plan_list` | List all plans (including completed and aborted ones |
+| `plan_restore` | Restore a plan from the archive back to the plans directory. |
+| `plan_select` | Switch to a different saved plan as the active one. |
+| `plan_status` | Show all tasks with their current status (pending/in_progress/completed/blocked).  Returns a progress overview with counts and blocked-by reasons. |
+| `plan_template` | Manage user-defined plan templates. |
+| `plan_update` | Update a task's properties without aborting the plan. |
+| `plan_validate` | Validate the integrity of a plan. |
+| `plan_verify` | Check for drift: compare current git changes against the plan's task scope.  Returns list of unplanned files if drift detected.  Call this before plan_complete to catch scope creep. |
+
+
+### Git (7 Tools)
+
+| Tool | Description |
+|------|-------------|
+| `plan_git_branch` | Manage git branches in configured repos. |
+| `plan_git_init` | Initialize a Git repository in ~/.hermes/plans/ for plan versioning. |
+| `plan_git_push` | Push committed changes to remote for all configured repos. |
+| `plan_git_stash` | Stash or unstash uncommitted changes in configured repos. |
+| `plan_git_status` | Show comprehensive git status for all configured repos.  Returns branch name, dirty flag, ahead/behind count,  and last commit message for each repo. |
+| `plan_git_sync` | Pull to add to commit to push in one step for all configured repos. |
+| `plan_git_tag` | Create, list, or delete git tags in configured repos. |
+
+
+### Review (4 Tools)
+
+| Tool | Description |
+|------|-------------|
+| `plan_auto_review` | Prepare a complete review in one call — reads files, measures test coverage,  and builds the delegate_task prompt. |
+| `plan_review` | Review a task's files using an independent reviewer subagent. |
+| `plan_review_profiles` | Show all available review profiles with their names, descriptions, and checks.  Use this to see what each profile validates before selecting one for a task. |
+| `plan_review_save_result` | Save a review result for a task. |
+
+### Recent Changelog
+
+## [0.5.27] — 2026-06-29
+
+### 📝 README-Verbesserungen
+
+- **README_AUTO Marker hinzugefügt** — Generator erkennt jetzt 39 Tools in 4 Kategorien (CRUD, Advanced, Git, Review)
+- **Limitations-Sektion** — Neu: Session Isolation, Review Profiles, Git Branching
+- **Subagent-Integration dokumentiert** — Auto-Review, Profiles, Hooks
+- **Header aufgewertet** — Inspirierender Title + aktuelle Metriken (v0.5.27, 1480+ Tests)
+- **Stale Version gefixt** — Architektur-Sektion zeigte v1.1.0 statt v0.5.x
+
+## [0.5.26] (2026-06-29)
+
+### Removed
+- **Hardcodierte Frameworks:** `_detect_project_type()` entfernt medusa, nextjs, react dependency-scan
+- **Dead Code:** Duplicate Tool-Handler aus plan_suggest.py (Relikt aus Monolith-Split v0.5.7)
+
+### Changed
+- **Framework Detection:** _detect_project_type() ist jetzt rein marker-basiert (package.json, go.mod, pyproject.toml, Cargo.toml, composer.json, Gemfile)
+
+### Tests
+- 5 Framework-spezifische Tests entfernt, 60 Tests passed
+
+## [0.5.25] - 2026-06-28
+
+### Changed
+- **Performance: Tool-Schema-Deduplizierung** — `__init__.py` von 933→143 Zeilen (-86%), Tool-Metadaten via Import aus `tools/descriptions.py` + `tools/schemas.py`
+- **Performance: Koordinations-Banner** — 30s TTL Cache + Change-Detection + Compact-Mode (1-Zeiler wenn unverändert)
+- **Pre-Commit Hook** — Coverage-Gate nur bei vollem Test-Durchlauf, MODULE_TEST_MAP erweitert
+
+### Fixed
+- **Test-Isolation:** 9 Test-Failures in test_hooks_coverage, TestReviewBanner, mcp_server_coverage gefixt
+- **Cache-Poisoning:** conftest.py mit autouse Fixture für Koordinations-Cache-Reset
+- **pre-commit hook:** Ruff I001 Import-Order in Tests
+
+### Added
+- **test_base.py:** 10 Tests für tools/base.py Error-Handling (uuid, JSON/OSError, __getattr__)
+- **test_task.py:** 6 Tests für tools/task.py Edge Cases (plan_id_override, parallel_groups)
+- **test_plan_mgmt.py:** 9 Tests für tools/plan_mgmt.py (relative dates, validation, errors)
+- **test_plan_core.py:** 14 Tests für plan_core.py (__getattr__ lazy imports, __setattr__, HONCHO defaults)
+
+<!-- END README_AUTO -->
 
 ---
 
-## 📝 Templates & Review Profiles
+## ⚠️ Limitations
 
-### Templates (12)
+| Area | Limitation | Workaround |
+|------|-----------|------------|
+| **Session Isolation** | Plans not automatically shared across Hermes sessions | Use `plan_select()` to load a plan from disk in a new session |
+| **Review Profiles** | Only 6 built-in profiles available | Custom profiles require plugin modification |
+| **Git Branching** | Auto-commit only supports `plan_complete` context | Manual git operations for complex workflows |
+| **Due Dates** | Soft enforcement (banner warnings only) | Agent must self-enforce via `plan_verify` |
+| **Drift Detection** | Only compares git state against task scope | Not a full audit trail |
+| **Templates** | Free-form plans not supported | Task structure must match template format (by design) |
 
-| Template | Tasks | Review | Description |
-|----------|-------|--------|-------------|
-| `deploy` | 4 | api-route | Build → Test → Deploy → Verify |
-| `bugfix` | 3 | unit-test | RED → GREEN → REFACTOR (TDD) |
-| `feature` | 4 | unit-test | RED → GREEN → REFACTOR → Docs (TDD) |
-| `refactoring` | 4 | full | Coverage → Refactor → Verify |
-| `research` | 3 | none | Search → Analyze → Summarize |
-| `analysis` | 4 | unit-test | Code-Scan → Analyze → Report → Review |
-| `fix` | 2 | none | Analyse → Fix (schnelle Bug-Fixes) |
-| `docs` | 2 | none | Write → Review |
-| `go-setup` | 3 | none | Init → Build → Test |
-| `infrastructure` | 3 | security | Plan → Deploy → Verify |
-| `security` | 3 | security | Audit → Fix → Verify |
-| `multi` | custom | auto | Eigener Aufgabenkatalog via `params.tasks` |
+## 🤖 Subagent-Integration
 
-### Review Profiles (6)
-
-| Profile | Description |
+| Feature | Description |
 |---------|-------------|
-| `none` | Kein Review (Default) |
-| `unit-test` | Tests + Coverage + Edge-Cases |
-| `api-route` | API-Routen: Validierung + Error-Handling + Security |
-| `ui-component` | React/UI: A11y + SSR + State + Forms + Mobile |
-| `security` | Secrets + Injection + XSS + Auth |
-| `full` | Alle Checks kombiniert |
+| **Review Subagent** | `plan_review` spawns an independent reviewer subagent via `delegate_task`, passing files, review profile, and scope |
+| **Auto-Review** | `plan_auto_review` prepares a complete review prompt — reads files, measures test coverage, and builds the `delegate_task` payload |
+| **Review Profiles** | 6 profile templates (none, unit-test, api-route, ui-component, security, full) that configure the reviewer's focus and depth |
+| **auto_peer_review** | Optional post-create review: `plan_create` auto-launches a peer review subagent when enabled |
+| **Session Isolation** | `pre_llm_call` hook uses in-memory cache only — no plan leakage across subagent task delegations |
+| **Plugin Hooks** | `pre_llm_call` + `post_tool_call` hooks integrate with the Hermes agent lifecycle for drift tracking, health checks, and coordination |
+| **Plan Validation** | `plan_validate` checks consistency across dependencies, cycles, profiles, and orphan tasks — useful for subagent workflow validation |
+| **Auto-Verify/Commit** | `plan_complete(task_id, auto_verify=True, auto_commit=True)` chains verification and git commit as a single subagent action |
 
----
-
-## 🧪 Development
+## Test Suite
 
 ```bash
 cd ~/.hermes/plugins/plan_follow

@@ -1,6 +1,16 @@
 # Changelog
 
-## 0.5.26 (2026-06-29)
+## [0.5.27] — 2026-06-29
+
+### 📝 README-Verbesserungen
+
+- **README_AUTO Marker hinzugefügt** — Generator erkennt jetzt 39 Tools in 4 Kategorien (CRUD, Advanced, Git, Review)
+- **Limitations-Sektion** — Neu: Session Isolation, Review Profiles, Git Branching
+- **Subagent-Integration dokumentiert** — Auto-Review, Profiles, Hooks
+- **Header aufgewertet** — Inspirierender Title + aktuelle Metriken (v0.5.27, 1480+ Tests)
+- **Stale Version gefixt** — Architektur-Sektion zeigte v1.1.0 statt v0.5.x
+
+## [0.5.26] (2026-06-29)
 
 ### Removed
 - **Hardcodierte Frameworks:** `_detect_project_type()` entfernt medusa, nextjs, react dependency-scan
