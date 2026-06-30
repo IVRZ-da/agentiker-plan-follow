@@ -365,7 +365,7 @@ def simulate_plan(plan: dict) -> dict:
     return results
 
 
-# ─── Tool Handlers (moved from tools/handlers_misc.py) ──────────────────────
+# ─── Tool Handlers (imported by plan_tools.py) ─────────────────────────────
 
 from . import plan_core  # noqa: E402
 from ._fmt import fmt_err, fmt_ok  # noqa: E402
@@ -389,11 +389,6 @@ def plan_simulate_tool(args: dict, **kwargs) -> str:
             return fmt_err("No active plan.")
     result = simulate_plan(plan)
     return fmt_ok(result)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Tool Handler (moved from tools/handlers_crud.py)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 
 def plan_suggest_tool(args: dict, **kwargs) -> str:
