@@ -2,9 +2,9 @@
 
 > **Structured plan creation, task enforcement, review gates, parallel groups, auto-verify/commit, plan validation, due dates, archive/restore, and session isolation.**
 
-> 24 tools · 2 hooks · 7 templates · 600+ tests · 0.5.17
+> 24 tools · 2 hooks · 7 templates · 1480 tests · 0.5.29
 
-[![Version](https://img.shields.io/badge/version-0.5.26-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.29-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
 ---
 
