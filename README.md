@@ -49,6 +49,15 @@ The result: **editor-grade plan management** in the terminal — your plans are 
 
 ## 🚀 Quick Start
 
+### Installation
+```bash
+cd ~/.hermes/plugins
+git clone https://github.com/IVRZ-da/agentiker-plan-follow.git
+cd agentiker-plan-follow
+pip install -e .
+```
+
+### Plan erstellen & durchführen
 ```python
 # 1. Create a plan (template-based)
 plan_create(goal="Fix login validation", template="bugfix",
