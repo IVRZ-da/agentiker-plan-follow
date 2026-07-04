@@ -460,6 +460,14 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     if template_name:
         # Template expansion
         from ..plan_templates import expand_template
+
+        # Merge top-level tasks into params — erlaubt tasks auch mit template
+        tasks_from_args = args.get("tasks")
+        if tasks_from_args:
+            merged_params = dict(template_params)
+            merged_params["tasks"] = tasks_from_args
+            template_params = merged_params
+
         expanded = expand_template(template_name, goal, template_params)
         if "error" in expanded:
             return fmt_ok(expanded)
@@ -471,9 +479,11 @@ def plan_create_tool(args: dict, **kwargs) -> str:
         # Direct tasks (for tests/expert use — template is preferred)
         tasks = args.get("tasks", [])
         if not tasks:
+            from ..plan_templates import get_template_names
+            names = ", ".join(get_template_names())
             return fmt_err(
-                "template is required — kein Template = kein Plan.\n"
-                "Available templates: deploy, bugfix, feature, refactoring, research, analysis, fix"
+                f"template is required — kein Template = kein Plan.\n"
+                f"Available templates: {names}"
             )
 
     if not goal:

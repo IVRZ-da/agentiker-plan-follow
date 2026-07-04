@@ -258,6 +258,12 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
         "review_profile": "unit-test",
         "_multi": True,
     },
+    "free": {
+        "description": "Freies Template ohne TDD-Zwang — direkt Tasks übergeben via tasks oder params.tasks.",
+        "tasks": [],
+        "review_profile": "none",
+        "_multi": True,
+    },
 }
 
 
@@ -415,7 +421,7 @@ def _substitute_params(value: Any, params: dict[str, str]) -> Any:
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-TEMPLATE_NAMES = ["deploy", "fix", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "infrastructure", "go-setup", "security", "multi"]
+TEMPLATE_NAMES = ["deploy", "fix", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "infrastructure", "go-setup", "security", "multi", "free"]
 
 
 def expand_template(name: str, goal: str = "", params: Optional[dict] = None) -> dict:

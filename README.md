@@ -75,9 +75,9 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.28-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.29-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.28
+**Version:** 0.5.29
 
 **Tests:** 1480 tests
 
@@ -183,7 +183,16 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
-## [0.5.28] — 2026-06-30
+## [0.5.29] — 2026-07-04
+
+### Fixed
+- **plan_create akzeptiert jetzt top-level `tasks` auch mit template** — `tasks` werden automatisch in `params.tasks` gemerged (bisher nur via `params={"tasks": [...]}`)
+- **Error-Message zeigt alle 12 Templates** — dynamisch aus `get_template_names()` statt hardcodierter 7er-Liste
+
+### Added
+- **Neues `free` Template** — ohne TDD-Zwang, review_profile=none, Tasks direkt via `tasks` oder `params.tasks`
+
+[0.5.28] — 2026-06-30
 
 ### Fixed
 - **Doppelter README_AUTO-Block entfernt** — zweiter Block zwischen Architecture und Limitations war stale
@@ -194,9 +203,6 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 - **README_AUTO Marker hinzugefügt** — Generator erkennt jetzt 39 Tools in 4 Kategorien (CRUD, Advanced, Git, Review)
 - **Limitations-Sektion** — Neu: Session Isolation, Review Profiles, Git Branching
-- **Subagent-Integration dokumentiert** — Auto-Review, Profiles, Hooks
-- **Header aufgewertet** — Inspirierender Title + aktuelle Metriken (v0.5.27, 1480+ Tests)
-- **Stale Version gefixt** — Architektur-Sektion zeigte v1.1.0 statt v0.5.x
 
 ## [0.5.26] (2026-06-29)
 

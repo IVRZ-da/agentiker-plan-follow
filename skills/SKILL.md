@@ -49,7 +49,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `plan_git_tag(action, tag_name, message)` | Tag create/list/delete |
 | `plan_pr_create(title, body, head, base, owner, repo_name)` | PR via Forgejo API erstellen |
 
-## Templates (7)
+## Templates (12)
 
 | Template | Tasks | Review | Beschreibung |
 |----------|-------|--------|-------------|
@@ -59,7 +59,13 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `refactoring` | 4 | full | Coverage → Refactor → Verify |
 | `research` | 3 | none | Search → Analyze → Summarize |
 | `analysis` | 4 | unit-test | Code-Scan → Analyze → Report → Review |
-| `fix` | 2 | none | Analyse → Fix (schnelle Bug-Fixes) |
+| `fix` | 2 | none | RED → GREEN (TDD, schnelle Bug-Fixes) |
+| `docs` | 4 | none | Research → Outline → Write → Review |
+| `infrastructure` | 4 | api-route | Plan → Umsetzung → Test → Apply |
+| `go-setup` | 3 | unit-test | Build → Test → Vet |
+| `security` | 4 | security | Scan → Findings → Fix → Re-Scan |
+| `multi` | 0 | unit-test | Benutzerdefinierte Tasks via `params.tasks` |
+| `free` | 0 | none | Freies Template ohne TDD — eigene Tasks via `tasks` oder `params.tasks` |
 
 ## Review-Profile (6)
 
@@ -138,7 +144,7 @@ plan_follow/
 ├── plan_peer_review.py  — Auto Peer Review (8-Punkt-Checkliste + apply_findings)
 ├── plan_review.py       — Review-Dispatch, Prompt-Builder, Coverage-Check, auto_review()
 ├── plan_roadmap.py      — Roadmap YAML-CLI (11 Subcommands: status/show/to_plan/set/list/create/update/edit-phase/add-phase/remove-phase/delete)
-├── plan_templates.py    — Template-Engine (7 Built-in + User-Templates + YAML-Parser)
+├── plan_templates.py    — Template-Engine (12 Built-in + User-Templates + YAML-Parser)
 ├── plan_todo.py         — Todo-Liste aus Plan-Tasks (ersetzt built-in todo)
 ├── plan_coverage.py     — pytest-cov Wrapper + Mutation Testing (mutmut)
 ├── coord_state.py       — Cross-Session Koordination (Sessions, Locks, Notifications, atomic JSON)

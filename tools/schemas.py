@@ -32,7 +32,7 @@ PER_TOOL_SCHEMAS = {
             "plan_id": {"type": "string", "description": "Optionale eigene Plan-ID (sonst auto-generiert aus goal)"},
             "template": {
                 "type": "string",
-                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "fix", "go-setup", "infrastructure", "security", "multi"],
+                "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "fix", "go-setup", "infrastructure", "security", "multi", "free"],
                 "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, müssen tasks angegeben werden.\n  - multi: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},

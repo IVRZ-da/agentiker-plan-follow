@@ -1,6 +1,15 @@
 # Changelog
 
-## [0.5.28] — 2026-06-30
+## [0.5.29] — 2026-07-04
+
+### Fixed
+- **plan_create akzeptiert jetzt top-level `tasks` auch mit template** — `tasks` werden automatisch in `params.tasks` gemerged (bisher nur via `params={"tasks": [...]}`)
+- **Error-Message zeigt alle 12 Templates** — dynamisch aus `get_template_names()` statt hardcodierter 7er-Liste
+
+### Added
+- **Neues `free` Template** — ohne TDD-Zwang, review_profile=none, Tasks direkt via `tasks` oder `params.tasks`
+
+[0.5.28] — 2026-06-30
 
 ### Fixed
 - **Doppelter README_AUTO-Block entfernt** — zweiter Block zwischen Architecture und Limitations war stale
