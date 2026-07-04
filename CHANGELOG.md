@@ -1,6 +1,11 @@
 # Changelog
 
-## [0.5.27] — 2026-06-29
+## [0.5.28] — 2026-06-30
+
+### Fixed
+- **Doppelter README_AUTO-Block entfernt** — zweiter Block zwischen Architecture und Limitations war stale
+
+[0.5.27] — 2026-06-29
 
 ### 📝 README-Verbesserungen
 
