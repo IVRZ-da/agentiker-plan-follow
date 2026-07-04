@@ -57,7 +57,7 @@ cd agentiker-plan-follow
 pip install -e .
 ```
 
-### Plan erstellen & durchführen
+### Create and run a plan
 ```python
 # 1. Create a plan (template-based)
 plan_create(goal="Fix login validation", template="bugfix",
@@ -322,10 +322,10 @@ CHANGELOG.md         — Release history
 ```bash
 cd ~/.hermes/plugins/plan_follow
 
-# Tests ausführen
+# Run tests
 python3 -m pytest tests/ -q --tb=short
 
-# Mit Coverage
+# With coverage
 python3 -m pytest tests/ --cov=. -q --tb=short
 
 # Ruff Lint
@@ -339,13 +339,13 @@ python3 scripts/generate_readme.py --check  # Verify (exit 1 if stale)
 git config core.hooksPath .githooks
 ```
 
-Aktuell: **1480 Tests**, Coverage per Pre-Commit Hook enforced.
+Currently: **1480 tests**, coverage enforced via pre-commit hook.
 
 ---
 
 ## 📄 Changelog
 
-Siehe [`CHANGELOG.md`](CHANGELOG.md) für vollständige Release-History.
+See [`CHANGELOG.md`](CHANGELOG.md) for full release history.
 
 ---
 
@@ -354,10 +354,10 @@ Siehe [`CHANGELOG.md`](CHANGELOG.md) für vollständige Release-History.
 1. Fork the repo
 2. Create a feature branch
 3. Add tests for your changes (Coverage ≥ 90%)
-4. Run `python3 -m pytest tests/ -q` — alle Tests grün
+4. Run `python3 -m pytest tests/ -q` — all tests must pass
 5. Open a PR
 
-Siehe `CONTRIBUTING.md` für Details.
+See `CONTRIBUTING.md` for details.
 
 ---
 
