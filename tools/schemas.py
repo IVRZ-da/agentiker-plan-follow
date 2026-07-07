@@ -106,6 +106,7 @@ PER_TOOL_SCHEMAS = {
         "type": "object",
         "properties": {
             "task_id": {"type": "string", "description": "ID des zu aktualisierenden Tasks"},
+            "plan_id": {"type": "string", "description": "Optionale Plan-ID (default: aktiver Plan)"},
             "changes": {
                 "type": "object",
                 "description": "Zu ändernde Felder (files, verify, depends_on, name, review_profile)",

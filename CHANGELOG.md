@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.30] — 2026-07-07
+
+### Fixed
+- **plan_update Schema um plan_id ergänzt** — `plan_id` jetzt als optionales Property im JSON-Schema deklariert (Handler hatte es schon seit v0.5.29)
+- **test_coord_state.py: JSON-Parse-Tests gefixt** — Tests erwarteten JSON-Output, Handler gibt Rich-formatierten Text zurück
+
 ## [0.5.29] — 2026-07-04
 
 ### Fixed

@@ -84,9 +84,9 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.29-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.30-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.29
+**Version:** 0.5.30
 
 **Tests:** 1480 tests
 
@@ -192,6 +192,12 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
+## [0.5.30] — 2026-07-07
+
+### Fixed
+- **plan_update Schema um plan_id ergänzt** — `plan_id` jetzt als optionales Property im JSON-Schema deklariert (Handler hatte es schon seit v0.5.29)
+- **test_coord_state.py: JSON-Parse-Tests gefixt** — Tests erwarteten JSON-Output, Handler gibt Rich-formatierten Text zurück
+
 ## [0.5.29] — 2026-07-04
 
 ### Fixed
@@ -224,24 +230,6 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Tests
 - 5 Framework-spezifische Tests entfernt, 60 Tests passed
-
-## [0.5.25] - 2026-06-28
-
-### Changed
-- **Performance: Tool-Schema-Deduplizierung** — `__init__.py` von 933→143 Zeilen (-86%), Tool-Metadaten via Import aus `tools/descriptions.py` + `tools/schemas.py`
-- **Performance: Koordinations-Banner** — 30s TTL Cache + Change-Detection + Compact-Mode (1-Zeiler wenn unverändert)
-- **Pre-Commit Hook** — Coverage-Gate nur bei vollem Test-Durchlauf, MODULE_TEST_MAP erweitert
-
-### Fixed
-- **Test-Isolation:** 9 Test-Failures in test_hooks_coverage, TestReviewBanner, mcp_server_coverage gefixt
-- **Cache-Poisoning:** conftest.py mit autouse Fixture für Koordinations-Cache-Reset
-- **pre-commit hook:** Ruff I001 Import-Order in Tests
-
-### Added
-- **test_base.py:** 10 Tests für tools/base.py Error-Handling (uuid, JSON/OSError, __getattr__)
-- **test_task.py:** 6 Tests für tools/task.py Edge Cases (plan_id_override, parallel_groups)
-- **test_plan_mgmt.py:** 9 Tests für tools/plan_mgmt.py (relative dates, validation, errors)
-- **test_plan_core.py:** 14 Tests für plan_core.py (__getattr__ lazy imports, __setattr__, HONCHO defaults)
 
 <!-- END README_AUTO -->
 
