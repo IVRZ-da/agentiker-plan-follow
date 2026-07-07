@@ -17,8 +17,8 @@ def test_core_delete_plan_nonexistent():
 
 
 def test_core_delete_created_plan():
-    from plan_follow.plan_tools import plan_create_tool
     from plan_follow.plan_core import delete_plan
+    from plan_follow.plan_tools import plan_create_tool
     plan_create_tool({"goal": "DeleteMe", "tasks": [{"id":"d1","name":"D1"}]})
     r = delete_plan("deleteme")
     assert r is not None

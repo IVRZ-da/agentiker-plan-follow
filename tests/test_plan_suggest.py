@@ -14,11 +14,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from plan_follow.plan_suggest import (
     _detect_project_type,
     _suggest_tasks_for_goal,
+    simulate_plan,
     suggest_plan,
     time_track,
-    simulate_plan,
 )
-
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
 
