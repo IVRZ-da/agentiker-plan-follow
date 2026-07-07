@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "agentiker-plan-follow"
-version = "0.5.17"
+version = "0.5.30"
 description = "Plan-Follow Plugin for Hermes Agent — task enforcement, peer review, cross-session coordination"
 requires-python = ">=3.11"
 
