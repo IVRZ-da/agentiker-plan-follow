@@ -631,6 +631,11 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
                     # Geloeschte Testdateien stehen im Diff, existieren aber nicht
                     # mehr — pytest bricht dann mit exit 4 ab.
                     and os.path.exists(os.path.join(REPO_ROOT, f))]
+    # Geloeschte Testdateien koennen von anderen Suites importiert werden —
+    # dann ist nur die volle Suite eine belastbare Aussage.
+    if any(f.startswith("tests/") and f.endswith(".py")
+           and not os.path.exists(os.path.join(REPO_ROOT, f)) for f in staged_files):
+        return ["all"]
     changed_modules = set()
 
     # Map ALL staged files (including test files) to their source modules
