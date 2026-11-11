@@ -83,9 +83,11 @@ class TestEpilogue:
         assert "abgebrochen" in out.lower()
         assert "abgeschlossen" not in out.lower()
 
-    def test_partial_plan_without_current_task_is_silent(self):
+    def test_partial_plan_without_current_task_is_silent(self, monkeypatch):
         make_plan(statuses=("completed", "pending", "pending"))
         coord_state.register_session("s-1", plan_id="p-epi", goal="x")
+        # Nudge gehoert nicht zum Epilog-Verhalten (eigene Tests).
+        monkeypatch.setattr(plan_hooks, "_NUDGE_ENABLED", False)
 
         out = plan_hooks.on_pre_llm_call(session_id="s-1", is_first_turn=False)
 

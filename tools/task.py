@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime, timezone
 from typing import Optional
@@ -73,6 +74,9 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
             "review_profile": t.get("review_profile", "none"),
             "review_result": None,
             "depends_on": t.get("depends_on", []),
+            # kind: review muss auf die Platte, sonst greift die Review-Ausnahme
+            # nach einem Reload nicht mehr (is_review_task liest das Feld).
+            "kind": t.get("kind", ""),
         }
 
     plan = {
@@ -504,6 +508,121 @@ def set_active_plan(plan_id: str) -> bool:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+SINGLE_TASK_KEYS = ("id", "name", "title", "task", "summary", "description", "verify", "files")
+
+
+def normalize_tasks(raw) -> tuple[list, list]:
+    """Normalisiert Task-Eingaben zu einer Liste von Task-Dicts.
+
+    Akzeptiert: Liste von Dicts, einen einzelnen Task-Dict, Dict {task_id: {...}},
+    JSON-String, Liste von Strings. Ergänzt fehlende ``id`` (laufende Nummer),
+    erzwingt ``id`` als String (sonst ist der Task nach dem Reload nicht
+    auflösbar), macht doppelte IDs eindeutig und ergänzt fehlendes ``name``
+    (aus ``title``/``task``/``summary``/``description``). Gibt
+    ``(tasks, notes)`` zurück — ``notes`` beschreibt jede Korrektur, damit der
+    Aufrufer sie transparent ausweisen kann (kein stilles Durchwinken).
+    """
+    notes: list[str] = []
+    if raw is None or raw == "":
+        return [], notes
+
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+            notes.append("tasks als JSON-String geparst")
+        except (json.JSONDecodeError, ValueError):
+            return [], ["tasks-String ist kein gueltiges JSON"]
+
+    if not isinstance(raw, list) and not isinstance(raw, dict):
+        return [], [f"tasks hat ungueltigen Typ {type(raw).__name__}"]
+
+    if isinstance(raw, dict) and not raw:
+        return [], notes
+
+    if isinstance(raw, dict):
+        if any(key in raw for key in SINGLE_TASK_KEYS):
+            # Ein einzelner Task wurde direkt uebergeben ({id, name, ...}).
+            raw = [raw]
+            notes.append("Einzel-Task als Liste interpretiert")
+        else:
+            if isinstance(raw.get("tasks"), (list, dict)):
+                raw = raw["tasks"]
+                notes.append("dict['tasks'] entpackt")
+            if isinstance(raw, dict):
+                # Task-Map: {task_id: {...}} oder {task_id: "Name"}
+                items = []
+                for key, value in raw.items():
+                    if isinstance(value, dict):
+                        item = dict(value)
+                        item.setdefault("id", str(key))
+                        items.append(item)
+                    elif isinstance(value, str):
+                        items.append({"id": str(key), "name": value})
+                notes.append("task-dict (key=id) in Liste umgewandelt")
+                raw = items
+
+    # Ab hier ist raw garantiert eine Liste (dict-Zweig oben erzeugt immer eine).
+    tasks: list = []
+    alias_keys = ("title", "task", "summary", "description")
+    seen_ids: dict[str, int] = {}
+    for index, item in enumerate(raw, 1):
+        if isinstance(item, str):
+            item = {"name": item}
+        if not isinstance(item, dict):
+            notes.append(f"Task #{index} uebersprungen (kein Objekt)")
+            continue
+        task: dict = dict(item)
+
+        raw_id = task.get("id")
+        if raw_id is None or str(raw_id).strip() == "":
+            tid = str(index)
+            notes.append(f"Task #{index}: id automatisch vergeben ('{tid}')")
+        else:
+            tid = str(raw_id).strip()
+            if not isinstance(raw_id, str):
+                notes.append(f"Task #{index}: id {raw_id!r} als String uebernommen")
+
+        # Doppelte IDs wuerden sich im tasks-dict von create_plan still
+        # gegenseitig ueberschreiben (Datenverlust) — eindeutig machen.
+        if tid in seen_ids:
+            seen_ids[tid] += 1
+            unique_id = f"{tid}-{seen_ids[tid]}"
+            notes.append(f"Task #{index}: doppelte id '{tid}' -> '{unique_id}'")
+            tid = unique_id
+        else:
+            seen_ids[tid] = 1
+        task["id"] = tid
+
+        if not task.get("name"):
+            for alias in alias_keys:
+                if task.get(alias):
+                    task["name"] = str(task[alias])
+                    notes.append(f"Task '{tid}': {alias} als name uebernommen")
+                    break
+        if not task.get("name"):
+            task["name"] = f"Task {tid}"
+            notes.append(f"Task '{tid}': name fehlte, Platzhalter gesetzt")
+
+        # depends_on ebenfalls stringifizieren: numerische IDs wuerden nach dem
+        # Reload nicht mehr aufloesen, die Abhaengigkeit faellt dann still weg.
+        deps = task.get("depends_on")
+        if isinstance(deps, (list, tuple)):
+            fixed = []
+            for dep in deps:
+                if isinstance(dep, str):
+                    fixed.append(dep)
+                elif dep is None:
+                    continue
+                else:
+                    fixed.append(str(dep))
+                    notes.append(f"Task '{tid}': depends_on {dep!r} als String uebernommen")
+            task["depends_on"] = fixed
+        elif deps is None:
+            task["depends_on"] = []
+        tasks.append(task)
+    return tasks, notes
+
+
 def plan_create_tool(args: dict, **kwargs) -> str:
     """Create a new structured plan with enforceable tasks."""
     goal = args.get("goal", "")
@@ -515,33 +634,76 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     # p0-Peer-Review-Task voranstellen? (Default: ja — bisheriges Verhalten)
     template_params.setdefault("p0_review", bool(args.get("p0_review", True)))
 
+    normalized_notes: list = []
+    tasks_raw = args.get("tasks")
+
     if template_name:
         # Template expansion
         from ..plan_templates import expand_template
 
         # Merge top-level tasks into params — erlaubt tasks auch mit template
-        tasks_from_args = args.get("tasks")
-        if tasks_from_args:
+        if tasks_raw:
             merged_params = dict(template_params)
-            merged_params["tasks"] = tasks_from_args
+            merged_params["tasks"] = tasks_raw
             template_params = merged_params
+
+        # params.tasks (free/multi-Zweig) genauso normalisieren wie top-level tasks
+        if template_params.get("tasks"):
+            norm_params_tasks, param_notes = normalize_tasks(template_params["tasks"])
+            normalized_notes.extend(param_notes)
+            if norm_params_tasks:
+                template_params = dict(template_params)
+                template_params["tasks"] = norm_params_tasks
+            else:
+                detail = "; ".join(param_notes) or "unbekannter Fehler"
+                return fmt_err(f"params.tasks konnte nicht gelesen werden: {detail}")
 
         expanded = expand_template(template_name, goal, template_params)
         if "error" in expanded:
-            return fmt_ok(expanded)
-        tasks = expanded["tasks"]
+            return fmt_err(str(expanded["error"]), title="❌ Template-Fehler")
+        # Ein Plan, der nur aus dem Review-Task besteht, ist kein Plan. free/multi
+        # ohne params.tasks erzeugten bisher genau das (und der p0 ist von allen
+        # Pruefungen ausgenommen, also meldete auch der Review nichts).
+        from ..plan_peer_review import is_review_task as _is_review_task
+
+        if not any(not _is_review_task(t) for t in expanded["tasks"]):
+            return fmt_err(
+                f"Template '{template_name}' ohne echte Tasks — es blieb nur der "
+                "Review-Task uebrig. Uebergib params={'tasks': [...]} bzw. tasks=[...] "
+                "mit mindestens einem Arbeits-Task.",
+                title="❌ Leerer Plan",
+            )
+        # Template-Tasks normalisieren: expand_template kann mit params.tasks
+        # kollidieren (z.B. eine User-id 'p0' verdrängt den Review-Task im
+        # tasks-dict von create_plan). normalize_tasks dedupliziert und
+        # stringifiziert die IDs.
+        expanded_tasks, expanded_notes = normalize_tasks(expanded["tasks"])
+        if expanded_notes:
+            normalized_notes.extend(expanded_notes)
+        tasks = expanded_tasks or expanded["tasks"]
         # Use goal from template description if no goal provided
         if not goal and expanded.get("description"):
             goal = expanded["description"]
     else:
-        # Direct tasks (for tests/expert use — template is preferred)
-        tasks = args.get("tasks", [])
+        # Direct tasks (tasks wins over template; template is only one way to supply tasks)
+        tasks, notes = normalize_tasks(tasks_raw)
+        normalized_notes.extend(notes)
         if not tasks:
             from ..plan_templates import get_template_names
             names = ", ".join(get_template_names())
+            # Wenn tasks angegeben war, aber unlesbar ist, ist das die Diagnose
+            # (sonst raet das Modell wieder, statt den Input zu korrigieren).
+            if normalized_notes:
+                return fmt_err(
+                    "tasks konnte nicht gelesen werden: " + "; ".join(normalized_notes[:5])
+                )
             return fmt_err(
-                f"template is required — kein Template = kein Plan.\n"
-                f"Available templates: {names}"
+                "Keine Tasks: gib entweder 'tasks' ODER 'template' an "
+                "(sind beide gesetzt, gewinnt 'tasks').\n"
+                "Beispiel:\n"
+                "  plan_create(goal=\"...\", tasks=[{\"id\": \"T1\", \"name\": \"Erster Schritt\", "
+                "\"files\": [\"a.txt\"], \"verify\": \"test -f a.txt\"}])\n"
+                f"Verfuegbare Templates: {names}"
             )
 
     if not goal:
@@ -551,55 +713,63 @@ def plan_create_tool(args: dict, **kwargs) -> str:
 
     for t in tasks:
         if "id" not in t or "name" not in t:
-            return fmt_err("Each task needs 'id' and 'name'")
+            return fmt_err(
+                "Each task needs 'id' and 'name' — Beispiel: "
+                "[{\"id\": \"T1\", \"name\": \"Erster Schritt\", \"verify\": \"test -f a.txt\"}]"
+            )
 
-    plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups, plan_id_override=plan_id_override)
-    status = plan_core.get_plan_status()
-
-    # ─── Auto Peer Review (immer aktiv — kein Feature-Toggle) ────────────
-    # Nach plan_create() wird der Plan automatisch gegen die 8-Punkte-Checkliste
-    # geprüft. Findings werden via apply_findings() eingearbeitet.
-    # Wenn nach apply_findings noch CRITICAL-Findings übrig sind, wird der
-    # Plan NICHT erstellt (blockierend).
+    # ─── Auto Peer Review VOR dem Persistieren (v0.5.34) ──────────────────
+    # Frueher wurde erst create_plan() aufgerufen und danach reviewt. Ein
+    # blockierter Plan hinterliess damit eine halbe Datei auf der Platte,
+    # obwohl die Antwort "nicht erstellt" sagte. Jetzt wird auf einem Draft
+    # geprueft; persistiert wird nur, was den Review ueberlebt.
     peer_review_findings = []
+    applied_fixes = 0
+    draft = {
+        "plan_id": plan_id_override or "draft",
+        "goal": goal,
+        "repo": repo,
+        "tasks": {t["id"]: t for t in tasks},
+        "parallel_groups": parallel_groups or {},
+    }
     try:
-        plan = plan_core._get_active_plan()
-        if plan:
-            findings = plan_peer_review.run_peer_review(plan)
-            if findings:
-                peer_review_findings = findings
-                # Apply automatic fixes (safe: verify commands, files, profiles)
-                updated = plan_peer_review.apply_findings(plan, findings)
-
-                # ─── Post-Apply-Validierung ────────────────────────────
-                # Prüft ob nach apply_findings noch CRITICAL-Findings übrig sind.
-                # Das passiert wenn z.B. verify-Commands weder leer noch echo
-                # noch ein echter Testbefehl sind (kann nicht automatisch gefixt werden).
-                # Solche Pläne werden blockiert — der Agent muss manuell fixen.
-                remaining = plan_peer_review.run_peer_review(updated)
-                remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
-                if remaining_critical:
-                    logger.warning(
-                        "Plan '%s' blocked: %d critical findings survived auto-fix.",
-                        plan_id, len(remaining_critical),
+        findings = plan_peer_review.run_peer_review(draft)
+        if findings:
+            peer_review_findings = findings
+            updated = plan_peer_review.apply_findings(draft, findings)
+            remaining = plan_peer_review.run_peer_review(updated)
+            remaining_critical = [f for f in remaining if f.get("severity") == "critical"]
+            if remaining_critical:
+                logger.warning(
+                    "Plan draft blocked: %d critical findings survived auto-fix.",
+                    len(remaining_critical),
+                )
+                return fmt_err(
+                    "Plan NICHT erstellt — critical findings ueberleben den Auto-Fix:\n"
+                    + "\n".join(
+                        f"- [{f.get('severity')}] {f.get('check')}: {f.get('description')}"
+                        for f in remaining_critical[:3]
                     )
-                    return fmt_ok({
-                        "error": "Plan could not be created — critical issues remain after auto-fix.",
-                        "plan_id": plan_id,
-                        "status": "blocked",
-                        "original_findings": peer_review_findings,
-                        "remaining_findings": remaining_critical,
-                        "suggestion": (
-                            "Fix die verbleibenden CRITICAL-Findings manuell "
-                            "(z.B. verify-Commands setzen, Dateien deklarieren) "
-                            "und dann plan_create() erneut aufrufen."
-                        ),
-                    })
-
-                # Alle CRITICAL-Findings gefixt — Plan speichern
-                plan_core._save_plan(updated)
+                    + "\nBehebe die genannten Findings und rufe plan_create erneut auf.",
+                    title="❌ Blocked",
+                )
+            # Auto-Fixes uebernehmen: die korrigierten Tasks werden persistiert.
+            tasks = list(updated.get("tasks", {}).values()) or tasks
+            # Zaehlen, wie viele Findings wirklich einen anwendbaren Fix hatten —
+            # sonst behauptet die Response "auto-fixes applied", obwohl alles offen blieb.
+            applied_fixes = sum(
+                1
+                for f in findings
+                if f.get("task_id")
+                and any(k in plan_peer_review.APPLYABLE_FIX_KEYS for k in (f.get("fix") or {}))
+            )
     except Exception as e:
         logger.warning("Auto peer review failed (non-blocking): %s", e)
+
+    plan_id = plan_core.create_plan(goal, tasks, repo, parallel_groups, plan_id_override=plan_id_override)
+    if not plan_id:
+        return fmt_err("Plan konnte nicht gespeichert werden (create_plan lieferte keine plan_id).")
+    status = plan_core.get_plan_status()
 
     # ─── TTS: Plan erstellt — eigene Queue, NICHT die Plan-Datei ─────────
     try:
@@ -620,13 +790,43 @@ def plan_create_tool(args: dict, **kwargs) -> str:
         "current_task": status["current_task"] if status else None,
     }
     if peer_review_findings:
-        response["peer_review"] = peer_review_findings
         critical = [f for f in peer_review_findings if f.get("severity") == "critical"]
-        if critical:
+        important = [f for f in peer_review_findings if f.get("severity") == "important"]
+        cosmetic = [f for f in peer_review_findings if f.get("severity") == "cosmetic"]
+        # warning nur, wenn wirklich etwas offen blieb — "1 auto-fix, 0 offen"
+        # ist ein Erfolg und darf nicht wie ein Problem aussehen.
+        if len(critical) > applied_fixes:
             response["status"] = "warning"
-            response["peer_review_summary"] = f"{len(critical)} critical finding(s) — auto-fixes applied"
+        # Kompakt halten UND nach Severity priorisieren: die sichtbaren 3 muessen
+        # die wichtigsten sein, nicht die ersten in Check-Reihenfolge.
+        severity_rank = {"critical": 0, "important": 1, "cosmetic": 2}
+        ordered = sorted(
+            peer_review_findings,
+            key=lambda f: severity_rank.get(str(f.get("severity") or ""), 3),
+        )
+        response["peer_review"] = ordered[:3]
+        remaining = len(peer_review_findings) - len(ordered[:3])
+        open_findings = len(peer_review_findings) - applied_fixes
+        response["peer_review_summary"] = (
+            f"{len(peer_review_findings)} finding(s): {len(critical)} critical, "
+            f"{len(important)} important, {len(cosmetic)} cosmetic — "
+            + (
+                f"{applied_fixes} auto-fixes angewendet, {open_findings} offen"
+                if applied_fixes
+                else f"keine Auto-Fixes moeglich, {open_findings} offen"
+            )
+        )
+        if remaining > 0:
+            response["peer_review_more"] = remaining
     if template_name:
         response["template"] = template_name
+    if normalized_notes:
+        # Transparenz: Normalisierungen werden ausgewiesen, nicht still durchgewunken.
+        # Kappung sichtbar machen, sonst wirkt die Liste vollstaendig.
+        shown = normalized_notes[:5]
+        if len(normalized_notes) > 5:
+            shown = shown + [f"… +{len(normalized_notes) - 5} weitere Korrekturen"]
+        response["normalized"] = shown
     return fmt_ok(response)
 
 

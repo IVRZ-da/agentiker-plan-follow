@@ -239,3 +239,121 @@ class TestRegister:
             register(ctx)
 
         assert "registered successfully" in caplog.text
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.5.34: Hot-Path-Tools eager machen (tool_search-Deferral umgehen)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestEagerTools:
+    """_mark_tools_eager() traegt die 5 Hot-Path-Tools in Hermes' Core-Liste ein."""
+
+    def test_eager_marks_core_tools(self, monkeypatch):
+        import sys
+        import types
+
+        from plan_follow import EAGER_TOOLS, _mark_tools_eager
+
+        fake = types.ModuleType("toolsets")
+        fake._HERMES_CORE_TOOLS = ["terminal", "read_file"]
+        monkeypatch.setitem(sys.modules, "toolsets", fake)
+
+        _mark_tools_eager()
+
+        for name in EAGER_TOOLS:
+            assert name in fake._HERMES_CORE_TOOLS, f"{name} nicht eager eingetragen"
+        # Bestehende Eintraege bleiben unberuehrt (Reihenfolge + Inhalt)
+        assert fake._HERMES_CORE_TOOLS[:2] == ["terminal", "read_file"]
+
+    def test_eager_is_idempotent(self, monkeypatch):
+        import sys
+        import types
+
+        from plan_follow import EAGER_TOOLS, _mark_tools_eager
+
+        fake = types.ModuleType("toolsets")
+        fake._HERMES_CORE_TOOLS = list(EAGER_TOOLS)  # schon drin
+        monkeypatch.setitem(sys.modules, "toolsets", fake)
+
+        _mark_tools_eager()
+        assert fake._HERMES_CORE_TOOLS == list(EAGER_TOOLS), "Duplikate eingetragen"
+
+    def test_eager_fail_open_without_core_list(self, monkeypatch):
+        """Fehlt die Core-Liste (Hermes-Interna geaendert), darf nichts fliegen."""
+        import sys
+        import types
+
+        from plan_follow import _mark_tools_eager
+
+        fake = types.ModuleType("toolsets")  # kein _HERMES_CORE_TOOLS
+        monkeypatch.setitem(sys.modules, "toolsets", fake)
+
+        _mark_tools_eager()  # darf nicht werfen
+
+    def test_eager_only_hot_path_tools(self):
+        """Bewusst nur 5 Tools: die restlichen 34 bleiben deferred (Token-Budget)."""
+        from plan_follow import EAGER_TOOLS
+
+        assert len(EAGER_TOOLS) == 5
+        assert "plan_create" in EAGER_TOOLS
+        assert "plan_roadmap" not in EAGER_TOOLS, "plan_roadmap (~850 Tokens) bleibt deferred"
+
+
+class TestEagerIntegration:
+    """Wirkung gegen das ECHTE Hermes-toolsets pruefen, nicht nur den Append."""
+
+    def test_tool_becomes_non_deferrable(self, tmp_path):
+        """Wirkung gegen das ECHTE Hermes-toolsets — in einem frischen Prozess.
+
+        In-Process ist der Test nicht stabil: andere Testmodule legen Fake-Module
+        ('hermes_cli', 'tools', 'toolsets') in sys.modules ab, und aus dem
+        Plugin-Verzeichnis wird 'tools' als Namespace-Paket gefunden. Ein eigener
+        Interpreter mit explizitem PYTHONPATH ist deterministisch.
+        """
+        import os
+        import subprocess
+        import sys
+
+        hermes_root = str(Path.home() / ".hermes" / "hermes-agent")
+        if not (Path(hermes_root) / "toolsets.py").exists():
+            import pytest as _pytest
+
+            _pytest.skip("Hermes-Checkout nicht vorhanden")
+
+        script = (
+            "import toolsets, tools.tool_search as ts\n"
+            "from tools.registry import registry\n"
+            "from plan_follow import _mark_tools_eager\n"
+            "schema = {'name': 'x', 'description': 'p', 'parameters': {'type': 'object', 'properties': {}}}\n"
+            "registry.register(name='plan_create', toolset='plan_follow', schema=schema,"
+            " handler=lambda **kw: 'ok', description='p')\n"
+            "registry.register(name='plan_roadmap', toolset='plan_follow', schema=schema,"
+            " handler=lambda **kw: 'ok', description='p')\n"
+            "before = ts.is_deferrable_tool_name('plan_create')\n"
+            "_mark_tools_eager()\n"
+            "after = ts.is_deferrable_tool_name('plan_create')\n"
+            "other = ts.is_deferrable_tool_name('plan_roadmap')\n"
+            "print(f'{before} {after} {other}')\n"
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [hermes_root, str(Path(__file__).resolve().parents[2])]
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True, text=True, timeout=120,
+            cwd=str(tmp_path), env=env,
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        assert proc.stdout.strip() == "True False True", (
+            f"eager-Markierung wirkt nicht (vorher/nachher/control): {proc.stdout!r}"
+        )
+
+    def test_eager_tools_exist_in_plan_tools(self):
+        """Faengt Tippfehler in EAGER_TOOLS (statt tautologischem len()==5)."""
+        from plan_follow import EAGER_TOOLS, PLAN_TOOLS
+
+        registered = {name for name, _handler in PLAN_TOOLS}
+        missing = [name for name in EAGER_TOOLS if name not in registered]
+        assert not missing, f"EAGER_TOOLS enthaelt unbekannte Tools: {missing}"

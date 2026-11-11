@@ -126,40 +126,44 @@ class TestRunPeerReviewTaskIdsFromList:
 
 
 class TestRunPeerReviewAutoDetectExceptions:
-    """Coverage: run_peer_review() lines 194-195, 212-213 — Exception in auto-detect."""
+    """Coverage: Exception in auto-detect — seit v0.5.34 wird dann KEIN pytest erfunden."""
 
     def test_empty_verify_auto_detect_raises_exception(self):
-        """When _auto_detect_project_defaults raises, fallback verify is used."""
+        """Auto-detect-Fehler: Finding bleibt, aber ohne erfundenen pytest-Fix."""
         from plan_follow.plan_peer_review import run_peer_review
 
         task = make_task("t1", verify="")
         plan = make_plan({"t1": task})
 
-        with patch("plan_follow.plan_templates._auto_detect_project_defaults",
+        with patch("plan_follow.plan_templates.detect_project_markers", return_value=True), \
+             patch("plan_follow.plan_templates._auto_detect_project_defaults",
                    side_effect=ImportError("no plan_templates module")):
             findings = run_peer_review(plan)
 
         verify_findings = [f for f in findings if f["check"] == "verify"]
         assert len(verify_findings) > 0
-        # Should have fallback verify = python3 -m pytest
+        # Kein blindes pytest: ohne erkennbares Code-Projekt kein Auto-Fix.
         fix = verify_findings[0].get("fix", {})
-        assert fix.get("verify") == "python3 -m pytest"
+        assert "verify" not in fix, "ohne Projekt-Marker darf kein verify erfunden werden"
+        assert verify_findings[0]["severity"] == "important"
 
     def test_meaningless_verify_auto_detect_raises_exception(self):
-        """When verify is echo-only and auto-detect raises, fallback is used."""
+        """echo-verify + Auto-detect-Fehler: nur Hinweis, kein pytest."""
         from plan_follow.plan_peer_review import run_peer_review
 
         task = make_task("t1", verify="echo 'done'")
         plan = make_plan({"t1": task})
 
-        with patch("plan_follow.plan_templates._auto_detect_project_defaults",
+        with patch("plan_follow.plan_templates.detect_project_markers", return_value=True), \
+             patch("plan_follow.plan_templates._auto_detect_project_defaults",
                    side_effect=RuntimeError("unexpected")):
             findings = run_peer_review(plan)
 
         verify_findings = [f for f in findings if f["check"] == "verify"]
         assert len(verify_findings) > 0
         fix = verify_findings[0].get("fix", {})
-        assert fix.get("verify") == "python3 -m pytest"
+        assert "verify" not in fix
+        assert "Shell-Check" in verify_findings[0]["description"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -1487,13 +1487,16 @@ class TestMultilingualSupport:
 
 class TestEdgeCases:
     def test_on_pre_llm_call_no_current(self, monkeypatch):
-        """Line 410-411: no current task → None."""
-        from plan_follow.plan_hooks import on_pre_llm_call
+        """Line 410-411: no current task → None (Nudge hier deaktiviert)."""
+        from plan_follow import plan_hooks
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
             lambda: None,
         )
-        assert on_pre_llm_call() is None
+        # Der Nudge (v0.5.34) ist eine eigene Funktion mit eigenen Tests; hier
+        # geht es um das Banner-Verhalten ohne Task.
+        monkeypatch.setattr(plan_hooks, "_NUDGE_ENABLED", False)
+        assert plan_hooks.on_pre_llm_call() is None
 
     def test_git_banner_empty_plan_name(self, monkeypatch, mock_time):
         """Git banner with empty plan object edge case."""
@@ -1954,3 +1957,95 @@ class TestAutoNotifyOnConflict:
         assert any("Test message" in ln for ln in lines), "No preview in banner:\n" + "\n".join(lines)
         assert any("other-session" in ln for ln in lines)
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.5.34: Nudge — einmaliger Hinweis ohne aktiven Plan
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestNudge:
+    """_nudge_line() feuert genau einmal pro Session, erst ab dem 3. Turn."""
+
+    def _reset(self, monkeypatch, enabled=True):
+        import plan_follow.plan_hooks as hooks
+
+        monkeypatch.setattr(hooks, "_NUDGE_ENABLED", enabled)
+        monkeypatch.setattr(hooks, "_NUDGE_SESSIONS", set())
+        monkeypatch.setattr(hooks, "_nudge_turns", {})
+        monkeypatch.delenv("HERMES_DELEGATED_CHILD_CONTEXT", raising=False)
+        return hooks
+
+    def test_nudge_waits_three_turns_then_fires_once(self, monkeypatch):
+        hooks = self._reset(monkeypatch)
+
+        assert hooks._nudge_line("sess-a") is None, "Turn 1 darf nicht nudgen"
+        assert hooks._nudge_line("sess-a") is None, "Turn 2 darf nicht nudgen"
+
+        line = hooks._nudge_line("sess-a")
+        assert line, "Turn 3 muss den Hinweis liefern"
+        assert "plan_create" in line
+        assert "tool_call" in line, "Hinweis muss den Deferral-Aufrufweg nennen"
+
+        assert hooks._nudge_line("sess-a") is None, "nur einmal pro Session"
+        assert hooks._nudge_line("sess-a") is None
+
+    def test_nudge_disabled(self, monkeypatch):
+        hooks = self._reset(monkeypatch, enabled=False)
+        for _ in range(10):
+            assert hooks._nudge_line("sess-b") is None
+
+    def test_nudge_skipped_in_delegated_child(self, monkeypatch):
+        hooks = self._reset(monkeypatch)
+        monkeypatch.setenv("HERMES_DELEGATED_CHILD_CONTEXT", "1")
+        for _ in range(10):
+            assert hooks._nudge_line("sess-c") is None
+
+    def test_nudge_is_per_session(self, monkeypatch):
+        hooks = self._reset(monkeypatch)
+
+        for _ in range(2):
+            hooks._nudge_line("sess-d")
+        assert hooks._nudge_line("sess-d"), "Session d muss den Hinweis bekommen"
+        # Andere Session hat ihren eigenen Zaehler
+        hooks._nudge_line("sess-e")
+        hooks._nudge_line("sess-e")
+        assert hooks._nudge_line("sess-e"), "Session e muss ebenfalls den Hinweis bekommen"
+
+
+class TestNudgeRendering:
+    """Der Nudge muss durch das Banner passen (Zeilenlimit 96) und Cron meiden."""
+
+    def _reset(self, monkeypatch):
+        import plan_follow.plan_hooks as hooks
+
+        monkeypatch.setattr(hooks, "_NUDGE_ENABLED", True)
+        monkeypatch.setattr(hooks, "_NUDGE_SESSIONS", set())
+        monkeypatch.setattr(hooks, "_nudge_turns", {})
+        monkeypatch.delenv("HERMES_DELEGATED_CHILD_CONTEXT", raising=False)
+        return hooks
+
+    def test_each_line_fits_banner_limit(self, monkeypatch):
+        """_build_banner schneidet bei 96 Zeichen — der Aufrufweg muss passen."""
+        hooks = self._reset(monkeypatch)
+        hooks._nudge_lines("s-1")
+        hooks._nudge_lines("s-1")
+        lines = hooks._nudge_lines("s-1")
+
+        assert lines, "Nudge muss beim dritten Turn kommen"
+        for line in lines:
+            assert len(line) <= 90, f"Zeile zu lang ({len(line)}): {line}"
+        joined = " ".join(lines)
+        assert "tool_call" in joined, "Fallback-Aufrufweg fehlt"
+        assert "plan_create" in joined
+
+    def test_skipped_for_cron_platform(self, monkeypatch):
+        hooks = self._reset(monkeypatch)
+        for _ in range(5):
+            assert hooks._nudge_lines("s-cron", "cron") == []
+
+    def test_fires_for_cli_platform(self, monkeypatch):
+        hooks = self._reset(monkeypatch)
+        hooks._nudge_lines("s-cli", "cli")
+        hooks._nudge_lines("s-cli", "cli")
+        assert hooks._nudge_lines("s-cli", "cli"), "CLI muss den Hinweis bekommen"

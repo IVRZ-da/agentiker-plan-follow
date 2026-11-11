@@ -36,7 +36,9 @@ TEMPLATES_DIR = (Path(_TEMPLATES_ROOT) if _TEMPLATES_ROOT else Path.home() / ".h
 # Default parameter values per template (users can override via params={})
 TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
     "deploy": {
-        "build_command": "echo 'build: nicht konfiguriert (params.build_command setzen)'",
+        # Leer statt echo: ein Platzhalter-echo ist eine Scheinpruefung und
+        # blockiert den Plan (v0.5.34 behandelt echo als CRITICAL). Leer = Hinweis.
+        "build_command": "",
         "test_command": "python3 -m pytest",
         "service": "app-service",
         "verify_url": "http://localhost:8080/health",
@@ -46,20 +48,20 @@ TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
         "lint_command": "ruff check",
     },
     "feature": {
-        "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+        "typecheck_command": "",
         "test_command": "python3 -m pytest",
         "lint_command": "ruff check",
     },
     "refactoring": {
         "test_coverage_command": "python3 -m pytest --cov",
-        "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+        "typecheck_command": "",
         "lint_command": "ruff check",
     },
     "docs": {
-        "test_command": "echo 'docs: Manuelle Prüfung erforderlich'",
+        "test_command": "",
     },
     "infrastructure": {
-        "test_command": "echo 'infra: Config-Dateien prüfen'",
+        "test_command": "",
         "verify_url": "http://localhost:8080/health",
     },
     "go-setup": {
@@ -73,6 +75,57 @@ TEMPLATE_DEFAULTS: dict[str, dict[str, str]] = {
 }
 
 
+PROJECT_MARKERS = (
+    "package.json", "go.mod", "Cargo.toml", "pyproject.toml", "setup.py", "composer.json",
+    "requirements.txt", "tox.ini", "pytest.ini", "Makefile", "Gemfile", "pom.xml",
+    "build.gradle", "build.gradle.kts", "deno.json", "uv.lock",
+)
+PROJECT_MARKER_GLOBS = ("*.csproj", "*.sln")
+
+
+def detect_project_markers(base: str = "", *, fallback_cwd: bool = False, depth: int = 1) -> bool:
+    """True, wenn im Verzeichnis (oder einer Ebene darunter) ein Projekt-Marker liegt.
+
+    Templates duerfen einen Python-Default annehmen (der User hat das Template
+    explizit gewaehlt). Fuer Pruefungen (Peer-Review) ist das nicht zulaessig:
+    dort darf kein Testbefehl erfunden werden, wenn kein Code-Projekt vorliegt.
+
+    ``fallback_cwd=False`` (Peer-Review) bedeutet: ohne repo-Pfad gibt es keinen
+    Treffer. Sonst erbte ein Ops-Plan den Testbefehl des Agenten-Arbeitsverzeichnisses.
+    ``depth`` prueft zusaetzlich direkte Unterordner (Monorepo ``backend/pyproject.toml``).
+    """
+    import glob
+    import os
+
+    if not base:
+        if not fallback_cwd:
+            return False
+        base = os.getcwd()
+    base = os.path.expanduser(str(base))
+    if not os.path.isdir(base):
+        return False
+
+    def _has_marker(directory: str) -> bool:
+        for marker in PROJECT_MARKERS:
+            if os.path.exists(os.path.join(directory, marker)):
+                return True
+        for pattern in PROJECT_MARKER_GLOBS:
+            if glob.glob(os.path.join(directory, pattern)):
+                return True
+        return False
+
+    if _has_marker(base):
+        return True
+    if depth <= 0:
+        return False
+    try:
+        children = [os.path.join(base, entry) for entry in sorted(os.listdir(base))[:50]]
+    except OSError:
+        return False
+    return any(os.path.isdir(child) and _has_marker(child) for child in children)
+
+
+
 def _auto_detect_project_defaults(repo: str = "") -> dict[str, str]:
     """Auto-detect project type and return appropriate default commands.
 
@@ -81,7 +134,7 @@ def _auto_detect_project_defaults(repo: str = "") -> dict[str, str]:
     """
     import os
 
-    base = repo or os.getcwd()
+    base = os.path.expanduser(repo) if repo else os.getcwd()
 
     # Check for project markers
     markers = {
@@ -112,7 +165,7 @@ def _auto_detect_project_defaults(repo: str = "") -> dict[str, str]:
         "setup.py": {
             "test_command": "python3 -m pytest",
             "lint_command": "ruff check",
-            "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+            "typecheck_command": "",
             "build_command": "python3 -m build",
         },
         "composer.json": {
@@ -132,7 +185,7 @@ def _auto_detect_project_defaults(repo: str = "") -> dict[str, str]:
     return {
         "test_command": "python3 -m pytest",
         "lint_command": "ruff check",
-        "typecheck_command": "echo 'typecheck: nicht konfiguriert'",
+        "typecheck_command": "",
         "build_command": "echo 'build: nicht konfiguriert'",
     }
 
@@ -193,19 +246,19 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "research": {
         "description": "Recherche: Web-Suche → Analyse → Zusammenfassung",
         "tasks": [
-            {"id": "rs1", "name": "Web-Recherche durchführen", "files": [], "verify": "echo 'sources: $(ls research/ 2>/dev/null | wc -l) Quellen dokumentiert'", "depends_on": []},
-            {"id": "rs2", "name": "Ergebnisse analysieren", "files": [], "verify": "test -f research/analysis.md -o -f research/findings.md && echo '✅ Analyse-Datei existiert' || echo '⚠️ Keine Analyse-Datei gefunden'", "depends_on": ["rs1"]},
-            {"id": "rs3", "name": "Zusammenfassung schreiben", "files": [], "verify": "test -f research/summary.md -o -f research/final.md && echo '✅ Zusammenfassung geschrieben' || echo '⚠️ Keine Zusammenfassung gefunden'", "depends_on": ["rs2"]},
+            {"id": "rs1", "name": "Web-Recherche durchführen", "files": [], "verify": "", "depends_on": []},
+            {"id": "rs2", "name": "Ergebnisse analysieren", "files": [], "verify": "test -f research/analysis.md -o -f research/findings.md", "depends_on": ["rs1"]},
+            {"id": "rs3", "name": "Zusammenfassung schreiben", "files": [], "verify": "test -f research/summary.md -o -f research/final.md", "depends_on": ["rs2"]},
         ],
         "review_profile": "none",
     },
     "analysis": {
         "description": "Code-Analyse: Code scannen → Ergebnisse analysieren → Report schreiben → Review",
         "tasks": [
-            {"id": "a1", "name": "Code scannen und Daten sammeln", "files": [], "verify": "echo 'files scanned: $(find . -name '*.py' -o -name '*.ts' -o -name '*.go' 2>/dev/null | head -20 | wc -l) relevante Dateien gefunden'", "depends_on": []},
+            {"id": "a1", "name": "Code scannen und Daten sammeln", "files": [], "verify": "", "depends_on": []},
             {"id": "a2", "name": "Ergebnisse analysieren und Muster erkennen", "files": [], "verify": "test -f analysis/findings.json -o -f analysis/patterns.md && echo '✅ Analyse-Ergebnisse gespeichert' || echo '⚠️ Keine Analyse-Datei gefunden'", "depends_on": ["a1"]},
             {"id": "a3", "name": "Analyse-Report schreiben", "files": [], "verify": "test -f analysis/report.md && echo '✅ Report geschrieben' || echo '⚠️ Kein Report gefunden'", "depends_on": ["a2"]},
-            {"id": "a4", "name": "Review: Report auf Vollständigkeit prüfen", "files": [], "verify": "echo '✅ Review completed'", "depends_on": ["a3"], "review_profile": "unit-test"},
+            {"id": "a4", "name": "Review: Report auf Vollständigkeit prüfen", "files": [], "kind": "review", "verify": "", "depends_on": ["a3"], "review_profile": "unit-test"},
         ],
         "review_profile": "unit-test",
     },
@@ -222,18 +275,18 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "docs": {
         "description": "Dokumentation: Research → Outline → Write → Review",
         "tasks": [
-            {"id": "dc1", "name": "Research: Quellen und Informationen sammeln", "files": [], "verify": "echo 'research: $(ls docs/research/ 2>/dev/null | wc -l) Quellen'", "depends_on": []},
+            {"id": "dc1", "name": "Research: Quellen und Informationen sammeln", "files": [], "verify": "", "depends_on": []},
             {"id": "dc2", "name": "Outline: Struktur und Gliederung erstellen", "files": [], "verify": "test -f docs/outline.md && echo '✅ Outline erstellt' || echo '⚠️ Kein Outline'", "depends_on": ["dc1"]},
             {"id": "dc3", "name": "Write: Inhalt schreiben", "files": ["docs/"], "verify": "test -f docs/content.md -o -f README.md && echo '✅ Content geschrieben' || echo '⚠️ Kein Content'", "depends_on": ["dc2"]},
-            {"id": "dc4", "name": "Review: Inhalt gegen Checkliste prüfen", "files": [], "verify": "echo '✅ Docs reviewed'", "depends_on": ["dc3"]},
+            {"id": "dc4", "name": "Review: Inhalt gegen Checkliste prüfen", "files": [], "kind": "review", "verify": "", "depends_on": ["dc3"]},
         ],
         "review_profile": "none",
     },
     "infrastructure": {
         "description": "Infrastruktur: Plan → Umsetzung → Test → Apply",
         "tasks": [
-            {"id": "i1", "name": "Plan: Änderungen dokumentieren", "files": [], "verify": "echo 'Änderungen geplant: systemd, nginx, Docker, Configs'", "depends_on": []},
-            {"id": "i2", "name": "Umsetzung: Konfiguration anpassen", "files": ["/etc/", "nginx/", "docker/", "*.yaml", "*.toml", "*.conf"], "verify": "echo 'Config: Umsetzung abgeschlossen'", "depends_on": ["i1"]},
+            {"id": "i1", "name": "Plan: Änderungen dokumentieren", "files": [], "verify": "", "depends_on": []},
+            {"id": "i2", "name": "Umsetzung: Konfiguration anpassen", "files": ["/etc/", "nginx/", "docker/", "*.yaml", "*.toml", "*.conf"], "verify": "", "depends_on": ["i1"]},
             {"id": "i3", "name": "Test: Konfiguration prüfen + Dry-Run", "files": [], "verify": "{{test_command}}", "depends_on": ["i2"]},
             {"id": "i4", "name": "Apply + Health-Check", "files": [], "verify": "systemctl is-active --quiet {{service}} && curl -sf {{verify_url}} && echo '✅ Service healthy' || echo '⚠️ Health-Check fehlgeschlagen'", "depends_on": ["i3"]},
         ],
@@ -251,10 +304,10 @@ BUILTIN_TEMPLATES: dict[str, dict[str, Any]] = {
     "security": {
         "description": "Security-Audit: Scan → Findings → Fix → Re-Scan",
         "tasks": [
-            {"id": "s1", "name": "Scan: Sicherheitslücken identifizieren", "files": [], "verify": "echo 'Security Scan: $(find security/ -name '*.json' -o -name '*.md' 2>/dev/null | wc -l) Findings'", "depends_on": []},
+            {"id": "s1", "name": "Scan: Sicherheitslücken identifizieren", "files": [], "verify": "", "depends_on": []},
             {"id": "s2", "name": "Analyse: Findings priorisieren", "files": [], "verify": "test -f security/findings.md && echo '✅ Findings priorisiert' || echo '⚠️ Keine Findings-Datei'", "depends_on": ["s1"]},
-            {"id": "s3", "name": "Fix: Schwachstellen beheben", "files": ["src/"], "verify": "echo 'Fixes: implementiert'", "depends_on": ["s2"]},
-            {"id": "s4", "name": "Re-Scan: Nachkontrolle", "files": [], "verify": "echo '✅ Re-Scan completed'", "depends_on": ["s3"]},
+            {"id": "s3", "name": "Fix: Schwachstellen beheben", "files": ["src/"], "verify": "", "depends_on": ["s2"]},
+            {"id": "s4", "name": "Re-Scan: Nachkontrolle", "files": [], "kind": "review", "verify": "", "depends_on": ["s3"]},
         ],
         "review_profile": "security",
     },

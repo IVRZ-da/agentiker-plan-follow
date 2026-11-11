@@ -121,11 +121,12 @@ class TestPlanCreateAutoPeerReview:
                     "template": "fix",
                 })
                 parsed = json.loads(result) if isinstance(result, str) else {}
-                # Findings that survive auto-fix block the plan
-                assert parsed["status"] == "blocked", \
-                    f"Expected blocked status when critical findings survive fix, got: {parsed}"
-                assert "remaining_findings" in parsed, \
-                    f"Expected remaining_findings in blocked response, got keys: {parsed.keys()}"
+                # Seit v0.5.34: ehrliche Fehler-Box (status=error) statt einer
+                # Success-Box mit status=blocked; der Plan wird nicht persistiert.
+                assert parsed["status"] == "error", \
+                    f"Expected error status when critical findings survive fix, got: {parsed}"
+                assert "critical findings" in parsed.get("error", ""), \
+                    f"Expected finding details in the error text, got keys: {parsed.keys()}"
 
 
 class TestPlanCompleteTTS:

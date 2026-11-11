@@ -10,12 +10,18 @@ PER_TOOL_SCHEMAS = {
         "properties": {
             "goal": {"type": "string", "description": "Das Ziel des Plans"},
             "tasks": {
-                "type": "array",
+                # Bewusst tolerant: normalize_tasks() repariert Dicts, Listen,
+                # JSON-Strings und Tasks ohne id/name. Das Schema darf strenger
+                # sein als der Code, sonst weist Hermes' Bridge (tool_call) genau
+                # die Eingaben ab, die der Code akzeptiert.
+                "type": ["array", "object", "string"],
                 "items": {
                     "type": "object",
                     "properties": {
-                        "id": {"type": "string"},
+                        "id": {"type": ["string", "integer"]},
                         "name": {"type": "string"},
+                        "title": {"type": "string"},
+                        "kind": {"type": "string"},
                         "files": {"type": "array", "items": {"type": "string"}},
                         "verify": {"type": "string"},
                         "review_profile": {
@@ -25,15 +31,15 @@ PER_TOOL_SCHEMAS = {
                         },
                         "depends_on": {"type": "array", "items": {"type": "string"}},
                     },
-                    "required": ["id", "name"],
+                    "additionalProperties": True,
                 },
-                "description": "Liste der Tasks. Nur nutzbar wenn template nicht gesetzt ist (alternative zu template). Jeder Task braucht id und name, optional files/verify/review_profile/depends_on.",
+                "description": "Eigene Task-Liste (Alternative zu template; bei beiden gewinnt tasks). Jeder Task braucht id und name, optional files/verify/review_profile/depends_on. Fehlende id wird automatisch vergeben, 'title' wird als 'name' akzeptiert, ein Dict {task_id: {...}} wird zur Liste normalisiert. Minimal-Beispiel: [{'id':'T1','name':'Fix login','verify':'pytest tests/test_auth.py'}].",
             },
             "plan_id": {"type": "string", "description": "Optionale eigene Plan-ID (sonst auto-generiert aus goal)"},
             "template": {
                 "type": "string",
                 "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "fix", "go-setup", "infrastructure", "security", "multi", "free"],
-                "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, müssen tasks angegeben werden.\n  - multi: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
+                "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, muessen tasks angegeben werden (tasks gewinnt, wenn beides gesetzt ist). Fuer Ops-/Nicht-Code-Plaene: free.\n  - multi/free: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},
             "p0_review": {

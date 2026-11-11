@@ -965,6 +965,61 @@ def _try_session_recovery(kwargs: dict) -> None:
     )
 
 
+_NUDGE_ENABLED = os.environ.get("PLAN_FOLLOW_NUDGE", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+_NUDGE_AFTER_TURNS = 3
+_NUDGE_SESSIONS: set = set()
+_nudge_turns: dict = {}
+# Plattformen, in denen ein "mach einen Plan"-Hinweis nur Rauschen ist
+# (unbeaufsichtigte Laeufe erzeugen pro Lauf eine neue Session-ID).
+_NUDGE_SKIP_PLATFORMS = {"cron", "webhook", "headless", "kanban", "api", "api_server"}
+
+
+def _nudge_lines(session_id: str, platform: str = "") -> list:
+    """Einmaliger Hinweis, wenn gar keine Planung laeuft (v0.5.34).
+
+    Warum: der Banner schweigt ohne aktiven Plan — genau in dem Moment, in dem
+    die Entscheidung fuer plan_follow fallen muesste. Hermes' eigene Messungen
+    (tool-search.md, "Why the listing exists") zeigen, dass Modelle deferierte
+    Faehigkeiten ignorieren oder fuer nicht vorhanden erklaeren, wenn nichts sie
+    benennt. Deshalb nennt der Hinweis den exakten Aufrufweg — Ermahnung allein
+    wirkt nicht.
+
+    Wichtig: jede Zeile bleibt unter 90 Zeichen, weil _build_banner Zeilen bei 96
+    hart abschneidet (sonst geht genau der Aufrufweg verloren).
+
+    Grenzen: hoechstens einmal pro Session, erst ab dem 3. Turn, abschaltbar via
+    PLAN_FOLLOW_NUDGE=0, nie in delegierten Kindern, nie auf unbeaufsichtigten
+    Plattformen (cron/webhook/headless).
+    """
+    if not _NUDGE_ENABLED:
+        return []
+    if os.environ.get("HERMES_DELEGATED_CHILD_CONTEXT"):
+        return []
+    if str(platform or "").lower() in _NUDGE_SKIP_PLATFORMS:
+        return []
+    key = session_id or "unknown"
+    if key in _NUDGE_SESSIONS:
+        return []
+    _nudge_turns[key] = _nudge_turns.get(key, 0) + 1
+    if _nudge_turns[key] < _NUDGE_AFTER_TURNS:
+        return []
+    _NUDGE_SESSIONS.add(key)
+    return [
+        "ℹ️ Kein aktiver Plan — Aufgabe > 2 Min?",
+        "→ plan_create(goal=..., tasks=[...]) liegt eager im Set.",
+        "→ sonst: tool_call(name='plan_create', arguments={...})",
+        "Kein Ad-hoc-Markdown-Plan.",
+    ]
+
+
+def _nudge_line(session_id: str, platform: str = "") -> Optional[str]:
+    """Einzeilige Variante (join) fuer Aufrufer, die keinen Banner bauen."""
+    lines = _nudge_lines(session_id, platform)
+    return " ".join(lines) if lines else None
+
+
 def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     """Pre-LLM-call hook: inject plan context into user message.
 
@@ -997,6 +1052,10 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
             epilogue = _safe_section("epilogue", _epilogue_lines, session_id)
             if epilogue:
                 return _build_banner(epilogue, session_id=session_id)
+            # Kein Plan, kein Epilog: einmaliger Hinweis auf plan_follow.
+            nudge = _nudge_lines(session_id, str(kwargs.get("platform") or ""))
+            if nudge:
+                return _build_banner(nudge, session_id=session_id)
             return None
 
         # ─── Banner-Frequenz-Check ─────────────────────────────────────────
@@ -1239,6 +1298,9 @@ def on_session_end(**kwargs: Any) -> None:
         session_id_for_recovery = str(kwargs.get("session_id") or "")
         if session_id_for_recovery:
             _recovered_sessions.discard(session_id_for_recovery)
+            # Nudge-State nicht unbegrenzt wachsen lassen (langlebige Gateways).
+            _nudge_turns.pop(session_id_for_recovery, None)
+            _NUDGE_SESSIONS.discard(session_id_for_recovery)
         # 1. Persist current plan state
         plan = _hook_active_plan()
         if plan:

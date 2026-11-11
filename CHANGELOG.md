@@ -1,5 +1,101 @@
 # Changelog
 
+## [0.5.34] — 2026-11-11
+
+Anlass: Am 11.11. scheiterte `plan_create` in einer Session mit „Tool 'plan_create' does not
+exist", dann mit „template is required", und drei Pläne blockierten sich selbst. Eine
+Auswertung von 479 Sessions (state.db, nur echte Tool-Ausgaben) ergab ~56 % Fehlschläge beim
+ersten Versuch: 65× `Each task needs 'id' and 'name'`, 49× `template is required`, 29×
+`Plan could not be created — critical issues remain`, 25× `multi-Template erfordert
+params.tasks`, 11× `Tool 'plan_create' does not exist`.
+
+### 🔴 Root-Cause — Auto-Fixes wurden nie angewandt
+- **`apply_findings()` verwarf jeden Fix, dessen Schlüssel im Task noch nicht existierte**
+  (`if key in task`). Ein Task ohne `verify` bekam den vorgeschlagenen Testbefehl deshalb nie,
+  die Nachprüfung fand das Finding erneut und der Plan blockierte sich selbst — genau die
+  29 dokumentierten Blockaden. Jetzt Whitelist `APPLYABLE_FIX_KEYS` (verify, files,
+  review_profile, depends_on) statt Existenzprüfung.
+
+### 🔴 Der Plan blockiert sich nicht mehr selbst
+- **Review-Tasks sind von der Prüfung ausgenommen** (`is_review_task()`): `kind: review`,
+  Namensmuster für die Review-Handlung, oder `id: p0` ohne Dateien und ohne echten verify.
+  Der vom Template erzeugte p0-Task (`verify: echo '✅ …'`) erzeugte vorher ein CRITICAL-Finding
+  gegen den eigenen Plan. Tasks, die Reviews *abarbeiten* („Peer-Review-Kommentare
+  einarbeiten"), bleiben bewusst prüfpflichtig.
+- **Kein erfundenes pytest für Ops-Pläne:** ohne Projekt-Marker (package.json, pyproject.toml,
+  go.mod, Cargo.toml, composer.json, requirements.txt, tox.ini, pytest.ini, Makefile, Gemfile,
+  pom.xml, build.gradle[.kts], deno.json, uv.lock, *.csproj, *.sln) wird kein Testbefehl
+  eingesetzt. Ohne `repo` wird nicht auf das Agenten-cwd zurückgefallen; `repos` und `~` werden
+  aufgelöst.
+- **Severity-Trennung:** fehlender verify = Hinweis (IMPORTANT); bewusst wertloser verify
+  (`echo`, `true`, `:`) = CRITICAL, auch ohne Projekt-Marker.
+- Vorbestehender Bug behoben: die `|| true`-Maskierungsprüfung lag eingerückt im grep-Zweig
+  und griff bei `make test || true` nie.
+
+### 🟠 Eingaben robust — ein Fehlerbild statt fünf
+- **`normalize_tasks()`** für alle Zweige (top-level `tasks`, `params.tasks`, Template-Tasks):
+  Liste, Dict `{id: {...}}`, `{"tasks": …}`, JSON-String, Einzel-Task, Liste von Strings.
+  `id` wird String (numerische IDs machten den Task nach dem Reload unauflösbar),
+  doppelte IDs werden eindeutig (`T1` → `T1-2`) statt still überschrieben,
+  fehlende `id` laufend vergeben, `name` aus `title`/`task`/`summary`/`description`.
+  Korrekturen werden unter `normalized` ausgewiesen (sichtbar gekappt).
+- **Ein Fehlertext** nennt beide Optionen (`tasks` ODER `template`), mit kopierfertigem Beispiel
+  und der Template-Liste. Kaputtes JSON wird als solches gemeldet, nicht als „keine Tasks".
+- **`task-dict`-Falle:** ein einzelner Task (`{id, name, …}`) erzeugte vorher drei
+  Phantom-Tasks mit den IDs `id`, `name`, `verify`.
+
+### 🟠 Ehrliche Fehlerpfade
+- **Review läuft VOR dem Persistieren** (Draft): ein blockierter Plan hinterlässt keine Datei
+  mehr auf der Platte. Vorher stand „nicht erstellt" in der Antwort, die Datei lag aber da.
+- **`fmt_err` statt `fmt_ok`** bei Blockade und bei Template-Fehlern — keine grüne Success-Box
+  mit `error`-Feld mehr.
+- **Response kompakt:** max. 3 Findings, nach Severity priorisiert, plus `peer_review_summary`
+  mit Zählern und `peer_review_more`. Vorher bis 24 KB Finding-Lawine; `auto-fixes applied`
+  wird nur noch behauptet, wenn wirklich etwas angewandt wurde.
+
+### 🟢 plan_follow wird Standard statt Option
+- **Die 5 Hot-Path-Tools liegen eager im Tool-Set** (`plan_create`, `plan_current`,
+  `plan_complete`, `plan_update`, `plan_status`). Hermes deferrt Plugin-Tools grundsätzlich
+  hinter `tool_search`; `plan_create` war damit nur über `tool_describe` + `tool_call`
+  erreichbar (2 Extra-Turns, „Tool does not exist"-Fehler). Gemessen: 1834 Tokens Schema pro
+  Turn für die 5, die übrigen 34 bleiben deferred (plan_roadmap allein ~850). Fail-open: fehlt
+  oder ändert sich `_HERMES_CORE_TOOLS`, bleibt es beim Deferral, mit Warning im Log.
+  Bekannter Nebeneffekt: die 5 zählen im GUI-Plugin-Panel als „builtin".
+- **Einmaliger Nudge ohne aktiven Plan:** ab Turn 3, 1× pro Session, nennt den exakten
+  Aufrufweg (eager bzw. `tool_call(name='plan_create', arguments={...})`), jede Zeile ≤ 90
+  Zeichen (der Banner schneidet bei 96). Nicht in delegierten Kindern, nicht auf
+  cron/webhook/headless/kanban/api. Abschaltbar: `PLAN_FOLLOW_NUDGE=0`.
+
+### 🟡 Doku, Tests, Umgebung
+- **Schema der echten Toleranz angepasst:** `tasks` ist nicht mehr nur `array` mit
+  `required [id, name]` — sonst weist Hermes' Bridge (`tool_call`) genau die Dicts,
+  `title`-Tasks und id-losen Tasks ab, die `normalize_tasks` reparieren kann. `kind` und
+  `title` sind deklariert, numerische IDs erlaubt.
+- **`kind: review` wird persistiert** (`create_plan`-Whitelist), sonst verschwand die
+  Review-Ausnahme nach einem Reload wieder.
+- **`depends_on` wird stringifiziert** wie die Task-ID: numerische Abhängigkeiten fielen
+  vorher still weg (Review meldete „depends_on 1 does not exist", Auto-Fix löschte die
+  Abhängigkeit, Plan hatte am Ende `depends_on: []` — ohne Hinweis).
+- **Template-Platzhalter entfernt:** `echo 'build: nicht konfiguriert'` & Co. sind
+  Scheinprüfungen und blockierten `deploy`/`feature`/`refactoring`/`infrastructure` ohne
+  `repo`. Jetzt leer = Hinweis statt Blocker.
+- **`free`/`multi` ohne echte Tasks** werden abgelehnt (vorher entstand ein Plan, der nur
+  aus dem p0-Review-Task bestand — und der ist von allen Prüfungen ausgenommen).
+- `status=warning` nur noch bei tatsächlich offenen critical Findings (vorher auch bei
+  „1 auto-fix, 0 offen").
+- Nudge-Skipliste enthält `api_server` (Hermes' Plattform-Key) statt nur `api`.
+- `coverage.json` (kaputtes 13-Byte-Artefakt) nicht mehr getrackt.
+- `plan_create`-Beschreibung und Schema sagen die Wahrheit (kein „TEMPLATE IS REQUIRED",
+  `free` in der Template-Liste, Beispiel, Review-Semantik). Companion-Skill v1.7.0: korrekter
+  Aufrufweg, task/template-Semantik, Ops-Plan-Abschnitt neu.
+- Templates aufgeräumt: Review-Schritte mit `kind: review`, Status-`echo`-Verifies entfernt,
+  `research`-Checks ohne maskierendes `echo`.
+- **+99 Tests** (1521 → 1620, kein Skip), u.a. `tests/test_plan_create_contract.py` mit den fünf
+  Fehlersignaturen aus dem Incident als Contract. Coverage 91,03 % (Gate 90).
+- Test-Umgebung dokumentiert: das kaputte repo-lokale `.venv` (ohne pip/rich) ist entfernt,
+  CONTRIBUTING nennt `HERMES_PYTHON` / `~/.hermes/hermes-agent/venv/bin/python3`,
+  `pyproject.toml` hat `[project.optional-dependencies] dev`. `.coverage` nicht mehr getrackt.
+
 ## [0.5.33] — 2026-11-11
 
 ### 🔴 Critical — der Banner behauptete Zustände, die nicht auf der Platte standen

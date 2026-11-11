@@ -1,15 +1,15 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.6.0) — 39 plan tools + 3 hooks + 13 templates + p0-Review (opt-out) + TDD + parallel groups + roadmap + cross-session + Write-Guard + ehrlicher Disk-Banner. Strukturierte Task-Abarbeitung mit Enforcement."
-version: 1.6.0
+description: "Default für jede mehrschrittige Aufgabe (>2 Min): plan_create statt Ad-hoc-Markdown. 39 Tools, 3 Hooks, 13 Templates, Review-Gates, ehrlicher Disk-Banner."
+version: 1.7.0
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
 related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
 ---
 
-# Plan-Follow Skill v1.6.0
+# Plan-Follow Skill v1.7.0
 
-**Plugin-provided skill (plan_follow plugin, v0.5.33).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
+**Plugin-provided skill (plan_follow plugin, v0.5.34).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
 
 Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
@@ -136,7 +136,7 @@ Bei erledigtem Plan ist der Banner stumm, bis auf zwei Zeilen, genau einmal pro 
 - **Parallele Gruppen:** `plan_create(parallel_groups={"g1": {"tasks": ["a","b"]}})`
 - **Auto-Verify:** `plan_complete(task_id, auto_verify=true)` führt verify-Command aus
 - **Auto-Commit:** `plan_complete(task_id, auto_commit=true)` committed Task-Files via Git
-- **Auto Peer Review:** Nach `plan_create()` läuft `run_peer_review()` (8-Punkte-Checkliste) + `apply_findings()`
+- **Auto Peer Review:** VOR dem Persistieren auf einem Draft — `run_peer_review()` (8-Punkte-Checkliste) + `apply_findings()`; auto-fixbare Findings werden übernommen, verbleibende critical Findings verhindern das Speichern (`status=error`, keine Plan-Datei). Review-Tasks (`kind: review`, p0) sind von verify/files/profile ausgenommen.
 - **TTS Marker:** `[TTS:event=plan_created]` bei create, `[TTS:event=task_completed]` bei complete
 - **Cross-Session Koordination:** Sessions, Locks, Notifications via `coord_state.py` (atomic JSON)
 - **Roadmap-Management:** YAML-basierte Phasen mit Abhängigkeiten und Prioritäten
@@ -178,6 +178,42 @@ plan_follow/
 └── skills/
     └── plan-follow.md   — Dieser Companion-Skill
 ```
+
+## Ops-/Infra-Pläne ohne Code
+
+1. **Aufrufweg:** Ab v0.5.34 liegen `plan_create`, `plan_current`, `plan_complete`, `plan_update`
+   und `plan_status` eager im Tool-Set — direkt aufrufen. Ist nur die Bridge verfügbar (ältere
+   Installation oder `tool_search` greift), zuerst `tool_describe(['plan_create'])`, dann
+   `tool_call({"calls": [{"name": "plan_create", "arguments": {...}}]})`. `arguments` NICHT
+   verschachteln — genau eine Ebene `{name, arguments}`.
+2. **Tasks statt Template:** `plan_create` akzeptiert `tasks` direkt (ohne `template`) oder
+   `template: 'free'`/`'multi'` mit `params.tasks`. Sind beide gesetzt, gewinnt `tasks`.
+   Der Direkt-Zweig erzeugt keinen p0-Task — bei Bedarf selbst einen Task `p0` anlegen und
+   vom ersten Task per `depends_on` referenzieren.
+3. **verify ehrlich halten:** Bei fehlendem oder bedeutungslosem verify (`echo`, `true`)
+   ersetzt der Auto-Review den Projekt-Testbefehl — bei Ops-Plänen ist das falsch. Vorher
+   einen echten Shell-Check eintragen (z.B. `systemctl is-active nginx`), sonst besteht der
+   Plan eine Prüfung, die nichts prüft.
+4. `plan_update` ist pro `tool_call` ein einzelner Aufruf. Lokale Plan-Tools nicht in einem
+   Block bündeln; nur `connectors__`-Tools dürfen gebündelt werden.
+5. Verify-Befehle müssen fehlschlagen können. Scheinprüfungen wie `test -n "1"` immer
+   verwerfen, sie bestehen immer und schützen nichts.
+6. Danach `plan_validate(plan_id)` ausführen und den Plan dem User zur Freigabe zeigen.
+   Erst nach expliziter Freigabe mit dem ersten Task beginnen.
+7. **Wenn der Transport den Payload nicht durchbringt** (`tool_call` bricht mit „calls is not
+   valid JSON" ab, schon bei wenigen KB und verschachtelten Task-Arrays): Plan-Datei direkt
+   schreiben und per `plan_select` aktivieren. Das ist derselbe Speicherort, den die Tools
+   nutzen, und `plan_validate` prüft danach die Struktur:
+   - Pfad: `~/.hermes/plans/<plan_id>.json`
+   - Top-Level-Keys: `plan_id`, `goal`, `created`, `plan_version` ("1"), `repo`,
+     `current_task` (null), `tasks`, `tts_flags` (`{"task_completed": []}`)
+   - `tasks` ist ein **DICT** (Key = Task-ID), kein Array. Jeder Task: `id`, `status`
+     ("pending"), `name`, `files` (Liste), `verify` (String), `review_profile`
+     ("none"…"full"), `review_result` (null), `depends_on` (Liste)
+   - Reihenfolge: `plan_select(plan_id)` (kleiner Payload, geht durch) →
+     `plan_validate(plan_id)` → `plan_status()`
+   - In `verify` nur ASCII und einfache Anführungszeichen verwenden; mehrzeilige oder
+     backslash-lastige Regex-Kommandos stattdessen in ein `scripts/`-Skript auslagern.
 
 ## Review-Workflow
 

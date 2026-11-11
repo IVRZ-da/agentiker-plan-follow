@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.33-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1557%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.34-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1620%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.33
+**Version:** 0.5.34
 
-**Tests:** 1557 tests
+**Tests:** 1620 tests
 
 **Tools (39):**
 
@@ -135,7 +135,7 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 |------|-------------|
 | `plan_abort` | Abort the active plan or a specific task. |
 | `plan_complete` | Complete the current task, verify it, advance to the next one. |
-| `plan_create` | Create a new structured plan with enforceable tasks. TEMPLATE IS REQUIRED — manual tasks are not allowed. |
+| `plan_create` | Create a tracked, enforceable plan — the default tool for any task that needs more than about two minutes of work. Never write an ad-hoc markdown p... |
 | `plan_current` | Show the current task. ONLY ONE task is returned at a time — you see only what needs to be done now. Returns task details including allowed files, ... |
 | `plan_todo` | Manage your task list for the active plan. |
 
@@ -192,6 +192,27 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
+## [0.5.34] — 2026-11-11
+
+Anlass: Am 11.11. scheiterte `plan_create` in einer Session mit „Tool 'plan_create' does not
+exist", dann mit „template is required", und drei Pläne blockierten sich selbst. Eine
+Auswertung von 479 Sessions (state.db, nur echte Tool-Ausgaben) ergab ~56 % Fehlschläge beim
+ersten Versuch: 65× `Each task needs 'id' and 'name'`, 49× `template is required`, 29×
+`Plan could not be created — critical issues remain`, 25× `multi-Template erfordert
+params.tasks`, 11× `Tool 'plan_create' does not exist`.
+
+### 🔴 Root-Cause — Auto-Fixes wurden nie angewandt
+- **`apply_findings()` verwarf jeden Fix, dessen Schlüssel im Task noch nicht existierte**
+  (`if key in task`). Ein Task ohne `verify` bekam den vorgeschlagenen Testbefehl deshalb nie,
+  die Nachprüfung fand das Finding erneut und der Plan blockierte sich selbst — genau die
+  29 dokumentierten Blockaden. Jetzt Whitelist `APPLYABLE_FIX_KEYS` (verify, files,
+  review_profile, depends_on) statt Existenzprüfung.
+
+### 🔴 Der Plan blockiert sich nicht mehr selbst
+- **Review-Tasks sind von der Prüfung ausgenommen** (`is_review_task()`): `kind: review`,
+  Namensmuster für die Review-Handlung, oder `id: p0` ohne Dateien und ohne echten verify.
+  Der vom Template erzeugte p0-Task (`verify: echo '✅ …'`) erzeugte vorher ein CRITICAL-Finding
+
 ## [0.5.33] — 2026-11-11
 
 ### 🔴 Critical — der Banner behauptete Zustände, die nicht auf der Platte standen
@@ -233,12 +254,6 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 - **`rich` und `PyYAML` waren undeklariert** — das Plugin-`.venv` konnte 13 Testdateien nicht einsammeln. `_fmt.py` hat jetzt einen reinen Text-Fallback (12 Formatter, 300 Aufrufstellen unverändert), `plan_templates.py` behandelt PyYAML optional; beide sind in `pyproject.toml` (`dependencies`) und `plugin.yaml` (`python_dependencies`) deklariert. `build-backend` korrigiert (`setuptools.build_meta`).
 
 ### Changed (Verhalten)
-
-## [0.5.30] — 2026-07-07
-
-### Fixed
-- **plan_update Schema um plan_id ergänzt** — `plan_id` jetzt als optionales Property im JSON-Schema deklariert (Handler hatte es schon seit v0.5.29)
-- **test_coord_state.py: JSON-Parse-Tests gefixt** — Tests erwarteten JSON-Output, Handler gibt Rich-formatierten Text zurück
 
 <!-- END README_AUTO -->
 

@@ -76,6 +76,65 @@ PLAN_TOOLS = [
 
 
 
+# Tools, die ohne Bridge direkt im Tool-Set liegen sollen. Sie sind der
+# Hot-Path jeder Plan-Abarbeitung; der Rest der 39 bleibt deferred.
+EAGER_TOOLS = ("plan_create", "plan_current", "plan_complete", "plan_update", "plan_status")
+
+
+def _mark_tools_eager() -> None:
+    """Traegt die Hot-Path-Tools in Hermes' Core-Liste ein (macht sie eager).
+
+    Hintergrund: ``tools/tool_search.py::is_deferrable_tool_name()`` behaelt ein
+    Tool nur dann eager, wenn es in ``toolsets._HERMES_CORE_TOOLS`` steht. Plugin-
+    Tools stehen dort nie — ohne diesen Eintrag ist ``plan_create`` ausschliesslich
+    ueber die Bridge (``tool_describe`` + ``tool_call``) erreichbar, was pro
+    Plan-Erstellung zwei Extra-Turns und eine Fehlerquelle kostet.
+
+    Die 5 Tools kosten gemessen 7336 Zeichen Schema ≈ 1834 Tokens pro Turn
+    (davon plan_create allein ~1139). Bewusst nur diese: die restlichen 34
+    (u.a. plan_roadmap mit ~850 Tokens allein) bleiben deferred.
+
+    Fail-open: Aendert eine kuenftige Hermes-Version die Interna, bleibt es beim
+    bisherigen Deferral — es gibt keinen Crash und keinen Startabbruch. Die
+    Plattform-Bundles (``toolsets.TOOLSETS``) sind beim Import bereits gebaut und
+    werden durch den Append nicht veraendert.
+
+    Bekannter Nebeneffekt: das GUI-Plugin-Panel leitet die Tools eines Plugins als
+    ``tools_registered - _HERMES_CORE_TOOLS`` ab. Die 5 Hot-Path-Tools zaehlen dort
+    deshalb als "builtin" und erscheinen nicht mehr unter plan_follow (die uebrigen
+    34 bleiben zuordenbar). Bewusst akzeptiert.
+    """
+    try:
+        import toolsets  # type: ignore[import-not-found]
+
+        core = getattr(toolsets, "_HERMES_CORE_TOOLS", None)
+        if not isinstance(core, (list, tuple, set, frozenset)):
+            logger.warning(
+                "plan_follow: _HERMES_CORE_TOOLS hat unerwarteten Typ %s — Tools bleiben deferred",
+                type(core).__name__,
+            )
+            return
+        if not isinstance(core, list):
+            # tuple/frozenset: in eine Liste kopieren und zurueckschreiben.
+            core = list(core)
+            try:
+                toolsets._HERMES_CORE_TOOLS = core
+            except Exception as e:  # pragma: no cover
+                logger.warning(
+                    "plan_follow: _HERMES_CORE_TOOLS nicht schreibbar (%s) — Tools bleiben deferred", e
+                )
+                return
+        added = [name for name in EAGER_TOOLS if name not in core]
+        core.extend(added)
+        logger.info(
+            "plan_follow: %d tools eager (%s)", len(added), ", ".join(added) or "keine"
+        )
+    except Exception as e:  # pragma: no cover - nur bei Hermes-Interna-Aenderung
+        logger.warning(
+            "plan_follow: eager-Markierung fehlgeschlagen (Tools bleiben deferred): %s", e
+        )
+
+
 def _register_tools(ctx: PluginContext) -> None:
     """Register all plan tools.
 
@@ -245,6 +304,7 @@ def _inject_steering_hints() -> None:
 
 def register(ctx: PluginContext) -> None:
     """Plugin entry point."""
+    _mark_tools_eager()
     _register_tools(ctx)
     _register_hooks(ctx)
     _register_skill(ctx)

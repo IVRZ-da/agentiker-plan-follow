@@ -408,13 +408,15 @@ class TestParallelGroupsCheck:
 class TestApplyFindings:
     """Test that apply_findings() correctly applies fix suggestions."""
 
-    def test_apply_verify_fix(self):
-        """apply_findings should replace meaningless echo with real verify."""
+    def test_apply_verify_fix(self, tmp_path):
+        """apply_findings should replace meaningless echo with real verify (Code-Projekt)."""
         from plan_follow.plan_peer_review import apply_findings, run_peer_review
 
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
         plan = make_plan([
             make_task("p1", verify="echo 'done'"),
         ])
+        plan["repo"] = str(tmp_path)
         findings = run_peer_review(plan)
         updated = apply_findings(plan, findings)
 
@@ -490,3 +492,180 @@ class TestPerfectPlanNoFindings:
         critical = [f for f in findings if f.get("severity") == "critical"]
         assert len(critical) == 0, \
             f"Perfect plan should have 0 critical findings, got: {critical}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.5.34: Review-Tasks + Nicht-Code-Plaene (Plan blockiert sich nicht selbst)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestReviewTaskExemption:
+    """p0/Review-Tasks sind Selbst-Checks und duerfen nicht als CRITICAL gelten."""
+
+    def test_review_task_not_critical(self):
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("p0", name="Peer Review: Plan pruefen", files=[],
+                      verify="echo 'Plan review bestanden'"),
+            make_task("p1", name="Pakete aktualisieren", files=["/etc/packages.list"],
+                      verify="test -f /etc/packages.list", depends_on=["p0"]),
+        ])
+        findings = run_peer_review(plan)
+        critical = [f for f in findings if f.get("severity") == "critical"]
+        assert critical == [], f"Review-Task darf kein kritisches Finding erzeugen: {critical}"
+        assert all(f.get("task_id") != "p0" for f in findings if f["check"] == "verify"), \
+            "Review-Task darf nicht in der verify-Pruefung auftauchen"
+
+    def test_review_task_recognised_by_kind(self):
+        from plan_follow.plan_peer_review import is_review_task, run_peer_review
+
+        task = make_task("r1", name="Irgendwas", kind="review", verify="echo 'ok'")
+        assert is_review_task(task) is True
+        plan = make_plan([task])
+        findings = [f for f in run_peer_review(plan) if f["check"] == "verify"]
+        assert findings == [], "kind=review muss von der verify-Pruefung ausgenommen sein"
+
+    def test_regular_task_still_checked(self):
+        from plan_follow.plan_peer_review import is_review_task
+
+        assert is_review_task(make_task("t1", name="Fix login")) is False
+
+
+class TestNonCodePlanVerify:
+    """Ohne erkennbares Code-Projekt wird kein pytest erfunden."""
+
+    def test_noncode_plan_no_pytest_fallback(self, tmp_path):
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("t1", name="TLS-Zertifikat erneuern", files=["/etc/nginx/site.conf"],
+                      verify=""),
+        ])
+        plan["repo"] = str(tmp_path)  # leerer Ordner: kein package.json/pyproject/go.mod
+        findings = run_peer_review(plan)
+        verify_findings = [f for f in findings if f["check"] == "verify"]
+        assert verify_findings, "fehlender verify muss gemeldet werden"
+        assert verify_findings[0]["severity"] == "important", \
+            "leerer verify ohne Projekt-Marker ist ein Hinweis, kein Blocker"
+        assert "verify" not in verify_findings[0].get("fix", {}), \
+            "ohne Projekt-Marker darf kein verify automatisch gesetzt werden"
+        assert "Shell-Check" in verify_findings[0]["description"]
+
+    def test_fake_verify_is_critical_even_without_project(self, tmp_path):
+        """echo/true ist eine Scheinpruefung: kritisch, auch ohne Projekt-Marker."""
+        from plan_follow.plan_peer_review import run_peer_review
+
+        for fake in ("echo 'done'", "true"):
+            plan = make_plan([make_task("t1", name="Schritt", files=["a.txt"], verify=fake)])
+            plan["repo"] = str(tmp_path)
+            findings = [f for f in run_peer_review(plan) if f["check"] == "verify"]
+            assert findings and findings[0]["severity"] == "critical", \
+                f"{fake!r} muss kritisch sein (Scheinpruefung), war {findings}"
+            assert "verify" not in findings[0].get("fix", {}), \
+                "ohne Projekt-Marker darf kein pytest erfunden werden"
+
+    def test_code_plan_gets_project_test_command(self, tmp_path):
+        from plan_follow.plan_peer_review import run_peer_review
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'x'\n")
+        plan = make_plan([
+            make_task("t1", name="Code aendern", files=["src/x.py"], verify="echo 'done'"),
+        ])
+        plan["repo"] = str(tmp_path)
+        findings = run_peer_review(plan)
+        verify_findings = [f for f in findings if f["check"] == "verify"]
+        assert verify_findings[0]["severity"] == "critical"
+        assert verify_findings[0]["fix"]["verify"] == "python3 -m pytest"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.5.34 Review-Findings: Heuristik einengen, repos/cwd-Fallback, || true
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+class TestReviewHeuristicScope:
+    """Nur die Review-HANDLUNG ist exempt — nicht das Abarbeiten von Reviews."""
+
+    @pytest.mark.parametrize("name", [
+        "Peer-Review-Kommentare einarbeiten",
+        "Plan-Review-Findings umsetzen",
+        "Review-Code des Kunden migrieren",
+    ])
+    def test_working_off_reviews_is_not_exempt(self, name):
+        from plan_follow.plan_peer_review import is_review_task
+
+        assert is_review_task(make_task("t1", name=name)) is False, \
+            f"'{name}' arbeitet Reviews ab und braucht verify/files"
+
+    @pytest.mark.parametrize("name", [
+        "Peer Review: Plan prüfen",
+        "Plan-Review der Migrationsschritte",
+        "Gegenpruefung",
+        "Gegenpruefung der Migrationsschritte durchfuehren",
+    ])
+    def test_review_action_is_exempt(self, name):
+        from plan_follow.plan_peer_review import is_review_task
+
+        assert is_review_task(make_task("r1", name=name)) is True
+
+    def test_p0_with_files_is_not_exempt(self):
+        """Ein echter Code-Task darf sich nicht per p0-ID freikaufen."""
+        from plan_follow.plan_peer_review import is_review_task
+
+        assert is_review_task(make_task("p0", name="Datenbank-Setup",
+                                        files=["db/schema.sql"])) is False
+
+    def test_p0_without_files_is_exempt(self):
+        from plan_follow.plan_peer_review import is_review_task
+
+        assert is_review_task(make_task("p0", name="Peer Review", files=[])) is True
+
+
+class TestProjectTestCommandResolution:
+    def test_uses_repos_list(self, tmp_path):
+        from plan_follow.plan_peer_review import _project_test_command
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
+        assert _project_test_command({"repos": [str(tmp_path)]}) == "python3 -m pytest"
+
+    def test_no_cwd_fallback_without_repo(self, tmp_path, monkeypatch):
+        """Ohne repo darf das Agenten-cwd nicht als Projekt gelten."""
+        from plan_follow import plan_peer_review as pr
+
+        code_dir = tmp_path / "code"
+        code_dir.mkdir()
+        (code_dir / "pyproject.toml").write_text("[project]\nname='x'\n")
+        monkeypatch.chdir(code_dir)
+
+        assert pr._project_test_command({}) == ""
+        assert pr._project_test_command({"repo": ""}) == ""
+
+    def test_expands_user_home(self, tmp_path, monkeypatch):
+        from plan_follow.plan_peer_review import _project_test_command
+
+        (tmp_path / "go.mod").write_text("module x\n")
+        monkeypatch.setenv("HOME", str(tmp_path))
+        assert _project_test_command({"repo": "~"}) == "go test ./..."
+
+    def test_monorepo_subdir_marker(self, tmp_path):
+        from plan_follow.plan_peer_review import _project_test_command
+
+        (tmp_path / "backend").mkdir()
+        (tmp_path / "backend" / "pyproject.toml").write_text("[project]\nname='x'\n")
+        assert _project_test_command({"repo": str(tmp_path)}) == "python3 -m pytest"
+
+
+class TestOrTrueMasking:
+    def test_or_true_without_grep_is_reported(self, tmp_path):
+        from plan_follow.plan_peer_review import run_peer_review
+
+        plan = make_plan([
+            make_task("t1", name="Tests laufen lassen", files=["src/x.py"],
+                      verify="make test || true"),
+        ])
+        plan["repo"] = str(tmp_path)
+        findings = run_peer_review(plan)
+        masking = [f for f in findings if "|| true" in f["description"]]
+        assert masking, "|| true ohne grep muss als Maskierung gemeldet werden"
+        assert masking[0]["severity"] == "important"

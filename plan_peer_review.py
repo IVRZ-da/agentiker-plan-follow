@@ -88,6 +88,84 @@ DANGEROUS_GREP_PATTERN = re.compile(
 # Masking errors pattern: || true
 OR_TRUE_PATTERN = re.compile(r"\|\|\s*true")
 
+# Review-Tasks (p0 aus dem Template bzw. selbst angelegte Peer-Review-Tasks) sind
+# keine Code-Aufgaben: ihr "verify" ist per Definition ein Selbst-Check. Sie duerfen
+# sich nicht gegenseitig als CRITICAL anmeckern (Plan blockiert sich selbst).
+# Felder, deren automatische Korrektur unbedenklich ist (apply_findings).
+APPLYABLE_FIX_KEYS = ("verify", "files", "review_profile", "depends_on")
+
+# Nur die Review-HANDLUNG exempten — nicht Tasks, die Review-Ergebnisse abarbeiten
+# ("Peer-Review-Kommentare einarbeiten", "Plan-Review-Findings umsetzen"). Die
+# brauchen verify und files wie jeder andere Code-Task.
+REVIEW_TASK_NAME_PATTERN = re.compile(
+    r"^(peer[\s_-]?review|plan[\s_-]?review|plan\s*pr(ü|ue)fung|gegenpr(ü|ue)fung)"
+    r"(\s|$|:)",
+    re.IGNORECASE,
+)
+REVIEW_ACTION_EXCLUDE = re.compile(
+    r"findings?|kommentar|kritik|ergebnis|umsetz|einarbeit|adressier|migrier|"
+    r"beheb|fixen|migrier|\bcode\b|review\s+code",
+    re.IGNORECASE,
+)
+
+
+def is_review_task(task: dict) -> bool:
+    """True, wenn der Task ein Review-/Selbstpruef-Task ist (kein Code-Task).
+
+    Drei Signale, absichtlich eng:
+    1. ``kind: review`` — explizit markiert.
+    2. Namensheuristik: Review-Handlung am Anfang, keine Abarbeitungs-Verben.
+    3. ``id: p0`` **strukturell**: keine deklarierten Dateien UND kein echter
+       verify-Command (Template-Review-Tasks pruefen den Plan, nicht Dateien).
+       Eine blosse p0-ID genuegt nicht — sonst kauft sich ein echter Code-Task
+       mit der ID 'p0' stillschweigend aus der verify-/files-Pruefung frei.
+    """
+    if not isinstance(task, dict):
+        return False
+    if str(task.get("kind", "")).lower() == "review":
+        return True
+    name = str(task.get("name", "") or "").strip()
+    if not REVIEW_ACTION_EXCLUDE.search(name) and REVIEW_TASK_NAME_PATTERN.search(name):
+        return True
+    if str(task.get("id", "")).strip().lower() == "p0" and not (task.get("files") or []):
+        verify = str(task.get("verify", "") or "").strip()
+        return not verify or any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS)
+    return False
+
+
+def _plan_repo(plan: dict) -> str:
+    """Repo-Pfad eines Plans — repos-Liste vor repo (wie tools/auto.py)."""
+    if not isinstance(plan, dict):
+        return ""
+    repos = plan.get("repos")
+    if isinstance(repos, list) and repos:
+        return str(repos[0] or "")
+    repo = plan.get("repo")
+    if isinstance(repo, list) and repo:
+        return str(repo[0] or "")
+    return str(repo or "")
+
+
+def _project_test_command(plan: dict) -> str:
+    """Echter Projekt-Testbefehl oder '' wenn kein Code-Projekt erkannt wurde.
+
+    Wichtig: Bei Ops-/Infra-Plaenen (kein package.json/pyproject/go.mod/...) wird
+    KEIN pytest erfunden — ein falscher Verify ist schlimmer als ein fehlender.
+    Ohne repo wird bewusst nicht auf das cwd zurueckgefallen: sonst erbt ein
+    Ops-Plan den Testbefehl des Verzeichnisses, aus dem der Agent gerade laeuft.
+    """
+    repo = _plan_repo(plan)
+    try:
+        from .plan_templates import _auto_detect_project_defaults, detect_project_markers
+
+        if not detect_project_markers(repo, fallback_cwd=False):
+            return ""
+        defaults = _auto_detect_project_defaults(repo or "") or {}
+    except Exception:  # pragma: no cover - Import-Zyklen/fehlende Marker
+        return ""
+    return str(defaults.get("test_command", "") or "")
+
+
 
 # ─── Core functions ───────────────────────────────────────────────────────────
 
@@ -181,44 +259,44 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
                 )
 
     # ─── Check ② + ⑦: verify command validity ─────────────────────────────
+    # Review-Tasks ausgenommen (ihr verify ist ein Selbst-Check), und bei Plaenen
+    # ohne erkennbares Code-Projekt wird KEIN pytest erfunden.
+    project_test_command = _project_test_command(plan)
+
     for t in task_list:
         tid = t.get("id", "")
-        verify = t.get("verify", "").strip()
-
-        if not verify:
-            # Auto-detect project type for a meaningful verify command
-            try:
-                from .plan_templates import _auto_detect_project_defaults
-                auto = _auto_detect_project_defaults()
-                auto_verify = auto.get("test_command", "python3 -m pytest")
-            except Exception:
-                auto_verify = "python3 -m pytest"
-            _add(
-                "verify", CRITICAL,
-                f"Task '{tid}' ('{t.get('name', '')}') has an empty verify command. "
-                f"Auto-generiert: '{auto_verify}'.",
-                task_id=tid,
-                fix={"verify": auto_verify},
-            )
+        if is_review_task(t):
             continue
 
-        # Check for meaningless echo commands
-        if any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS):
-            # Auto-detect project type for a meaningful verify command
-            try:
-                from .plan_templates import _auto_detect_project_defaults
-                auto = _auto_detect_project_defaults()
-                auto_verify = auto.get("test_command", "python3 -m pytest")
-            except Exception:
-                auto_verify = "python3 -m pytest"
-            _add(
-                "verify", CRITICAL,
-                f"Task '{tid}' ('{t.get('name', '')}') verify command "
-                f"'{verify}' doesn't verify anything meaningful — "
-                f"ersetzt durch '{auto_verify}'.",
-                task_id=tid,
-                fix={"verify": auto_verify},
-            )
+        verify = t.get("verify", "").strip()
+
+        if not verify or any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS):
+            # Zwei verschiedene Faelle:
+            #  - verify FEHLT: noch nicht ausgefuellt -> Hinweis, kein Blocker.
+            #  - verify ist bewusst wertlos (echo/true/:): Scheinpruefung -> kritisch,
+            #    denn das gaukelt eine Pruefung vor, die nichts prueft.
+            # Ein Auto-Fix gibt es nur mit erkanntem Projekt-Testbefehl; sonst wird
+            # bewusst KEIN pytest erfunden.
+            is_fake = bool(verify) and any(p.match(verify) for p in MEANINGLESS_VERIFY_PATTERNS)
+            severity = CRITICAL if is_fake else IMPORTANT
+            if project_test_command:
+                _add(
+                    "verify", severity,
+                    f"Task '{tid}' ('{t.get('name', '')}') hat keinen brauchbaren verify-Command "
+                    f"('{verify or 'leer'}') — ersetzt durch '{project_test_command}'.",
+                    task_id=tid,
+                    fix={"verify": project_test_command},
+                )
+            else:
+                _add(
+                    "verify", severity,
+                    f"Task '{tid}' ('{t.get('name', '')}') hat keinen brauchbaren verify-Command "
+                    f"('{verify or 'leer'}'). Kein Code-Projekt erkannt (keine package.json/"
+                    f"pyproject.toml/go.mod/Cargo.toml) — bewusst KEIN pytest eingesetzt. "
+                    f"Trage einen echten Shell-Check ein, z.B. 'systemctl is-active <service>' "
+                    f"oder 'grep -q <muster> <datei>'.",
+                    task_id=tid,
+                )
             continue
 
         # Check for grep without fallback (exit 1 when nothing found)
@@ -232,19 +310,22 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
                 fix={"verify": verify + " && echo '✅ found'"},
             )
 
-            # Check for || true masking
-            if OR_TRUE_PATTERN.search(verify):
-                _add(
-                    "verify", IMPORTANT,
-                    f"Task '{tid}' ('{t.get('name', '')}') verify uses '|| true' — "
-                    f"this masks command failures.",
-                    task_id=tid,
-                    fix={"verify": verify},
-                )
+        # Check for || true masking — unabhaengig vom grep-Fall (vorher lag dieser
+        # Block eingerueckt im grep-if und griff bei "make test || true" nie).
+        if OR_TRUE_PATTERN.search(verify):
+            _add(
+                "verify", IMPORTANT,
+                f"Task '{tid}' ('{t.get('name', '')}') verify uses '|| true' — "
+                f"this masks command failures.",
+                task_id=tid,
+                fix={"verify": verify},
+            )
 
     # ─── Check ③: files declarations ──────────────────────────────────────
     for t in task_list:
         tid = t.get("id", "")
+        if is_review_task(t):
+            continue  # Review-Tasks pruefen den ganzen Plan, nicht einzelne Dateien
         files = t.get("files", []) or []
         if not files:
             _add(
@@ -286,6 +367,8 @@ def run_peer_review(plan: dict) -> list[dict[str, Any]]:
     # ─── Check ⑤: review_profile validity ─────────────────────────────────
     for t in task_list:
         tid = t.get("id", "")
+        if is_review_task(t):
+            continue  # Review-Tasks haben kein Profil zu erfuellen
         profile = t.get("review_profile", "none")
         if profile not in VALID_PROFILES:
             _add(
@@ -362,9 +445,13 @@ def apply_findings(plan: dict, findings: list[dict[str, Any]]) -> dict:
         if not task:
             continue
 
-        # Apply fix fields
+        # Apply fix fields. Die fruehere Bedingung `if key in task` hat Fixes
+        # still verworfen, wenn der Key noch gar nicht existierte (Task ohne
+        # 'verify' -> auto-fix wurde nie angewandt -> Plan blockierte sich
+        # selbst). Whitelist statt Existenzpruefung: nur Felder, deren
+        # Auto-Korrektur unbedenklich ist.
         for key, value in fix.items():
-            if key in task:
+            if key in APPLYABLE_FIX_KEYS:
                 task[key] = value
 
     return updated
