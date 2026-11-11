@@ -627,7 +627,10 @@ def determine_test_files(staged_files: list[str]) -> list[str]:
     - If > MODULE_CHANGE_THRESHOLD modules changed → run all tests
     """
     staged_tests = [f for f in staged_files if f.startswith("tests/") and f.endswith(".py")
-                    and not f.endswith("conftest.py") and not f.endswith("__init__.py")]
+                    and not f.endswith("conftest.py") and not f.endswith("__init__.py")
+                    # Geloeschte Testdateien stehen im Diff, existieren aber nicht
+                    # mehr — pytest bricht dann mit exit 4 ab.
+                    and os.path.exists(os.path.join(REPO_ROOT, f))]
     changed_modules = set()
 
     # Map ALL staged files (including test files) to their source modules
