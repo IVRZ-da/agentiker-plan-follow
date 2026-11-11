@@ -1,5 +1,47 @@
 # Changelog
 
+## [0.5.33] — 2026-11-11
+
+### 🔴 Critical — der Banner behauptete Zustände, die nicht auf der Platte standen
+- **Disk-Freshness statt Prozess-Cache.** `STATE.active_plan` gilt nur noch, solange die Signatur der Plan-Datei (mtime_ns, Größe, sha256) unverändert ist. Andernfalls wird neu geladen; ist die Datei weg, wird der Cache geleert. Ohne Signatur (Altbestand/Restart) ist die Datei autoritativ. Vorher meldete der Banner am 11.11. „CURRENT TASK: t1 — 1/15“, während die Datei 14/14 completed war.
+- **`get_current_task_fresh(session_id)`** ist der einzige Banner-Einstieg: Disk-Stand plus Besitzprüfung (`coord_state` session → plan_id). Ein Gateway-Prozess zeigt damit nicht mehr den Plan einer fremden Session. Lesezugriffe adoptieren keinen Plan mehr (`_get_active_plan(recover=False)`).
+- **Der Renderer schreibt nicht mehr.** `_build_tts_banner()` rief `_save_plan()` auf und konnte so einen veralteten In-Memory-Stand über den neueren Disk-Stand schreiben (inkl. `.bak`, `plans_index.json`, Git-Commit). TTS-Events liegen jetzt in `~/.hermes/shared/tts_queue.json`; der Renderpfad liest nur, den Water mark setzt `post_tool_call`.
+- **Keine Subprozesse im Renderpfad.** `check_drift` und `get_git_status` (je 10 s Timeout pro Repo) laufen im Observer-Hook und füllen Snapshots; der Banner liest sie nur.
+- **Abschluss-Epilog statt Dauer-Banner.** Bei erledigtem Plan ist der Banner stumm, bis auf zwei Zeilen („✅ Plan abgeschlossen …“ + berechnete Offen-Liste), genau einmal pro (plan_id, session_id). Abschluss wird aus den Tasks berechnet — plan-level `status` schreibt keine Codezeile; `current_task is None` allein trifft auch Abbrüche.
+- **Provenienz-Zeile** in jedem Banner: `Stand | Quelle (Disk, mtime) | Tasks n/m | Cache`. Falschmeldungen sind damit von echten Fortschritten unterscheidbar.
+
+### 🟠 Schreibpfad — Lost Updates verhindert
+- **`PlanConflictError`**: `_save_plan` vergleicht vor dem Schreiben die Disk-Signatur mit der geladenen. Hat ein anderer Prozess geschrieben, wird nicht überschrieben; der eigene Stand landet als `<plan_id>.conflict-<ts>.json`.
+- **Atomares Schreiben**: `tempfile.mkstemp` + `fsync` + `os.replace`, `.bak` aus dem alten Inhalt, Signatur wird NACH dem Write gesetzt (sonst Konflikt mit sich selbst).
+- **`PlanGoneError`**: ein archivierter Plan wird nicht wiederbelebt.
+- **`plan_for_write()`**: mutierende Tools (complete/update) laden frisch von der Platte statt auf einem beliebig alten Objekt zu arbeiten.
+- **`_load_plan` tolerant**: kaputtes JSON/OSError liefert `None` + Warnung statt einer Exception im Hook.
+- **`plans_index.active_plan_id`** wird nur noch bei gesetztem `current_task` geschrieben; ein erledigter Plan gilt nicht mehr als aktiv.
+
+### 🟡 Locks
+- **`PLAN_FOLLOW_LOCKS` (Default aus)**: kein Auto-Lock, kein Lock-Block im Banner. Die Fehlerklasse „Lock-Leiche auf abgeschlossenem Plan“ entfällt im Normalfall.
+- **Release im Lifecycle**: `complete`/`abort`/`archive`/`delete` und Session-Ende; Housekeeping läuft auch ohne aktiven Task (vorher early return → nichts wurde je aufgeräumt).
+- **Heartbeat + Owner-Liveness**: Locks tragen `heartbeat`; `cleanup_stale_locks` gibt nur frei, wenn zusätzlich die Besitzer-Session fehlt oder selbst stale ist. Ein 45-Minuten-Lock einer aktiven Session bleibt.
+- **Einheitliche Schwellen** `LOCK_STALE_MIN=30` / `SESSION_STALE_MIN=60` für Anzeige und Cleanup (vorher 30 vs. 120).
+- **Session-ID aus dem Hook-Payload** statt prozessglobalem `get_session_id()`.
+
+### 🟡 Health & Tool-Check
+- **Kein `find_spec`/`import_module` mehr für Fremdmodule**: Der Check maß `sys.path`. Im Hermes-Prozess liegt das Plugin-Verzeichnis dort nicht — deshalb „plan_follow/code_intel nicht importierbar“, während die Tools liefen. Jetzt `sys.modules` + Selbst-Check der eigenen Attribute.
+- **Flap-Dämpfung**: DEGRADED erst nach zwei aufeinanderfolgenden Fehlschlägen; ein einzelner Fehlschlag ist ein Hinweis.
+- **Zeitstempel** (`checked_at`, „geprüft vor Ns“) und **HTTP-Checks nur mit `PLAN_FOLLOW_VERBOSE_HEALTH=1`** (kosteten bis zu 6 s pro Turn).
+- **Tool-Check-Banner**: eine Zeile aus dem geladenen Zustand, keine Imports, keine hartkodierte Tool-Hierarchie („unbekannt“ = `?`, nicht ❌).
+- **Fehler werden sichtbar**: jeder Banner-Teil hat einen eigenen Guard und rendert `⚠️ Banner-Teil <name> fehlgeschlagen: <Typ>` statt `except Exception: pass`.
+
+### Changed (Verhalten)
+- **`review_failed`-TTS-Event entfernt** — es hatte nie einen Writer (nur Leser).
+- **`plan_follow/hooks/` gelöscht** — zweiter Hook-Baum, dessen `__init__.py` ein nicht existierendes `hooks/base.py` importierte; `breaker.py` war eine Kopie. `tests/test_breaker.py` prüft jetzt `plan_hooks`.
+- **Layout**: Box wird zentral gepolstert (einheitliche Breite, < 1500 Zeichen im Normalfall).
+- **Drift-Warnung** einmal pro Änderung statt in jedem Turn.
+
+### Tests
+- **1556 Tests** grün (vorher 1521). Neu: `test_banner_freshness`, `test_tts_pure`, `test_lock_lifecycle`, `test_health_flap`, `test_banner_provenance`, `test_banner_side_effects`, `test_save_conflict`, `test_epilogue`; Test-Migration für `test_hooks`, `test_hooks_coverage`, `test_tts_markers`, `test_health`, `test_plan_follow`, `test_review_integration`.
+- `scripts/check_isolation.sh`: Ausnahme für `shared/tts_queue.json|lock`; Lauf mit laufendem Gateway bleibt grün.
+
 ## [0.5.32] — 2026-11-10
 
 ### 🔴 Critical — Datenverlust durch die Testsuite

@@ -343,225 +343,155 @@ class TestBuildRoadmapBanner:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestBuildGitBanner:
-    def test_no_active_plan(self, monkeypatch):
-        """Line 122-123: no active plan → empty."""
+    """Liest ausschliesslich den Snapshot — kein git-Subprozess im Renderpfad.
+
+    v0.5.33: Der Banner startet kein git mehr. ``_refresh_snapshots`` (Observer)
+    fuellt den Snapshot, ``_build_git_banner`` liest ihn nur.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fresh_snapshot(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._git_snapshot = {}
+        yield
+        ph._git_snapshot = {}
+
+    def test_empty_snapshot(self):
         from plan_follow.plan_hooks import _build_git_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: None,
-        )
+
         assert _build_git_banner() == []
 
-    def test_no_repos(self, monkeypatch):
-        """Line 126-127: no repos → empty."""
-        from plan_follow.plan_hooks import _build_git_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(repos=[]),
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_repos",
-            lambda p: [],
-        )
-        assert _build_git_banner() == []
+    def test_branch_and_dirty(self):
+        import plan_follow.plan_hooks as ph
 
-    def test_git_status_error(self, monkeypatch, mock_time):
-        """Line 133-134: status not ok → skip."""
-        from plan_follow.plan_hooks import _build_git_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(),
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_repos",
-            lambda p: ["/workspace/repo"],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_git_status",
-            lambda r: {"status": "error", "error": "oops"},
-        )
-        assert _build_git_banner() == []
-
-    def test_git_status_ok(self, monkeypatch, mock_time):
-        """Lines 136-153: full git banner with branch, dirty, ahead/behind."""
-        from plan_follow.plan_hooks import _build_git_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(),
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_repos",
-            lambda p: ["/workspace/repo"],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_git_status",
-            lambda r: {
+        ph._git_snapshot = {
+            "/workspace/repo1": {
                 "status": "ok",
                 "branch": "main",
                 "dirty": True,
-                "dirty_files": 2,
-                "ahead": 3,
+                "dirty_files": 3,
+                "ahead": 0,
+                "behind": 0,
+            }
+        }
+        text = "\n".join(ph._build_git_banner())
+        assert "repo1" in text
+        assert "main" in text
+        assert "+3" in text
+
+    def test_ahead_and_behind(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._git_snapshot = {
+            "/workspace/repo2": {
+                "status": "ok",
+                "branch": "dev",
+                "dirty": False,
+                "ahead": 2,
                 "behind": 1,
-            },
-        )
-        lines = _build_git_banner()
-        assert len(lines) >= 1
-        text = "\n".join(lines)
-        assert "repo" in text or "📍" in text
-        assert "🌿main" in text
-        assert "↑3↓1" in text
-        assert "💩+2" in text
+            }
+        }
+        text = "\n".join(ph._build_git_banner())
+        assert "↑2↓1" in text
 
-    def test_git_ahead_only(self, monkeypatch, mock_time):
-        """Line 148-149: only ahead."""
-        from plan_follow.plan_hooks import _build_git_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(),
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_repos",
-            lambda p: ["/workspace/repo"],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_git_status",
-            lambda r: {
-                "status": "ok", "branch": "main",
-                "ahead": 5, "behind": 0, "dirty": False,
-            },
-        )
-        lines = _build_git_banner()
-        text = "\n".join(lines)
-        assert "↑5" in text
-        assert "↓" not in text or "↓0" in text
+    def test_error_status_is_filtered_by_refresh(self, monkeypatch):
+        import plan_follow.plan_hooks as ph
 
-    def test_git_behind_only(self, monkeypatch, mock_time):
-        """Line 150-151: only behind."""
-        from plan_follow.plan_hooks import _build_git_banner
         monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(),
+            ph.plan_core, "_get_active_plan", lambda: {"plan_id": "p", "repos": ["/r1", "/r2"]}
         )
+        monkeypatch.setattr(ph.plan_core, "_get_repos", lambda plan: ["/r1", "/r2"])
         monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_repos",
-            lambda p: ["/workspace/repo"],
+            ph.plan_core,
+            "get_git_status",
+            lambda repo: {"status": "ok", "branch": "main"}
+            if repo == "/r1"
+            else {"status": "error", "error": "boom"},
         )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_git_status",
-            lambda r: {
-                "status": "ok", "branch": "main",
-                "ahead": 0, "behind": 2, "dirty": False,
-            },
-        )
-        lines = _build_git_banner()
-        text = "\n".join(lines)
-        assert "↓2" in text
+        monkeypatch.setattr(ph.plan_core, "check_drift", lambda: [])
 
-    def test_git_exception_handled(self, monkeypatch):
-        """Line 155-156: exception caught."""
-        from plan_follow.plan_hooks import _build_git_banner
+        ph._refresh_snapshots(force=True)
+
+        assert set(ph._git_snapshot) == {"/r1"}
+
+    def test_refresh_respects_ttl(self, monkeypatch):
+        import time as _t
+
+        import plan_follow.plan_hooks as ph
+
+        calls = []
+        monkeypatch.setattr(ph.plan_core, "_get_active_plan", lambda: {"plan_id": "p"})
+        monkeypatch.setattr(ph.plan_core, "_get_repos", lambda plan: ["/r1"])
         monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: (_ for _ in ()).throw(RuntimeError("boom")),
+            ph.plan_core, "get_git_status", lambda repo: calls.append(repo) or {"status": "ok"}
         )
-        assert _build_git_banner() == []
+        monkeypatch.setattr(ph.plan_core, "check_drift", lambda: [])
 
+        ph._refresh_snapshots(force=True)
+        ph._refresh_snapshots()  # innerhalb TTL -> kein zweiter Aufruf
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# _build_drift_banner (Lines 160-183)
-# ═══════════════════════════════════════════════════════════════════════════════
+        assert calls == ["/r1"]
+        ph._git_snapshot_ts = _t.monotonic() - ph._SNAPSHOT_TTL - 1
+        ph._refresh_snapshots()
+        assert calls == ["/r1", "/r1"]
+
 
 class TestBuildDriftBanner:
-    def test_no_drift(self, monkeypatch, mock_time):
+    """Drift kommt aus dem Snapshot und wird je Aenderung nur einmal gerendert."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._drift_snapshot = []
+        ph._drift_reported = ()
+        yield
+        ph._drift_snapshot = []
+        ph._drift_reported = ()
+
+    def test_no_drift(self):
         from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: [],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: [],
-        )
+
         assert _build_drift_banner() == []
 
-    def test_drift_detected(self, monkeypatch, mock_time):
-        from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: ["src/file1.py", "src/file2.py"],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: [],
-        )
-        lines = _build_drift_banner()
-        text = "\n".join(lines)
-        assert "DRIFT" in text
-        assert "src/file1.py" in text
+    def test_drift_detected(self):
+        import plan_follow.plan_hooks as ph
 
-    def test_drift_more_than_3(self, monkeypatch, mock_time):
-        """Line 170: '... and N more' for drift files."""
-        from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: ["f1.py", "f2.py", "f3.py", "f4.py"],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: [],
-        )
-        lines = _build_drift_banner()
-        text = "\n".join(lines)
-        assert "and 1 more" in text or "und 1 mehr" in text
+        ph._drift_snapshot = ["src/a.py", "src/b.py"]
+        text = "\n".join(ph._build_drift_banner())
+        assert "DRIFT DETECTED" in text
+        assert "src/a.py" in text
 
-    def test_drift_warnings(self, monkeypatch, mock_time):
-        """Lines 175-180: proactive drift warnings."""
-        from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: [],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: ["Warning: file modified outside task", "Second warning"],
-        )
-        lines = _build_drift_banner()
-        text = "\n".join(lines)
+    def test_drift_truncated_after_three(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._drift_snapshot = [f"f{i}.py" for i in range(5)]
+        text = "\n".join(ph._build_drift_banner())
+        assert "and 2 more" in text
+
+    def test_rendered_once_per_change(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._drift_snapshot = ["x.py"]
+        assert ph._build_drift_banner()
+        assert ph._build_drift_banner() == []
+
+    def test_new_change_renders_again(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._drift_snapshot = ["x.py"]
+        assert ph._build_drift_banner()
+        ph._drift_snapshot = ["x.py", "y.py"]
+        assert ph._build_drift_banner()
+
+    def test_proactive_warning_from_state(self, monkeypatch):
+        import plan_follow.plan_hooks as ph
+
+        monkeypatch.setattr(ph.plan_core, "get_drift_warnings", lambda: ["ausserhalb task.files"])
+        text = "\n".join(ph._build_drift_banner())
         assert "DRIFT WARNING" in text
-        assert "Warning" in text or "proaktiv" in text
 
-    def test_drift_warnings_truncated(self, monkeypatch, mock_time):
-        """Line 178-179: '... and N more' for warnings."""
-        from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: [],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: ["w1", "w2", "w3"],
-        )
-        lines = _build_drift_banner()
-        text = "\n".join(lines)
-        assert "and 1 more" in text or "und 1 mehr" in text
-
-    def test_drift_exception_handled(self, monkeypatch, mock_time):
-        """Line 181-182: exception caught from get_drift_warnings."""
-        from plan_follow.plan_hooks import _build_drift_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.check_drift",
-            lambda: [],
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core.get_drift_warnings",
-            lambda: (_ for _ in ()).throw(RuntimeError("drift warnings failed")),
-        )
-        assert _build_drift_banner() == []
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# _build_due_banner (Lines 186-206)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class TestBuildDueBanner:
     def test_no_due(self, monkeypatch):
@@ -748,100 +678,90 @@ class TestBuildCoordinationBanner:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestBuildTTSBanner:
-    def test_no_plan(self, monkeypatch):
-        from plan_follow.plan_hooks import _build_tts_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: None,
-        )
-        assert _build_tts_banner() == []
+    """TTS-Events kommen aus der Queue; die Plan-Datei wird nicht geschrieben."""
 
-    def test_no_tts_flags(self, monkeypatch):
-        from plan_follow.plan_hooks import _build_tts_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: _make_plan(tts_flags=None),
-        )
-        assert _build_tts_banner() == []
+    def _activate(self, tts_flags=None):
+        from plan_follow.tools.state import STATE
 
-    def test_plan_created_flag(self, monkeypatch):
-        from plan_follow.plan_hooks import _build_tts_banner
-        plan = _make_plan(tts_flags={"plan_created": True}, tasks={"T1": {"name": "Task 1"}})
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: plan,
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._save_plan",
-            lambda p: None,
-        )
-        lines = _build_tts_banner()
-        text = "\n".join(lines)
-        assert "TTS" in text or "plan_created" in text
-        assert "plan_created" not in plan.get("tts_flags", {})
-
-    def test_task_completed_flag(self, monkeypatch):
-        from plan_follow.plan_hooks import _build_tts_banner
-        plan = _make_plan(
-            tts_flags={"task_completed": ["T1", "T2"]},
-            tasks={"T1": {"name": "Erste Aufgabe"}, "T2": {"name": "Zweite Aufgabe"}},
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: plan,
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._save_plan",
-            lambda p: None,
-        )
-        lines = _build_tts_banner()
-        text = "\n".join(lines)
-        assert "TTS" in text
-        # flags should be cleared after display
-        assert plan.get("tts_flags", {}).get("task_completed") in ([], None)
-
-    def test_review_failed_flag(self, monkeypatch):
-        from plan_follow.plan_hooks import _build_tts_banner
-        plan = _make_plan(
-            tts_flags={"review_failed": ["T1"]},
-            tasks={
-                "T1": {
-                    "name": "Failing Task",
-                    "review_result": {
-                        "issues": [
-                            {"severity": "error", "check": "Missing docs"},
-                            {"severity": "warning", "check": "Naming"},
-                        ],
-                    },
-                },
+        plan = {
+            "plan_id": "plan-001",
+            "goal": "Test goal",
+            "current_task": "t1",
+            "tasks": {
+                "t1": {
+                    "id": "t1",
+                    "status": "in_progress",
+                    "name": "Task eins",
+                    "files": [],
+                    "verify": "true",
+                    "depends_on": [],
+                    "review_profile": "none",
+                    "review_result": None,
+                }
             },
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: plan,
-        )
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._save_plan",
-            lambda p: None,
-        )
-        lines = _build_tts_banner()
-        text = "\n".join(lines)
-        assert "TTS" in text
-        assert "review_failed" in text or "kritische" in text
+        }
+        if tts_flags is not None:
+            plan["tts_flags"] = tts_flags
+        # Disk-Freshness: STATE ohne Datei wird vom Freshness-Check verworfen
+        import json as _json
 
-    def test_tts_exception_handled(self, monkeypatch):
-        """Lines 325-326: exception caught."""
-        from plan_follow.plan_hooks import _build_tts_banner
-        monkeypatch.setattr(
-            "plan_follow.plan_hooks.plan_core._get_active_plan",
-            lambda: (_ for _ in ()).throw(RuntimeError("tts failed")),
-        )
-        assert _build_tts_banner() == []
+        from plan_follow.tools.base import _plan_path
 
+        path = _plan_path(plan["plan_id"])
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(plan, indent=2), encoding="utf-8")
+        STATE.active_plan = plan
+        STATE.active_plan_id = plan["plan_id"]
+        return plan
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# _build_review_banner (Lines 330-360)
-# ═══════════════════════════════════════════════════════════════════════════════
+    def test_queue_plan_created(self):
+        import plan_follow.plan_hooks as ph
+        from plan_follow.tools import tts_queue
+
+        plan = self._activate()
+        tts_queue.enqueue("plan_created", plan["plan_id"], message="Ziel", name="3")
+
+        text = "\n".join(ph._build_tts_banner("s1"))
+        assert "plan_created" in text
+        assert "Ziel" in text
+
+    def test_queue_event_once(self):
+        import plan_follow.plan_hooks as ph
+        from plan_follow.tools import tts_queue
+
+        plan = self._activate()
+        tts_queue.enqueue("task_completed", plan["plan_id"], task_id="t1", name="Task eins")
+
+        assert ph._build_tts_banner("s1")
+        assert ph._build_tts_banner("s1") == []
+
+    def test_legacy_flag_read_only_once(self):
+        import plan_follow.plan_hooks as ph
+
+        plan = self._activate({"plan_created": True})
+
+        assert ph._build_tts_banner("")  # erster Aufruf zeigt den Marker
+        assert ph._build_tts_banner("") == []
+        # Flag bleibt in der Datei stehen — der Renderer raeumt nicht mehr auf
+        assert plan["tts_flags"]["plan_created"] is True
+
+    def test_review_failed_is_no_longer_rendered(self):
+        """review_failed hatte nie einen Writer — das Event ist entfernt."""
+        import plan_follow.plan_hooks as ph
+
+        self._activate({"review_failed": ["t1"]})
+
+        assert ph._build_tts_banner("") == []
+
+    def test_foreign_session_event_is_not_shown(self):
+        import plan_follow.plan_hooks as ph
+        from plan_follow.tools import tts_queue
+
+        plan = self._activate()
+        tts_queue.enqueue("task_completed", plan["plan_id"], task_id="t1", session_id="other")
+
+        assert ph._build_tts_banner("mine") == []
+
 
 class TestBuildReviewBanner:
     def test_no_review_profile(self):
@@ -922,53 +842,75 @@ class TestBuildReviewBanner:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestBuildHealthBanner:
-    def test_health_ok(self, monkeypatch, mock_time):
-        from plan_follow.plan_hooks import _build_health_banner
+    """Health-Banner: Zeitstempel, Flap-Daempfung, sichtbare Fehler."""
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        import plan_follow.plan_hooks as ph
+
+        ph._hook_cache.clear()
+        yield
+        ph._hook_cache.clear()
+
+    def test_silent_when_ok(self, monkeypatch):
+        import plan_follow.tools.health as health
+
         monkeypatch.setattr(
-            "plan_follow.tools.health.health_check",
-            lambda: {"status": "ok"},
+            health, "health_check", lambda: {"status": "ok", "issues": [], "pending": []}
         )
+        from plan_follow.plan_hooks import _build_health_banner
+
         assert _build_health_banner() == []
 
-    def test_health_degraded(self, monkeypatch, mock_time):
-        from plan_follow.plan_hooks import _build_health_banner
-        monkeypatch.setattr(
-            "plan_follow.tools.health.health_check",
-            lambda: {"status": "degraded", "issues": ["Disk full", "Memory low"]},
-        )
-        lines = _build_health_banner()
-        text = "\n".join(lines)
-        assert "DEGRADED" in text or "HEALTH" in text
-        assert "Disk full" in text
+    def test_single_failure_is_a_hint_only(self, monkeypatch):
+        import plan_follow.tools.health as health
 
-    def test_health_issues_truncated(self, monkeypatch, mock_time):
-        """Line 393-394: '... and N more' for health issues."""
-        from plan_follow.plan_hooks import _build_health_banner
         monkeypatch.setattr(
-            "plan_follow.tools.health.health_check",
+            health,
+            "health_check",
             lambda: {
-                "status": "degraded",
-                "issues": ["i1", "i2", "i3", "i4"],
+                "status": "ok",
+                "issues": [],
+                "pending": ["plan_tools fehlt"],
+                "checked_at": "2026-11-11T10:00:00+00:00",
             },
         )
-        lines = _build_health_banner()
-        text = "\n".join(lines)
-        assert "more" in text
+        text = "\n".join(__import__("plan_follow.plan_hooks", fromlist=["x"])._build_health_banner())
+        assert "noch nicht DEGRADED" in text
 
-    def test_health_exception_handled(self, monkeypatch, mock_time):
-        """Lines 396-397: exception caught."""
-        from plan_follow.plan_hooks import _build_health_banner
-        # Make _cached_or_fresh throw to hit the except handler
+    def test_degraded_lists_issues_and_age(self, monkeypatch):
+        import plan_follow.tools.health as health
+
         monkeypatch.setattr(
-            "plan_follow.plan_hooks._cached_or_fresh",
-            lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("health failed")),
+            health,
+            "health_check",
+            lambda: {
+                "status": "degraded",
+                "issues": ["a", "b", "c", "d"],
+                "pending": [],
+                "checked_at": "2026-11-11T10:00:00+00:00",
+            },
         )
-        assert _build_health_banner() == []
+        from plan_follow.plan_hooks import _build_health_banner
 
+        text = "\n".join(_build_health_banner())
+        assert "DEGRADED" in text
+        assert "geprüft" in text
+        assert "d" not in text.split("a")[0] or "• d" not in text  # max 3 Issues
+        assert "(Arbeit trotzdem möglich)" in text
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# on_pre_llm_call (Lines 401-447)
-# ═══════════════════════════════════════════════════════════════════════════════
+    def test_exception_is_visible(self, monkeypatch):
+        import plan_follow.tools.health as health
+
+        def boom():
+            raise RuntimeError("kaputt")
+
+        monkeypatch.setattr(health, "health_check", boom)
+        from plan_follow.plan_hooks import _build_health_banner
+
+        text = "\n".join(_build_health_banner())
+        assert "fehlgeschlagen" in text
+
 
 class TestOnPreLLMCall:
     def test_no_current_task(self, monkeypatch):
@@ -1655,110 +1597,82 @@ class TestEdgeCases:
 
 
 class TestCoordinationHousekeeping:
-    """Auto-Lock + Session Heartbeat in pre_llm_call."""
+    """Housekeeping: Session-Heartbeat immer, Locks nur mit PLAN_FOLLOW_LOCKS=1."""
 
-    def test_housekeeping_registers_session(self, monkeypatch):
-        """Session should be registered with plan_id + goal."""
+    def test_registers_session_with_locks(self, monkeypatch):
         from plan_follow import coord_state, plan_core
         from plan_follow.plan_hooks import _do_coordination_housekeeping
 
-        monkeypatch.setattr(
-            plan_core, "get_session_id", lambda: "test-session-42"
-        )
-        monkeypatch.setattr(
-            plan_core, "_get_active_plan",
-            lambda: {"plan_id": "p1", "goal": "Test Goal"},
-        )
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+        monkeypatch.setattr(plan_core, "_get_active_plan", lambda: {"plan_id": "p1", "goal": "G"})
         current = _make_current(task_id="T001", files=["/test/file.ts"])
 
-        result = _do_coordination_housekeeping(current)
-        assert result >= 1  # locks acquired
+        result = _do_coordination_housekeeping(current, session_id="s-42")
 
-        # Verify session was registered
+        assert result >= 1
         sessions = coord_state.get_sessions()
-        assert "test-session-42" in sessions
-        assert sessions["test-session-42"]["plan_id"] == "p1"
+        assert "s-42" in sessions
+        assert sessions["s-42"]["plan_id"] == "p1"
 
-    def test_housekeeping_releases_on_task_change(self, monkeypatch):
-        """When task_id changes, old locks should be released first."""
-        import plan_follow.plan_hooks as _ph
-        from plan_follow import coord_state
-        from plan_follow.plan_hooks import _do_coordination_housekeeping
-        from plan_follow.tools import base as _tb
-
-        # Simulate session ID via env var (like Hermes runtime does)
-        monkeypatch.setenv("HERMES_SESSION_ID", "test-session-42")
-        # Reset session ID cache so it picks up the env var
-        _tb.reset_session_id()
-
-        # Create a lock from a "previous" session
-        coord_state.acquire_lock("/old/file.ts", "test-session-42")
-        assert coord_state.get_lock("/old/file.ts") is not None
-
-        # Mock _get_active_plan
-        monkeypatch.setattr(
-            "plan_follow.tools.base._get_active_plan",
-            lambda: {"plan_id": "p1", "goal": "Test"},
-        )
-
-        # Set global to simulate task change detection
-        _ph._LAST_LOCKED_TASK = "T001"  # previous task
-
-        current = _make_current(task_id="T002", files=["/new/file.ts"])
-        _do_coordination_housekeeping(current)
-
-        # Old lock should be gone
-        assert coord_state.get_lock("/old/file.ts") is None
-        # New lock should exist
-        new_lock = coord_state.get_lock("/new/file.ts")
-        assert new_lock is not None
-        assert new_lock["session_id"] == "test-session-42"
-
-    def test_housekeeping_no_files(self, monkeypatch):
-        """Task with no files should not acquire locks."""
-        from plan_follow import plan_core
-        from plan_follow.plan_hooks import _do_coordination_housekeeping
-
-        monkeypatch.setattr(
-            plan_core, "get_session_id", lambda: "test-session-42"
-        )
-        monkeypatch.setattr(
-            plan_core, "_get_active_plan",
-            lambda: {"plan_id": "p1", "goal": "Test"},
-        )
-
-        current = _make_current(task_id="T001", files=[])
-        result = _do_coordination_housekeeping(current)
-        assert result == 0
-
-    def test_housekeeping_lock_conflict(self, monkeypatch):
-        """Conflict detection: lock held by another session on task files."""
+    def test_no_locks_without_flag(self, monkeypatch):
         from plan_follow import coord_state, plan_core
         from plan_follow.plan_hooks import _do_coordination_housekeeping
 
-        # Another session already holds lock on our file
-        coord_state.acquire_lock("/shared/file.ts", "other-session")
-        assert coord_state.get_lock("/shared/file.ts") is not None
+        monkeypatch.delenv("PLAN_FOLLOW_LOCKS", raising=False)
+        monkeypatch.setattr(plan_core, "_get_active_plan", lambda: {"plan_id": "p1", "goal": "G"})
+        current = _make_current(task_id="T001", files=["/test/file.ts"])
 
-        monkeypatch.setattr(
-            plan_core, "get_session_id", lambda: "test-session-42"
+        assert _do_coordination_housekeeping(current, session_id="s-42") == 0
+        assert coord_state.get_locks() == {}
+        assert "s-42" in coord_state.get_sessions()
+
+    def test_releases_locks_when_task_changes(self, monkeypatch):
+        import plan_follow.plan_hooks as ph
+        from plan_follow import coord_state, plan_core
+
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+        monkeypatch.setattr(plan_core, "_get_active_plan", lambda: {"plan_id": "p1", "goal": "G"})
+        coord_state.acquire_lock("/old/file.ts", "s-42")
+        ph._LAST_LOCKED_TASK = "T001"
+
+        ph._do_coordination_housekeeping(
+            _make_current(task_id="T002", files=["/new/file.ts"]), session_id="s-42"
         )
-        monkeypatch.setattr(
-            plan_core, "_get_active_plan",
-            lambda: {"plan_id": "p1", "goal": "Test"},
-        )
 
-        current = _make_current(
-            task_id="T001", files=["/shared/file.ts"]
-        )
-        result = _do_coordination_housekeeping(current)
-        # Lock already exists (held by other), so acquire returns "exists"
-        assert result == 0  # no NEW locks acquired
+        assert coord_state.get_lock("/old/file.ts") is None
+        new_lock = coord_state.get_lock("/new/file.ts")
+        assert new_lock is not None
+        assert new_lock["session_id"] == "s-42"
 
+    def test_task_without_files_locks_nothing(self, monkeypatch):
+        from plan_follow import coord_state, plan_core
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# plan_lock action=list + action=my
-# ═══════════════════════════════════════════════════════════════════════════════
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+        monkeypatch.setattr(plan_core, "_get_active_plan", lambda: {"plan_id": "p1", "goal": "G"})
+
+        assert _do_coordination_housekeeping(_make_current(task_id="T1", files=[]), "s-1") == 0
+        assert coord_state.get_locks() == {}
+
+    def test_completed_plan_releases_and_clears(self, monkeypatch):
+        from plan_follow import coord_state, plan_core
+        from plan_follow.plan_hooks import _do_coordination_housekeeping
+
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+        finished = {
+            "plan_id": "p1",
+            "goal": "G",
+            "current_task": None,
+            "tasks": {"t1": {"status": "completed"}},
+        }
+        monkeypatch.setattr(plan_core, "_get_active_plan", lambda: finished)
+        coord_state.register_session("s-1", plan_id="p1", goal="G")
+        coord_state.acquire_lock("/a.py", "s-1")
+
+        _do_coordination_housekeeping(None, session_id="s-1")
+
+        assert coord_state.get_locks() == {}
+        assert not coord_state.get_session("s-1").get("plan_id")
 
 
 class TestPlanLockTool:

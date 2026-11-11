@@ -2,20 +2,39 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import shutil
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from .paths import assert_writable
-from .resolver import resolve_plans_dir, resolve_plans_index, resolve_roadmaps_dir
+from .resolver import (
+    resolve_archive_dir,
+    resolve_plans_dir,
+    resolve_plans_index,
+    resolve_roadmaps_dir,
+)
 from .state import STATE
 
 logger = logging.getLogger("plan_follow")
+
+
+class PlanConflictError(RuntimeError):
+    """Ein anderer Prozess hat den Plan seit dem Laden veraendert.
+
+    Der Schreibvorgang wird abgewiesen und der fremde Stand bleibt erhalten;
+    der eigene Stand wird als ``<plan_id>.conflict-<ts>.json`` gesichert.
+    """
+
+
+class PlanGoneError(RuntimeError):
+    """Der Plan wurde archiviert oder geloescht — er darf nicht auferstehen."""
 
 
 def get_session_id() -> str:
@@ -47,6 +66,7 @@ def reset_session_id() -> None:
 def _reset_cache():
     STATE.active_plan = None
     STATE.active_plan_id = None
+    STATE.active_plan_sig = None
 
 
 # ─── Tool Usage Metrics ────────────────────────────────────────────────────────
@@ -121,10 +141,18 @@ def _update_plans_index(plan: dict) -> None:
             index = json.loads(resolve_plans_index().read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
-    index["active_plan_id"] = plan["plan_id"]
-    index["active_goal"] = plan.get("goal", "")[:80]
-    index["active_since"] = _to_utc_iso(plan.get("created", ""))
     index["last_updated"] = datetime.now(timezone.utc).isoformat()
+    if plan.get("current_task"):
+        index["active_plan_id"] = plan["plan_id"]
+        index["active_goal"] = plan.get("goal", "")[:80]
+        index["active_since"] = _to_utc_iso(plan.get("created", ""))
+    else:
+        # Erledigter/abgebrochener Plan darf nicht als "aktiv" gelten. Sonst
+        # zeigt plans_index.json dauerhaft auf einen 14/14-Plan und jede
+        # Recovery adoptiert ihn erneut.
+        index.pop("active_plan_id", None)
+        index.pop("active_goal", None)
+        index.pop("active_since", None)
     assert_writable(resolve_plans_index())
     try:
         resolve_plans_index().write_text(json.dumps(index, indent=2), encoding="utf-8")
@@ -210,13 +238,42 @@ def _plan_path(plan_id: str) -> Path:
     return resolve_plans_dir() / f"{plan_id}.json"
 
 
+def _plan_disk_signature(plan_id: str) -> Optional[tuple]:
+    """Signatur der Plan-Datei: (mtime_ns, size, sha256).
+
+    Die Signatur ist die einzige Verbindung zwischen Prozess-Cache und Platte.
+    Sie wird nach jedem Write gesetzt und bei jedem ``_get_active_plan()``
+    geprueft — damit kann der Banner keinen Stand behaupten, der auf der Platte
+    nicht (mehr) gilt.
+    """
+    path = _plan_path(plan_id)
+    try:
+        data = path.read_bytes()
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        logger.warning("Signatur fuer Plan '%s' nicht lesbar: %s", plan_id, exc)
+        return None
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        mtime = 0
+    return (mtime, len(data), hashlib.sha256(data).hexdigest())
+
+
 def _save_plan(plan: dict) -> None:
-    """Persist a plan. Refuses incomplete plans and guards production paths.
+    """Persist a plan — konfliktgeschuetzt und atomar.
 
     Datenverlust-Schutz (v0.5.32): ein Plan ohne ``plan_id`` oder ohne ``tasks``
-    darf niemals geschrieben werden — genau so wurden 2-Byte-Dateien ``{}`` in
-    echte Plaene geschrieben. Vor dem Ueberschreiben eines bestehenden Plans mit
-    Inhalt wird ein ``.json.bak`` angelegt.
+    wird nie geschrieben.
+
+    v0.5.33 (Schreibpfad):
+    * Ein archivierter/geloeschter Plan wird nicht wiederbelebt (PlanGoneError).
+    * Hat ein anderer Prozess seit dem Laden geschrieben, wird nicht
+      ueberschrieben (PlanConflictError + Konfliktkopie).
+    * Geschrieben wird ueber tempfile + os.replace (kein halber Plan bei Crash).
+    * Die Signatur wird NACH dem Write gesetzt, sonst meldet der naechste
+      Lesezugriff einen Konflikt mit sich selbst.
     """
     _ensure_dirs()
     plan_id = plan.get("plan_id") if isinstance(plan, dict) else None
@@ -230,6 +287,32 @@ def _save_plan(plan: dict) -> None:
     path = _plan_path(plan_id)
     assert_writable(path)
 
+    # Archivierter Plan darf nicht auferstehen
+    archived = resolve_archive_dir() / f"{plan_id}.json"
+    if archived.exists():
+        raise PlanGoneError(
+            f"Plan '{plan_id}' ist archiviert — Schreiben abgelehnt. "
+            "Zum Weiterarbeiten plan_restore() benutzen."
+        )
+
+    disk_sig = _plan_disk_signature(plan_id)
+    if disk_sig is not None and STATE.active_plan_sig is not None and disk_sig != STATE.active_plan_sig:
+        conflict_path = path.with_name(
+            f"{plan_id}.conflict-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        )
+        try:
+            conflict_path.write_text(
+                json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except OSError as exc:
+            logger.warning("Konfliktkopie fuer '%s' fehlgeschlagen: %s", plan_id, exc)
+        raise PlanConflictError(
+            f"Plan '{plan_id}' wurde von einem anderen Prozess geaendert. "
+            f"Eigener Stand gesichert unter {conflict_path.name}. "
+            "Bitte plan_select()/plan_current() neu laden und wiederholen."
+        )
+
+    # .bak aus dem alten Inhalt
     if path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
@@ -241,9 +324,27 @@ def _save_plan(plan: dict) -> None:
             except OSError:
                 logger.warning("plan backup failed for %s", path)
 
-    path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
+    payload = json.dumps(plan, indent=2, ensure_ascii=False)
+    tmp_path = None
+    try:
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{plan_id}.", suffix=".tmp")
+        tmp_path = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
     STATE.active_plan = plan
     STATE.active_plan_id = plan["plan_id"]
+    STATE.active_plan_sig = (path.stat().st_mtime_ns, len(payload.encode("utf-8")), hashlib.sha256(payload.encode("utf-8")).hexdigest())
     _update_plans_index(plan)
 
     # Optional: Git-Commit wenn PLANS_DIR ein Git-Repo ist
@@ -253,25 +354,80 @@ def _save_plan(plan: dict) -> None:
 
 
 def _load_plan(plan_id: str) -> Optional[dict]:
-    path = _plan_path(plan_id)
-    if not path.exists():
-        return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    """Plan von der Platte lesen. Kaputte/unlesbare Dateien liefern None.
 
-
-def _get_active_plan() -> Optional[dict]:
-    """Get the active plan with automatic recovery on cache miss.
-
-    Fallback chain:
-    1. In-Memory Cache (fastest)
-    2. Disk-Scan via plans_index.json / newest JSON
-    3. Honcho REST API (slowest)
+    Bewusst tolerant: ein gleichzeitiger Writer darf den Banner nicht mit einer
+    JSONDecodeError-Exception aus dem Hook katapultieren.
     """
-    # 1. In-Memory
+    path = _plan_path(plan_id)
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as exc:
+        logger.warning("Plan '%s' nicht lesbar: %s", plan_id, exc)
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        logger.warning("Plan '%s' ist beschaedigt (JSON): %s", plan_id, exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _get_active_plan(recover: bool = True) -> Optional[dict]:
+    """Get the active plan — der Disk-Stand gewinnt gegen den Cache.
+
+    ``recover=False`` schaltet die Disk-Adoption ab. Der Banner benutzt das:
+    Adoption ist ein Besitzakt (``_try_session_recovery``) und darf nicht als
+    Nebeneffekt eines Lesezugriffs passieren — sonst adoptiert ein Gateway-
+    Prozess den Plan einer fremden Session.
+
+    Fallback-Kette:
+    1. In-Memory-Cache, aber nur solange die Signatur der Datei unveraendert ist
+       (sonst neu laden bzw. Cache leeren, wenn die Datei verschwunden ist)
+    2. Ohne Signatur (Altbestand/Restart): Datei ist autoritativ
+    3. Disk-Scan via plans_index.json / newest JSON (nur mit ``recover=True``)
+    """
+    # 1. In-Memory mit Freshness-Pruefung
     if STATE.active_plan is not None:
-        return STATE.active_plan
+        pid = STATE.active_plan_id or STATE.active_plan.get("plan_id") or ""
+        if not pid:
+            return STATE.active_plan
+
+        if STATE.active_plan_sig is None:
+            # Kein Signatur-Anker (Altbestand, Test-Setup, Restart): Platte gewinnt.
+            fresh = _load_plan(pid)
+            if fresh is None:
+                logger.info("Plan '%s' nicht auf der Platte — Cache geleert", pid)
+                _reset_cache()
+                return None
+            if fresh != STATE.active_plan:
+                logger.info("Plan '%s' auf der Platte neuer — Cache neu geladen", pid)
+                STATE.active_plan = fresh
+            STATE.active_plan_sig = _plan_disk_signature(pid)
+            return STATE.active_plan
+
+        disk_sig = _plan_disk_signature(pid)
+        if disk_sig == STATE.active_plan_sig:
+            return STATE.active_plan
+        if disk_sig is None:
+            logger.info("Plan '%s' ist von der Platte verschwunden — Cache geleert", pid)
+            _reset_cache()
+            return None
+
+        fresh = _load_plan(pid)
+        if fresh is None:
+            _reset_cache()
+            return None
+        logger.info("Plan '%s' hat sich auf der Platte geaendert — neu geladen", pid)
+        STATE.active_plan = fresh
+        STATE.active_plan_sig = disk_sig
+        return fresh
 
     # 2. Disk-Scan
+    if not recover:
+        return None
     plan_id = _recover_plan_from_disk()
     if plan_id:
         # Lazy import to avoid circular dependency
@@ -286,6 +442,26 @@ def _get_active_plan() -> Optional[dict]:
     # 'plan-follow-agent', waehrend ~/.hermes/honcho.json 'hermes'/'johannes' nutzt.
     # Honcho speichert ohnehin nur die plan_id, nie den Planinhalt (Recovery unmoeglich).
     return None
+
+
+def plan_for_write(plan_id: str = "") -> Optional[dict]:
+    """Plan frisch von der Platte laden — fuer mutierende Tools.
+
+    Mutierende Tools duerfen nicht auf einem beliebig alten In-Memory-Objekt
+    arbeiten: sonst wird eine Aenderung auf Basis eines veralteten Standes
+    geschrieben (Lost Update). ``_save_plan`` prueft zusaetzlich die Signatur.
+    """
+    pid = plan_id or STATE.active_plan_id or _recover_plan_from_disk() or ""
+    if not pid:
+        return None
+    plan = _load_plan(pid)
+    if plan is None:
+        _reset_cache()
+        return None
+    STATE.active_plan = plan
+    STATE.active_plan_id = pid
+    STATE.active_plan_sig = _plan_disk_signature(pid)
+    return plan
 
 
 def _get_cached_plan() -> Optional[dict]:
@@ -307,6 +483,8 @@ def __getattr__(name: str):
         return STATE.active_plan
     if name == "_active_plan_id":
         return STATE.active_plan_id
+    if name == "_active_plan_sig":
+        return STATE.active_plan_sig
     if name == "_tool_metrics":
         return STATE.tool_metrics
     if name == "_drift_warnings":

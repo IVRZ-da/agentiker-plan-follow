@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -122,6 +123,44 @@ def _atomic_read(path: Path) -> dict:
         _release_file_lock(lock_fd)
 
 
+# ─── Serialisierung von Read-modify-write ────────────────────────────────────
+# ``_atomic_read`` und ``_atomic_write`` sichern je EINEN Zugriff. Zwischen
+# Lesen und Schreiben konnte eine andere Session dazwischenfunken — dann
+# ueberschrieb der zweite Write die Aenderung des ersten (verlorener Lock).
+# Alle mutierenden Funktionen halten deshalb eine gemeinsame State-Lock ueber
+# den kompletten Zyklus. Reihenfolge ist ueberall: State-Lock → Datei-Lock.
+
+@contextmanager
+def _state_lock():
+    """Exklusive Lock ueber einen Read-modify-write-Zyklus."""
+    _ensure_shared_dir()
+    lock_file = SHARED_DIR / ".state.lock"
+    fd = None
+    try:
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_RDONLY, 0o644)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        if fd is not None:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
+def _normalize_path(path: str) -> str:
+    """Lock-Pfad kanonisieren.
+
+    Bisher standen relative ("tests/conftest.py") und absolute Pfade
+    nebeneinander, was Zuordnung und Anzeige unzuverlaessig machte.
+    Repo-relative Aufloesung braucht ``plan.repo`` und passiert im Aufrufer;
+    hier wird nur die Schreibweise vereinheitlicht.
+    """
+    if not path:
+        return path
+    return os.path.normpath(path)
+
+
 # ─── Session Management ───────────────────────────────────────────────────────
 
 
@@ -180,6 +219,11 @@ def get_session(session_id: str) -> Optional[dict]:
 
 def cleanup_stale_sessions(max_age_minutes: int = 60) -> int:
     """Remove sessions older than max_age_minutes. Returns count removed."""
+    with _state_lock():
+        return _cleanup_stale_sessions_locked(max_age_minutes)
+
+
+def _cleanup_stale_sessions_locked(max_age_minutes: int) -> int:
     sessions = _atomic_read(SESSIONS_FILE)
     now = datetime.now(timezone.utc)
     stale = []
@@ -198,6 +242,12 @@ def cleanup_stale_sessions(max_age_minutes: int = 60) -> int:
     return len(stale)
 
 
+# Einheitliche Schwellen: Anzeige und Cleanup benutzen dieselben Werte.
+# Vorher zeigte der Banner ">30 Min" als stale, waehrend cleanup 120 Min wartete.
+LOCK_STALE_MIN = 30
+SESSION_STALE_MIN = 60
+
+
 # ─── Lock Management ──────────────────────────────────────────────────────────
 
 
@@ -209,6 +259,12 @@ def acquire_lock(path: str, session_id: str) -> dict:
         {"status": "acquired" | "exists" | "error",
          "locked_by": session_id or current holder}
     """
+    path = _normalize_path(path)
+    with _state_lock():
+        return _acquire_lock_locked(path, session_id)
+
+
+def _acquire_lock_locked(path: str, session_id: str) -> dict:
     locks = _atomic_read(LOCKS_FILE)
     if path in locks:
         holder = locks[path].get("session_id", "unknown")
@@ -225,13 +281,17 @@ def acquire_lock(path: str, session_id: str) -> dict:
                 logger.debug("acquire_lock: notification to %s failed", holder)
             return {"status": "exists", "locked_by": holder}
         # Same session — renew
-        locks[path]["since"] = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        locks[path]["since"] = now_iso
+        locks[path]["heartbeat"] = now_iso
         _atomic_write(LOCKS_FILE, locks)
         return {"status": "acquired", "locked_by": session_id}
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     locks[path] = {
         "session_id": session_id,
-        "since": datetime.now(timezone.utc).isoformat(),
+        "since": now_iso,
+        "heartbeat": now_iso,
     }
     _atomic_write(LOCKS_FILE, locks)
     return {"status": "acquired", "locked_by": session_id}
@@ -243,6 +303,12 @@ def release_lock(path: str, session_id: str) -> dict:
     Returns:
         {"status": "released" | "not_locked" | "not_holder"}
     """
+    path = _normalize_path(path)
+    with _state_lock():
+        return _release_lock_locked(path, session_id)
+
+
+def _release_lock_locked(path: str, session_id: str) -> dict:
     locks = _atomic_read(LOCKS_FILE)
     if path not in locks:
         return {"status": "not_locked", "locked_by": None}
@@ -261,7 +327,7 @@ def get_locks() -> dict:
 def get_lock(path: str) -> Optional[dict]:
     """Get lock info for a specific path."""
     locks = _atomic_read(LOCKS_FILE)
-    return locks.get(path)
+    return locks.get(_normalize_path(path))
 
 
 def release_all_locks(session_id: str) -> int:
@@ -269,6 +335,11 @@ def release_all_locks(session_id: str) -> int:
 
     Called when a session ends or on task completion.
     """
+    with _state_lock():
+        return _release_all_locks_locked(session_id)
+
+
+def _release_all_locks_locked(session_id: str) -> int:
     locks = _atomic_read(LOCKS_FILE)
     to_release = [p for p, lock in locks.items()
                   if lock.get("session_id") == session_id]
@@ -287,18 +358,48 @@ def get_locks_by_session(session_id: str) -> dict:
 
 
 def cleanup_stale_locks(max_age_minutes: int = 120) -> int:
-    """Remove locks older than max_age_minutes. Returns count removed."""
+    """Locks freigeben — aber nur, wenn der Besitzer wirklich weg ist.
+
+    v0.5.33: Ein Lock wird nicht mehr allein nach Alter freigegeben. Sonst gibt
+    eine fremde Session den Lock einer Session frei, die gerade nur lange in
+    einem Tool-Call (Build, Testsuite, Subagent) steckt und deshalb keinen
+    Heartbeat schreibt. Freigabe nur, wenn zusaetzlich die Besitzer-Session
+    fehlt oder selbst stale ist.
+    """
+    with _state_lock():
+        return _cleanup_stale_locks_locked(max_age_minutes)
+
+
+def _cleanup_stale_locks_locked(max_age_minutes: int) -> int:
     locks = _atomic_read(LOCKS_FILE)
+    sessions = _atomic_read(SESSIONS_FILE)
     now = datetime.now(timezone.utc)
+
+    def _owner_alive(session_id: str) -> bool:
+        entry = sessions.get(session_id)
+        if not entry:
+            return False
+        last = entry.get("last_seen") or entry.get("registered") or ""
+        try:
+            age = (now - datetime.fromisoformat(last)).total_seconds() / 60
+        except (ValueError, TypeError):
+            return False
+        return age <= SESSION_STALE_MIN
+
     stale = []
     for p, lock in locks.items():
-        since = lock.get("since", "")
+        since = lock.get("heartbeat") or lock.get("since", "")
         try:
             age = (now - datetime.fromisoformat(since)).total_seconds() / 60
-            if age > max_age_minutes:
-                stale.append(p)
         except (ValueError, TypeError):
             stale.append(p)
+            continue
+        if age <= max_age_minutes:
+            continue
+        if _owner_alive(lock.get("session_id", "")):
+            continue
+        stale.append(p)
+
     for p in stale:
         locks.pop(p, None)
     if stale:

@@ -541,6 +541,11 @@ class TestEdgeCases:
 
 
 class TestAutoLocks:
+    @pytest.fixture(autouse=True)
+    def _locks_enabled(self, monkeypatch):
+        """Auto-Lock ist seit v0.5.33 opt-in (PLAN_FOLLOW_LOCKS=1)."""
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+
     """Tests for auto-lock/unlock on task activation/completion."""
 
     def test_auto_lock_task_files(self):
@@ -681,6 +686,9 @@ class TestCleanupStale:
         locks = _cs.get_locks()
         assert "/old-file.ts" in locks
         locks["/old-file.ts"]["since"] = "2020-01-01T00:00:00"
+        # v0.5.33: heartbeat ist das Alter-Kriterium; ohne diese Zeile gilt der
+        # Lock als frisch (acquire_lock setzt heartbeat = jetzt).
+        locks["/old-file.ts"]["heartbeat"] = "2020-01-01T00:00:00"
         _cs._atomic_write(_cs.LOCKS_FILE, locks)
 
         removed = cleanup_stale_locks(max_age_minutes=1)

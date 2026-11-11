@@ -172,7 +172,14 @@ def _auto_lock_task_files(task: dict) -> None:
     """Auto-acquire locks for all files in a task on activation.
 
     Best-effort: if coord_state isn't available, silently skip.
+    Seit v0.5.33 nur mit PLAN_FOLLOW_LOCKS=1 — ohne Flag wuerde die Aktivierung
+    eines Plans (auch die Recovery-Adoption) wieder Locks erzeugen, die niemand
+    mehr freigibt.
     """
+    import os
+
+    if os.environ.get("PLAN_FOLLOW_LOCKS", "").strip().lower() not in ("1", "true", "yes", "on"):
+        return
     files = task.get("files", [])
     if not files:
         return

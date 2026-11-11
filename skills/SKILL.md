@@ -1,15 +1,15 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.5.2) — 39 plan tools + 3 hooks + 13 templates + p0-Review (opt-out) + TDD + parallel groups + roadmap + cross-session + Write-Guard. Strukturierte Task-Abarbeitung mit Enforcement."
-version: 1.5.2
+description: "Plugin-provided skill (v1.6.0) — 39 plan tools + 3 hooks + 13 templates + p0-Review (opt-out) + TDD + parallel groups + roadmap + cross-session + Write-Guard + ehrlicher Disk-Banner. Strukturierte Task-Abarbeitung mit Enforcement."
+version: 1.6.0
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
 related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
 ---
 
-# Plan-Follow Skill v1.5.2
+# Plan-Follow Skill v1.6.0
 
-**Plugin-provided skill (plan_follow plugin, v0.5.32).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
+**Plugin-provided skill (plan_follow plugin, v0.5.33).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
 
 Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
@@ -98,16 +98,25 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 
 ## Hooks (3)
 
-### pre_llm_call — Task-Banner (Complexity: 52)
-Injiziert in JEDEN Turn einen Banner mit:
-- **CURRENT TASK** — Task-Name + Goal + Progress (███░░░)
-- **Drift-Warnung** — ungeplante Änderungen seit letztem Commit
+### pre_llm_call — Task-Banner
+Injiziert einen Banner (alle 4 Turns bzw. sofort bei Task-Wechsel oder geänderter Zustands-Signatur) mit:
+- **CURRENT TASK** — aus dem DISK-Stand dieser Session (`get_current_task_fresh`)
+- **Provenienz-Zeile** — Stand, Quelle (Disk + mtime), Tasks n/m, Cache-Status
+- **Drift-Warnung** — aus dem Observer-Snapshot, einmal pro Änderung
 - **Review-State** — pending/passed/failed mit Issue-Count
 - **Due-Info** — Fälligkeits-Status + Überfälligkeit
-- **Coordination** — andere Sessions, active Locks, Notifications
-- **TTS-Marker** — plan_created / task_completed / review_failed
-- **Health-Check** — Plan-Tools, Code-Tools, Honcho-Status
-- **TTL-Cache (60s)** — für Health + Drift
+- **Coordination** — andere Sessions, Locks (nur mit `PLAN_FOLLOW_LOCKS=1`), Notifications
+- **TTS-Marker** — plan_created / task_completed aus `~/.hermes/shared/tts_queue.json`
+- **Health** — geladener Zustand + „geprüft vor Ns“, DEGRADED erst nach 2 Fehlschlägen
+
+#### Was der Banner NIE tut
+- **Nicht schreiben.** Kein `_save_plan`, kein Git, kein Subprozess im Renderpfad. Angezeigte TTS-Events werden im Prozess gemerkt; den persistenten Water mark setzt `post_tool_call`.
+- **Nicht adoptieren.** Ein Lesezugriff übernimmt keinen fremden Plan (`_get_active_plan(recover=False)`); Adoption nur in `_try_session_recovery` mit Besitzprüfung.
+- **Nicht raten.** Abschluss wird aus den Tasks berechnet (alle completed → „abgeschlossen“, mit aborted → „abgebrochen“); plan-level `status` existiert im Datenmodell nicht.
+- **Nicht schlucken.** Jeder Teil hat einen Guard und rendert `⚠️ Banner-Teil <name> fehlgeschlagen: <Typ>`.
+
+#### Abschluss-Epilog
+Bei erledigtem Plan ist der Banner stumm, bis auf zwei Zeilen, genau einmal pro (plan_id, session_id): „✅ Plan abgeschlossen: <id> (n/n)“ plus berechnete Offen-Liste (nicht archiviert / Index zeigt noch darauf / offene Locks). Kein Dauer-Banner, kein Replay nach Restart.
 
 ### post_tool_call — Tool-Tracking
 - Tool-Call-Tracking (duration, status, Kategorie)
@@ -120,8 +129,9 @@ Injiziert in JEDEN Turn einen Banner mit:
 - **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch einen p0-Task (Peer Review) vor alle Template-Tasks. Der erste Code-Task hängt von p0 ab. Abschaltbar mit `p0_review=false` (Template-Parameter oder `plan_create`-Argument). Der Direkt-Tasks-Zweig (ohne Template) erzeugt kein p0.
 - **Write-Guard (v0.5.32):** `tools/paths.py` blockt Schreibzugriffe auf `~/.hermes/plans|roadmaps|shared`, wenn `PLAN_FOLLOW_TEST_GUARD=1` gesetzt ist. `_save_plan` verweigert Pläne ohne `plan_id`/`tasks` und legt vor dem Überschreiben ein `.json.bak` an. Env-Overrides: `PLAN_FOLLOW_PLANS_DIR`, `PLAN_FOLLOW_ROADMAPS_DIR`, `PLAN_FOLLOW_SHARED_DIR`.
 - **TDD in Code-Templates:** `fix`, `bugfix`, `feature` haben RED→GREEN (→REFACTOR). Tests werden VOR Implementation geschrieben.
-- **pre_llm_call Hook** injiziert den Task-Banner alle 4 Turns bzw. sofort bei Task-Wechsel (`_BANNER_FULL_EVERY_N_TURNS`). Beim ersten Turn einer Session wird der Plan einmalig von Disk adoptiert (nur wenn die Session ihn besitzt — kein Cross-Session-Leak).
-- **TTL-Cache (60s)** — health_check + drift nicht auf jedem Turn
+- **pre_llm_call Hook** injiziert den Task-Banner alle 4 Turns bzw. sofort bei Task-Wechsel oder geänderter Zustands-Signatur. Beim ersten Turn einer Session wird der Plan einmalig von Disk adoptiert — nur wenn die Session ihn besitzt (kein Cross-Session-Leak). Danach gewinnt immer der Disk-Stand (Signatur-Check).
+- **Schreibpfad geschützt (v0.5.33):** `_save_plan` prüft die Disk-Signatur (`PlanConflictError` + Konfliktkopie), schreibt atomar (`mkstemp` + `os.replace`) und verweigert archivierte Pläne (`PlanGoneError`). Mutierende Tools laden über `plan_for_write()` frisch von der Platte.
+- **Locks sind opt-in:** `PLAN_FOLLOW_LOCKS=1` aktiviert Auto-Lock/Release; Default aus. Freigabe nur, wenn die Besitzer-Session fehlt oder selbst stale ist.
 - **Disk-Recovery:** via `plans_index.json`/neuester Plan-Datei — im Hook beim ersten Turn der Session, sonst beim ersten `plan_`-Tool-Aufruf. Der Honcho-Fallback wurde in v0.5.32 entfernt (HTTP 422, speicherte nur die plan_id).
 - **Parallele Gruppen:** `plan_create(parallel_groups={"g1": {"tasks": ["a","b"]}})`
 - **Auto-Verify:** `plan_complete(task_id, auto_verify=true)` führt verify-Command aus

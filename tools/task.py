@@ -12,9 +12,12 @@ from .base import (
     _get_active_plan,
     _get_cached_plan,
     _load_plan,
+    _plan_disk_signature,
     _save_plan,
+    _update_plans_index,
     get_session_id,
     logger,
+    plan_for_write,
     reset_tool_metrics,
 )
 from .coordination import (
@@ -169,6 +172,40 @@ def get_current_task_cached() -> Optional[dict]:
     return _task_from_plan(plan)
 
 
+def get_current_task_fresh(session_id: str = "") -> Optional[dict]:
+    """Return current task with Disk-Freshness UND Session-Besitzpruefung.
+
+    Das ist der einzige Einstieg fuer den Banner:
+
+    1. Der Plan wird gegen die Platte revalidiert (Signatur). Externe
+       Aenderungen (execute_code, zweiter Prozess, Handedit) sind damit sofort
+       sichtbar — vorher meldete der Banner stundenlang einen alten Task.
+    2. Der Banner zeigt nur den Plan, den DIESE Session besitzt
+       (``coord_state`` session -> plan_id). Sonst wuerde ein Gateway-Prozess
+       mit einer STATE den Plan von Session A in Session B anzeigen.
+    3. KEINE Disk-Adoption: ein Lesezugriff darf keinen fremden Plan uebernehmen.
+       Adoption passiert ausschliesslich in ``_try_session_recovery``.
+
+    Ohne ``session_id`` (Altaufrufe, Skripte) entfaellt die Besitzpruefung.
+    """
+    plan = _get_active_plan(recover=False)
+    if not plan:
+        return None
+
+    if session_id:
+        owner = ""
+        try:
+            from ..coord_state import get_session
+
+            owner = (get_session(session_id) or {}).get("plan_id") or ""
+        except Exception:  # Koordinations-State ist optional
+            owner = ""
+        if owner != plan.get("plan_id"):
+            return None
+
+    return _task_from_plan(plan)
+
+
 def _task_from_plan(plan: Optional[dict]) -> Optional[dict]:
     """Extract current task dict from a plan, or None."""
     if not plan or not plan.get("current_task"):
@@ -261,7 +298,8 @@ def complete_task(task_id: str) -> dict:
     the next group is activated (all tasks set to in_progress).
     In linear mode, advances to the next task with satisfied dependencies.
     """
-    plan = _get_active_plan()
+    # Frisch von der Platte: mutieren nie auf einem veralteten Objekt
+    plan = plan_for_write()
     if not plan:
         return {"status": "error", "message": "No active plan."}
 
@@ -412,7 +450,7 @@ def update_task(task_id: str, changes: dict, plan_id: str = "") -> Optional[dict
         if not plan:
             return None
     else:
-        plan = _get_active_plan()
+        plan = plan_for_write()
         if not plan:
             return None
     task = plan["tasks"].get(task_id)
@@ -445,6 +483,13 @@ def set_active_plan(plan_id: str) -> bool:
         return False
     STATE.active_plan = plan
     STATE.active_plan_id = plan_id
+    STATE.active_plan_sig = _plan_disk_signature(plan_id)
+    # Index mitfuehren: sonst zeigt plans_index.json nach einem Clear ins Leere,
+    # obwohl ein Plan gewaehlt ist (Cross-Session-Recovery braucht den Anker).
+    try:
+        _update_plans_index(plan)
+    except Exception:  # Index ist Komfort, nicht kritisch
+        logger.debug("plans_index update bei set_active_plan fehlgeschlagen", exc_info=True)
     # Auto-lock current task's files when activating a plan
     current_task_id = plan.get("current_task")
     if current_task_id:
@@ -556,16 +601,18 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     except Exception as e:
         logger.warning("Auto peer review failed (non-blocking): %s", e)
 
-    # ─── TTS Flag: Plan Created ──────────────────────────────────────────
+    # ─── TTS: Plan erstellt — eigene Queue, NICHT die Plan-Datei ─────────
     try:
-        plan = plan_core._get_active_plan()
-        if plan:
-            if "tts_flags" not in plan:
-                plan["tts_flags"] = {}
-            plan["tts_flags"]["plan_created"] = True
-            plan_core._save_plan(plan)
+        from . import tts_queue
+
+        tts_queue.enqueue(
+            "plan_created",
+            plan_id,
+            message=goal[:60],
+            name=str(len(tasks)),
+        )
     except Exception as e:
-        logger.warning("TTS flag setting failed (non-blocking): %s", e)
+        logger.warning("TTS event (plan_created) failed (non-blocking): %s", e)
 
     response = {
         "status": "created",
@@ -686,18 +733,26 @@ def plan_complete_tool(args: dict, **kwargs) -> str:
             )
             result["auto_commit"] = commit_result
 
-        # ─── TTS Flag: Task Completed ────────────────────────────────────
+        # ─── TTS: Task abgeschlossen — eigene Queue, NICHT die Plan-Datei ─
         try:
-            plan = plan_core._get_active_plan()
-            if plan:
-                if "tts_flags" not in plan:
-                    plan["tts_flags"] = {}
-                if "task_completed" not in plan["tts_flags"]:
-                    plan["tts_flags"]["task_completed"] = []
-                plan["tts_flags"]["task_completed"].append(task_id)
-                plan_core._save_plan(plan)
+            from . import tts_queue
+
+            task_name = ""
+            try:
+                plan_obj = plan_core._get_active_plan()
+                if plan_obj:
+                    task_name = plan_obj.get("tasks", {}).get(task_id, {}).get("name", "")
+            except Exception:
+                task_name = ""
+            tts_queue.enqueue(
+                "task_completed",
+                STATE.active_plan_id or "",
+                task_id=task_id,
+                name=task_name,
+                session_id=get_session_id(),
+            )
         except Exception as e:
-            logger.warning("TTS flag for task completion failed: %s", e)
+            logger.warning("TTS event (task_completed) failed: %s", e)
 
     return fmt_ok(result)
 

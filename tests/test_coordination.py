@@ -343,6 +343,11 @@ class TestGitCommitIfActive:
 
 
 class TestAutoLockTaskFiles:
+    @pytest.fixture(autouse=True)
+    def _locks_enabled(self, monkeypatch):
+        """Auto-Lock ist seit v0.5.33 opt-in (PLAN_FOLLOW_LOCKS=1)."""
+        monkeypatch.setenv("PLAN_FOLLOW_LOCKS", "1")
+
     """Test _auto_lock_task_files — auto-acquire locks for task files."""
 
     def test_no_files_returns_early(self):

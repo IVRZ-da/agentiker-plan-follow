@@ -1,8 +1,13 @@
-"""Tests for hooks/breaker.py — Circuit Breaker (100% coverage)."""
+"""Tests for the Circuit Breaker in plan_hooks.py (ehemals hooks/breaker.py).
+
+Der zweite Hook-Baum plan_follow/hooks/ wurde in v0.5.33 entfernt: sein
+__init__.py importierte ein nicht existierendes hooks/base.py, und breaker.py
+war eine byte-identische Kopie des Breakers in plan_hooks.py. Der Test prueft
+jetzt die produktive Implementierung statt der Kopie.
+"""
 
 import sys
 import time
-import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,45 +16,7 @@ import pytest
 # ─── Make plan_follow importable ────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-# ─── Stub missing plan_follow.hooks.base so the hooks package imports normally ─
-# hooks/__init__.py imports from .base which doesn't exist yet. We create
-# a stub in sys.modules so that coverage can track the breaker module.
-_base = types.ModuleType("plan_follow.hooks.base")
-_base.__path__ = []
-# Provide all symbols that hooks/__init__.py imports from .base
-_sentinel_attrs = {
-    "_BANNER_COMPACT_EVERY_N_TURNS": 5,
-    "_BANNER_FULL_EVERY_N_TURNS": 20,
-    "_HEALTH_CACHE_KEY": "health",
-    "_HEALTH_CACHE_TTL": 300,
-    "_HOOK_CACHE_TTL": 60,
-    "_PLAN_KEYWORDS": ("plan", "todo", "roadmap"),
-    "_banner_last_task_id": None,
-    "_banner_turn_counter": 0,
-    "_build_banner": lambda **kw: [],
-    "_build_compact_banner": lambda **kw: [],
-    "_build_coordination_banner": lambda **kw: [],
-    "_build_drift_banner": lambda **kw: [],
-    "_build_due_banner": lambda **kw: [],
-    "_build_git_banner": lambda **kw: [],
-    "_build_health_banner": lambda **kw: [],
-    "_build_review_banner": lambda **kw: [],
-    "_build_roadmap_banner": lambda **kw: [],
-    "_build_task_header": lambda **kw: "",
-    "_build_tts_banner": lambda **kw: [],
-    "_cached_or_fresh": lambda **kw: {},
-    "_get_last_user_message": lambda **kw: "",
-    "_has_plan_keywords": lambda **kw: False,
-    "_hook_cache": {},
-    "_last_task_id": None,
-    "invalidate_hook_cache": lambda: None,
-}
-for _name, _val in _sentinel_attrs.items():
-    setattr(_base, _name, _val)
-sys.modules["plan_follow.hooks.base"] = _base
-
-# Now normal import works
-from plan_follow.hooks.breaker import (  # noqa: E402
+from plan_follow.plan_hooks import (  # noqa: E402
     _BREAKER_CRITICAL_PREFIXES,
     _BREAKER_TTL,
     _breaker_state,
@@ -59,7 +26,7 @@ from plan_follow.hooks.breaker import (  # noqa: E402
 )
 
 # Need module reference for patching time.monotonic
-_breaker_mod = sys.modules["plan_follow.hooks.breaker"]
+_breaker_mod = sys.modules["plan_follow.plan_hooks"]
 
 
 @pytest.fixture(autouse=True)

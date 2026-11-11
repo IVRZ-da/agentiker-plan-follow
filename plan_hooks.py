@@ -8,6 +8,7 @@ Injects into EVERY user message before the LLM processes it:
 """
 
 import logging
+import os
 import time
 from typing import Any, Optional
 
@@ -37,40 +38,98 @@ _recovered_sessions: set[str] = set()
 # Track which task's files are currently locked, so we can release on task change.
 _LAST_LOCKED_TASK: Optional[str] = None
 
+# ─── TTS / Snapshot-State (v0.5.33) ───────────────────────────────────────────
+# Der Renderpfad darf nichts schreiben. Angezeigte Events werden hier im Prozess
+# gemerkt; den persistenten Water mark setzt post_tool_call (Observer).
+_tts_announced_seq: int = 0
+_tts_announced_legacy: set[str] = set()
+_tts_pending_watermark: int = 0
+_tts_pending_emitted: set[str] = set()
+_epilogue_shown: set[str] = set()
 
-def _do_coordination_housekeeping(current: dict) -> int:
-    """Register session heartbeat + auto-acquire locks for task files.
+# Git-/Drift-Snapshots: gefuellt in post_tool_call, gelesen im Renderpfad.
+_git_snapshot: dict = {}
+_git_snapshot_ts: float = 0.0
+_drift_snapshot: list = []
+_drift_snapshot_ts: float = 0.0
+_drift_reported: tuple = ()
+_SNAPSHOT_TTL = 120.0
 
-    Called once per turn from on_pre_llm_call, BEFORE the banner is built.
-    Detects task changes and releases stale locks automatically.
 
-    Returns the number of locks acquired (0 if none needed).
+def _hook_active_plan():
+    """Plan fuer den Renderpfad: disk-frisch, aber OHNE Adoption.
+
+    Tolerant gegen Monkeypatches ohne ``recover``-Parameter (Tests, Fremdcode) —
+    in Produktion wird immer der adoptionsfreie Pfad benutzt, damit ein
+    Lesezugriff keinen fremden Plan uebernehmen kann.
+    """
+    try:
+        return plan_core._get_active_plan(recover=False)
+    except TypeError:
+        return plan_core._get_active_plan()
+
+
+def _locks_enabled() -> bool:
+    """Cross-Session-Locks sind opt-in (PLAN_FOLLOW_LOCKS=1), Default aus."""
+    return os.environ.get("PLAN_FOLLOW_LOCKS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _release_locks_for_plan(session_id: str, plan_id: str) -> int:
+    """Alle Locks dieser Session freigeben (best-effort)."""
+    try:
+        return coord_state.release_all_locks(session_id)
+    except Exception:
+        logger.debug("release_all_locks failed", exc_info=True)
+        return 0
+
+
+def _do_coordination_housekeeping(current: Optional[dict], session_id: str = "") -> int:
+    """Session-Heartbeat + optional Auto-Locks fuer den aktuellen Task.
+
+    Aenderungen v0.5.33:
+    * ``session_id`` kommt aus dem Hook-Payload — nicht aus dem prozessglobalen
+      ``get_session_id()`` (im Gateway teilen sich sonst alle Sessions eine ID).
+    * Locks nur mit ``PLAN_FOLLOW_LOCKS=1`` (Default aus): damit verschwindet die
+      Fehlerklasse "Lock-Leiche" im Normalfall vollstaendig.
+    * Ohne aktiven Task wird aufgeraeumt statt frueh zu returnen.
     """
     global _LAST_LOCKED_TASK
 
-    session_id = plan_core.get_session_id()
-    plan = plan_core._get_active_plan()
+    sid = session_id or plan_core.get_session_id()
+    if not sid:
+        return 0
+
+    plan = _hook_active_plan()
     plan_id = plan.get("plan_id", "") if plan else ""
     goal = plan.get("goal", "") if plan else ""
 
-    # 1. Register/update session with heartbeat
-    registered = coord_state.get_session(session_id)
+    registered = coord_state.get_session(sid)
     if registered:
-        coord_state.update_session(session_id, plan_id=plan_id, goal=goal)
+        coord_state.update_session(sid, plan_id=plan_id, goal=goal)
     else:
-        coord_state.register_session(session_id, plan_id=plan_id, goal=goal)
+        coord_state.register_session(sid, plan_id=plan_id, goal=goal)
 
-    # 2. Detect task change → release ALL old locks for this session
+    if not current:
+        # Plan abgeschlossen/abgebrochen oder gar keiner: aufraeumen
+        _release_locks_for_plan(sid, plan_id)
+        _LAST_LOCKED_TASK = None
+        if plan and _plan_finished(plan):
+            # Abgeschlossener Plan darf nicht als aktiv gelten (Cross-Session)
+            coord_state.update_session(sid, plan_id="", goal=goal)
+        return 0
+
+    if not _locks_enabled():
+        # Kein Lock-Betrieb: nichts akquirieren (Default)
+        return 0
+
     current_task_id = current.get("task_id", "")
     if _LAST_LOCKED_TASK and _LAST_LOCKED_TASK != current_task_id:
-        coord_state.release_all_locks(session_id)
+        coord_state.release_all_locks(sid)
 
-    # 3. Auto-acquire locks for current task files
-    task_files = current.get("files", [])
     acquired_count = 0
-    for f in task_files:
-        result = coord_state.acquire_lock(f, session_id)
-        if result["status"] == "acquired":
+    for f in current.get("files", []) or []:
+        result = coord_state.acquire_lock(f, sid)
+        if result.get("status") == "acquired":
             acquired_count += 1
 
     _LAST_LOCKED_TASK = current_task_id
@@ -120,15 +179,173 @@ def _cached_or_fresh(key: str, fetcher, ttl: int = _HOOK_CACHE_TTL):
         return None
 
 
-def _build_banner(lines: list) -> Optional[str]:
-    """Wrap lines in PLAN banner or return None if empty."""
+_SEPARATOR = ""
+
+
+def _safe_section(name: str, builder, *args, **kwargs) -> list[str]:
+    """Banner-Teil rendern. Fehler werden sichtbar gemacht, nicht geschluckt."""
+    try:
+        return list(builder(*args, **kwargs) or [])
+    except Exception as exc:
+        logger.warning("Banner-Teil '%s' fehlgeschlagen: %s", name, exc)
+        return [f"║  ⚠️ Banner-Teil {name} fehlgeschlagen: {type(exc).__name__}"]
+
+
+def _provenance_line() -> str:
+    """Woher kommt der Banner-Stand? Ohne diese Zeile war die Falschmeldung
+    't1, 1/15' von einem echten Fortschritt nicht unterscheidbar."""
+    stamp = time.strftime("%H:%M:%S")
+    plan = None
+    try:
+        plan = _hook_active_plan()
+    except Exception:
+        plan = None
+    if not plan:
+        return f"Stand: {stamp} | Quelle: Hook | Cache: leer"
+    plan_id = plan.get("plan_id", "")
+    tasks = plan.get("tasks", {}) or {}
+    done = sum(1 for t in tasks.values() if t.get("status") in ("completed", "aborted"))
+    disk = "?"
+    try:
+        from .tools.base import _plan_path
+
+        disk = time.strftime("%H:%M", time.localtime(_plan_path(plan_id).stat().st_mtime))
+    except Exception:
+        disk = "?"
+    return f"Stand: {stamp} | Quelle: Disk {disk} | Tasks {done}/{len(tasks)} | Cache: frisch"
+
+
+def _commit_tts_state() -> None:
+    """Water mark + Epilog-Merker schreiben — nur aus Observer-Hooks."""
+    global _tts_pending_watermark
+
+    try:
+        from .tools import tts_queue
+    except Exception:
+        return
+
+    if _tts_pending_watermark:
+        try:
+            tts_queue.commit_watermark(_tts_pending_watermark)
+            _tts_pending_watermark = 0
+        except Exception:
+            logger.debug("tts watermark commit failed", exc_info=True)
+
+    for key in list(_tts_pending_emitted):
+        try:
+            tts_queue.mark_emitted(key)
+            _tts_pending_emitted.discard(key)
+        except Exception:
+            logger.debug("epilogue mark_emitted failed", exc_info=True)
+
+
+def _plan_finished(plan: dict) -> bool:
+    """Alle Tasks completed/aborted? (plan-level 'status' wird nie geschrieben)"""
+    tasks = plan.get("tasks") or {}
+    if not tasks:
+        return False
+    return all(t.get("status") in ("completed", "aborted") for t in tasks.values())
+
+
+def _epilogue_lines(session_id: str) -> list[str]:
+    """Einmaliger Abschluss-Epilog: was ist fertig, was ist noch offen.
+
+    Genau einmal pro (plan_id, session_id). Kein Dauer-Banner — der Banner ist
+    bei erledigter Arbeit stumm, bis auf diese zwei Zeilen.
+    """
+    global _tts_pending_emitted
+
+    plan = _hook_active_plan()
+    if not plan or not _plan_finished(plan):
+        return []
+
+    plan_id = plan.get("plan_id", "")
+    tasks = plan.get("tasks") or {}
+    total = len(tasks)
+    completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
+    aborted = sum(1 for t in tasks.values() if t.get("status") == "aborted")
+
+    key = f"{plan_id}:{session_id}"
+    if key in _epilogue_shown:
+        return []
+    try:
+        from .tools import tts_queue
+
+        if session_id and tts_queue.is_emitted(tts_queue.epilogue_key(plan_id, session_id)):
+            _epilogue_shown.add(key)
+            return []
+        _tts_pending_emitted.add(tts_queue.epilogue_key(plan_id, session_id))
+    except Exception:
+        logger.debug("epilogue dedupe via tts_queue failed", exc_info=True)
+    _epilogue_shown.add(key)
+
+    if aborted:
+        head = f"⛔ Plan abgebrochen: {plan_id} ({completed}/{total} erledigt, {aborted} abgebrochen)"
+    else:
+        head = f"✅ Plan abgeschlossen: {plan_id} ({completed}/{total})"
+
+    offen: list[str] = []
+    try:
+        from .tools.base import resolve_archive_dir, resolve_plans_index
+
+        if resolve_plans_index().exists():
+            import json as _json
+
+            try:
+                index = _json.loads(resolve_plans_index().read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                index = {}
+            if index.get("active_plan_id") == plan_id:
+                offen.append("Index zeigt noch auf diesen Plan")
+        if not (resolve_archive_dir() / f"{plan_id}.json").exists():
+            offen.append("nicht archiviert")
+    except Exception:
+        logger.debug("epilogue open-items failed", exc_info=True)
+
+    if _locks_enabled():
+        try:
+            own = [
+                p
+                for p, lock in coord_state.get_locks().items()
+                if lock.get("session_id") == (session_id or plan_core.get_session_id())
+            ]
+            if own:
+                offen.append(f"{len(own)} Lock(s) offen")
+        except Exception:
+            pass
+
+    tail = "→ offen: " + " · ".join(offen) if offen else "→ offen: nichts"
+    return [f"║  {head}", f"║  {tail}"]
+
+
+def _build_banner(lines: list, session_id: str = "") -> Optional[str]:
+    """Linien zu einer Box mit einheitlicher Breite machen.
+
+    Bis v0.5.32 mischten die Builder Zeilen mit und ohne ``║``-Abschluss, die
+    Box war sichtbar schief. Jetzt wird zentral gepolstert.
+    """
     if not lines:
         return None
-    full = [
-        "╔═══════════════════════════════════════════╗",
-    ]
-    full.extend(lines)
-    full.append("╚═══════════════════════════════════════════╝")
+
+    footer = _provenance_line()
+    body: list[str] = []
+    for raw in list(lines) + [footer]:
+        text = raw.strip()
+        if text.startswith("║"):
+            text = text[1:]
+        text = text.rstrip()
+        if text.endswith("║"):  # alte Builder haben den Rahmen selbst gepolstert
+            text = text[:-1].rstrip()
+        if text:
+            body.append(text)
+
+    width = max((len(t) for t in body), default=0)
+    width = max(45, min(width, 96))
+    body = [(t if len(t) <= width else t[: width - 1] + "…") for t in body]
+
+    full = ["╔" + "═" * (width + 2) + "╗"]
+    full.extend("║ " + t.ljust(width) + " ║" for t in body)
+    full.append("╚" + "═" * (width + 2) + "╝")
     return "[PLAN] " + "\n[PLAN] ".join(full)
 
 
@@ -137,11 +354,14 @@ def _build_banner(lines: list) -> Optional[str]:
 
 def _build_task_header(current: dict) -> list[str]:
     """Build task info header lines."""
+    progress = current.get("progress", "")
+    if len(progress) > 80:
+        progress = progress[:77] + "…"
     lines = [
         f"║  CURRENT TASK: {current['task_id']} — {current['name'][:50]}",
         f"║  Files: {', '.join(current['files'][:3])}"
         + (" ..." if len(current["files"]) > 3 else ""),
-        f"║  Progress: {current['progress']}",
+        f"║  Progress: {progress}",
         "║                                       ║",
     ]
     return lines
@@ -174,72 +394,100 @@ def _build_roadmap_banner() -> list[str]:
     return lines
 
 
+def _refresh_snapshots(force: bool = False) -> None:
+    """Git-/Drift-Snapshots aktualisieren — nur aus Observer-Hooks aufrufen.
+
+    Der Renderpfad darf keine Subprozesse starten: ``check_drift`` und
+    ``get_git_status`` rufen ``git`` mit 10 s Timeout pro Repo. Im pre_llm_call
+    war das ein Latenzpfad in jedem Cache-Miss-Turn.
+    """
+    global _git_snapshot, _git_snapshot_ts, _drift_snapshot, _drift_snapshot_ts
+
+    now = time.monotonic()
+    if not force and (now - _git_snapshot_ts) < _SNAPSHOT_TTL:
+        return
+    try:
+        plan = _hook_active_plan()
+        if not plan:
+            return
+        repos = plan_core._get_repos(plan) or []
+        snapshot = {}
+        for repo in repos[:3]:
+            try:
+                status = plan_core.get_git_status(repo)
+            except Exception:
+                continue
+            if status and status.get("status") == "ok":
+                snapshot[repo] = status
+        _git_snapshot = snapshot
+        _git_snapshot_ts = now
+
+        try:
+            _drift_snapshot = plan_core.check_drift() or []
+        except Exception:
+            _drift_snapshot = []
+        _drift_snapshot_ts = now
+    except Exception:
+        logger.debug("_refresh_snapshots failed (non-blocking)", exc_info=True)
+
+
 def _build_git_banner() -> list[str]:
-    """Build git status lines (branch, ahead/behind, dirty) — cached, non-blocking."""
+    """Git-Status aus dem Snapshot — kein subprocess im Renderpfad."""
     lines = []
     try:
-        plan = plan_core._get_active_plan()
-        if not plan:
+        if not _git_snapshot:
             return lines
-
-        repos = plan_core._get_repos(plan)
-        if not repos:
-            return lines
-
-        for repo in repos:
-            def _git_status_wrapper(r=repo):
-                return plan_core.get_git_status(r)
-            status = _cached_or_fresh(f"git_status:{repo}", _git_status_wrapper, ttl=120)
-            if not status or status.get("status") != "ok":
-                continue
-
+        for repo, status in list(_git_snapshot.items())[:3]:
             repo_name = repo.rstrip("/").split("/")[-1]
-            parts = [f"{repo_name}"]
-            parts.append(f"🌿{status.get('branch', '?')}")
-
+            parts = [f"{repo_name}", f"🌿{status.get('branch', '?')}"]
             if status.get("dirty"):
                 parts.append(f"💩+{status['dirty_files']}")
-
             ahead = status.get("ahead", 0)
             behind = status.get("behind", 0)
-            if ahead or behind:
-                if ahead and behind:
-                    parts.append(f"↑{ahead}↓{behind}")
-                elif ahead:
-                    parts.append(f"↑{ahead}")
-                elif behind:
-                    parts.append(f"↓{behind}")
-
+            if ahead and behind:
+                parts.append(f"↑{ahead}↓{behind}")
+            elif ahead:
+                parts.append(f"↑{ahead}")
+            elif behind:
+                parts.append(f"↓{behind}")
             lines.append(f"║  📍 {' '.join(parts)}")
-
-    except Exception:
-        pass  # Non-blocking
+    except Exception as exc:
+        logger.debug("git-banner failed", exc_info=True)
+        lines.append(f"║  ⚠️ Banner-Teil git fehlgeschlagen: {type(exc).__name__}")
     return lines
 
 
 def _build_drift_banner() -> list[str]:
-    """Build drift detection lines (cached, best-effort)."""
+    """Drift aus dem Snapshot + proaktive Warnungen — je Aenderung nur einmal."""
+    global _drift_reported
     lines = []
     try:
-        drift = _cached_or_fresh("drift", plan_core.check_drift)
+        drift = list(_drift_snapshot)
+        drift_warnings = plan_core.get_drift_warnings()
+
+        signature = (tuple(drift), tuple(drift_warnings))
+        if signature == _drift_reported:
+            return lines
+        _drift_reported = signature
+
         if drift:
-            lines.append("║  ⚠️  DRIFT DETECTED                   ║")
+            lines.append("║  ⚠️  DRIFT DETECTED")
             for f in drift[:3]:
                 lines.append(f"║    {f[:60]}")
             if len(drift) > 3:
                 lines.append(f"║    ... and {len(drift) - 3} more")
-            lines.append("║  → plan_update() oder revert          ║")
+            lines.append("║  → plan_update() oder revert")
 
-        drift_warnings = plan_core.get_drift_warnings()
         if drift_warnings:
-            lines.append("║  ⚠️  DRIFT WARNING (proaktiv)          ║")
+            lines.append("║  ⚠️  DRIFT WARNING (proaktiv)")
             for w in drift_warnings[:2]:
                 lines.append(f"║    • {w[:55]}")
             if len(drift_warnings) > 2:
                 lines.append(f"║    ... and {len(drift_warnings) - 2} more")
-            lines.append("║  → Task-Eigenschaften prüfen          ║")
-    except Exception:
-        logger.debug("_build_drift_banner failed (non-blocking)", exc_info=True)
+            lines.append("║  → Task-Eigenschaften prüfen")
+    except Exception as exc:
+        logger.debug("_build_drift_banner failed", exc_info=True)
+        lines.append(f"║  ⚠️ Banner-Teil drift fehlgeschlagen: {type(exc).__name__}")
     return lines
 
 
@@ -391,7 +639,7 @@ def _build_coordination_banner() -> list[str]:
         if my_locks:
             lines.append(f"║  🔒 Eigene Locks ({len(my_locks)})                 ║")
             for lp in my_locks[:2]:
-                fname = lp.rsplit("/", 1)[-1]
+                fname = lp.rstrip("/").rsplit("/", 1)[-1]
                 lines.append(f"║    • {fname[:45]}                       ║")
             if len(my_locks) > 2:
                 lines.append(f"║    ... und {len(my_locks) - 2} weitere           ║")
@@ -443,7 +691,7 @@ def _build_coordination_banner() -> list[str]:
         lines.append("║    → plan_notify(action='check')            ║")
 
     # Repo-Konflikt
-    current_plan = plan_core._get_active_plan()
+    current_plan = _hook_active_plan()
     if current_plan and len(sessions) > 1:
         my_repos = plan_core._get_repos(current_plan)
         if my_repos:
@@ -478,71 +726,79 @@ def _build_coordination_banner() -> list[str]:
     return lines
 
 
-def _build_tts_banner() -> list[str]:
-    """Build TTS event marker lines (best-effort, clears flags after display)."""
-    lines = []
+def _build_tts_banner(session_id: str = "") -> list[str]:
+    """TTS-Marker anzeigen — rein lesend.
+
+    Quelle 1: ``tools/tts_queue.py`` (neue Events, seit dem letzten Water mark).
+    Quelle 2: ``plan["tts_flags"]`` (Altbestand aus v0.5.32 und davor). Diese
+    Flags werden nur noch gelesen und im Prozess als "schon angesagt" gemerkt —
+    der Renderpfad schreibt die Plan-Datei nicht mehr.
+    """
+    global _tts_announced_seq, _tts_pending_watermark
+
+    lines: list[str] = []
     try:
-        active_plan = plan_core._get_active_plan()
-        if not active_plan or not active_plan.get("tts_flags"):
+        from .tools import tts_queue
+
+        active_plan = _hook_active_plan()
+        if not active_plan:
             return lines
+        plan_id = active_plan.get("plan_id", "")
 
-        tts_flags = active_plan["tts_flags"]
-        to_clear = []
+        # ─── Neue Events aus der Queue ────────────────────────────────────
+        if plan_id:
+            try:
+                events = tts_queue.read_events(plan_id, session_id, _tts_announced_seq)
+            except Exception as exc:
+                logger.warning("tts_queue nicht lesbar: %s", exc)
+                events = []
 
-        if tts_flags.get("plan_created"):
-            goal_text = active_plan.get("goal", "Plan created")[:80]
-            task_count = len(active_plan.get("tasks", {}))
-            lines.append(
-                "║  [TTS:event=plan_created:message=Plan erstellt:             ║"
-            )
-            lines.append(f"║   {goal_text} ({task_count} Tasks]  ║")
-            to_clear.append("plan_created")
+            for event in events:
+                kind = event.get("kind", "")
+                if kind == "plan_created":
+                    goal = (event.get("message") or active_plan.get("goal", ""))[:42]
+                    lines.append(
+                        f"║  [TTS:event=plan_created:message=Plan erstellt: {goal}]"
+                    )
+                elif kind == "task_completed":
+                    name = (event.get("name") or event.get("task_id") or "")[:38]
+                    lines.append(
+                        f"║  [TTS:event=task_completed:message=Aufgabe abgeschlossen: {name}]"
+                    )
 
-        completed_tasks = tts_flags.get("task_completed", [])
-        for ctid in list(completed_tasks):
-            task = active_plan.get("tasks", {}).get(ctid, {})
-            task_name = task.get("name", ctid)[:50]
-            lines.append(
-                "║  [TTS:event=task_completed:message=Aufgabe abgeschlossen:  ║"
-            )
-            lines.append(f"║   {task_name}]          ║")
-            to_clear.append(ctid)
+            if events:
+                _tts_announced_seq = max(
+                    _tts_announced_seq, max(int(e.get("seq") or 0) for e in events)
+                )
+                _tts_pending_watermark = _tts_announced_seq
 
-        failed_reviews = tts_flags.get("review_failed", [])
-        for rfid in list(failed_reviews):
-            task = active_plan.get("tasks", {}).get(rfid, {})
-            review_result = task.get("review_result", {})
-            issues = (
-                review_result.get("issues", [])
-                if isinstance(review_result, dict)
-                else []
-            )
-            error_issues = (
-                [i for i in issues if i.get("severity") == "error"] if issues else []
-            )
-            issue_summary = (
-                f"{len(error_issues)} kritische(s) Problem(e)"
-                if error_issues
-                else "Review fehlgeschlagen"
-            )
-            lines.append(f"║  [TTS:event=review_failed:message={issue_summary}  ║")
-            task_name = task.get("name", rfid)[:40]
-            lines.append(f"║   in {task_name}]                            ║")
-            to_clear.append(rfid)
+        # ─── Legacy-Flags im Plan (nur lesen) ─────────────────────────────
+        flags = active_plan.get("tts_flags") or {}
+        if isinstance(flags, dict):
+            if flags.get("plan_created") and "plan_created" not in _tts_announced_legacy:
+                goal_text = active_plan.get("goal", "Plan created")[:42]
+                task_count = len(active_plan.get("tasks", {}))
+                lines.append(
+                    f"║  [TTS:event=plan_created:message=Plan erstellt: {goal_text}]"
+                    f" ({task_count} Tasks)"
+                )
+                _tts_announced_legacy.add("plan_created")
 
-        if "plan_created" in to_clear:
-            tts_flags.pop("plan_created", None)
-        for item in to_clear:
-            if item in tts_flags.get("task_completed", []):
-                tts_flags["task_completed"].remove(item)
-            if item in tts_flags.get("review_failed", []):
-                tts_flags["review_failed"].remove(item)
+            for completed_id in list(flags.get("task_completed") or []):
+                key = f"task_completed:{completed_id}"
+                if key in _tts_announced_legacy:
+                    continue
+                task = active_plan.get("tasks", {}).get(completed_id, {})
+                name = (task.get("name") or completed_id)[:38]
+                lines.append(
+                    f"║  [TTS:event=task_completed:message=Aufgabe abgeschlossen: {name}]"
+                )
+                _tts_announced_legacy.add(key)
 
-        if not tts_flags:
-            active_plan.pop("tts_flags", None)
-        plan_core._save_plan(active_plan)
-    except Exception as e:
-        logger.warning("TTS flag save failed (non-blocking): %s", e)
+            # review_failed wird nicht mehr unterstuetzt: es gab nie einen Writer.
+    except Exception as exc:  # nie still schlucken
+        logger.warning("TTS-Banner fehlgeschlagen: %s", exc)
+        lines.append(f"║  ⚠️ Banner-Teil tts fehlgeschlagen: {type(exc).__name__}")
     return lines
 
 
@@ -597,59 +853,48 @@ def _build_breaker_banner() -> list[str]:
 
 
 def _build_health_banner() -> list[str]:
-    """Build health check lines (cached, non-blocking, at end)."""
+    """Health-Zustand mit Zeitstempel — DEGRADED erst nach 2 Fehlschlaegen."""
     lines = []
     try:
-        from .tools.health import health_check as _health_check
+        from .tools import health as health_mod
 
-        health = _cached_or_fresh("health", _health_check)
-        if health and health.get("status") == "degraded":
-            issues = health.get("issues", [])
-            if issues:
-                lines.append("║  ⚠️  SYSTEM HEALTH DEGRADED           ║")
-                for issue in issues[:3]:
-                    lines.append(f"║    • {issue[:55]}")
-                if len(issues) > 3:
-                    lines.append(f"║    ... and {len(issues) - 3} more")
-                lines.append("║  (Arbeit trotzdem möglich)           ║")
-    except Exception:
-        logger.debug("_build_health_banner failed (non-blocking)", exc_info=True)
+        # Kein Cache: der Check ist jetzt billig (keine HTTP-Calls ohne
+        # PLAN_FOLLOW_VERBOSE_HEALTH) und muss Fehler sichtbar machen koennen.
+        result = health_mod.health_check() or {}
+        age = health_mod.health_age_seconds()
+        age_txt = f"geprüft vor {int(age)}s" if age is not None else "ungeprüft"
+
+        if result.get("status") == "degraded":
+            lines.append(f"║  ⚠️ SYSTEM HEALTH DEGRADED ({age_txt})")
+            for issue in (result.get("issues") or [])[:3]:
+                lines.append(f"║    • {str(issue)[:55]}")
+            lines.append("║  (Arbeit trotzdem möglich)")
+        elif result.get("pending"):
+            lines.append(f"║  ℹ️ Health: 1 Fehlschlag ({age_txt}) — noch nicht DEGRADED")
+    except Exception as exc:
+        logger.warning("health-banner failed: %s", exc)
+        lines.append(f"║  ⚠️ Banner-Teil health fehlgeschlagen: {type(exc).__name__}")
     return lines
 
 
 def _build_tool_check_banner() -> list[str]:
-    """Build tool-availability banner (first turn / task change only).
-    Erinnert an die Tool-Hierarchie: code_* FIRST, search_files OK, grep VERBOTEN.
-    Zeigt welche Plugins verfügbar sind (Scout, code_intel, plan_follow).
+    """Tool-Verfuegbarkeit aus dem geladenen Zustand — eine Zeile, keine Imports.
+
+    Fruehere Version importierte ``code_intel``/``scout``/``plan_follow`` live und
+    zeigte "❌", weil das Plugin-Verzeichnis nicht in ``sys.path`` liegt. Die
+    Tools liefen trotzdem. Ausserdem stand hier eine projektspezifische
+    Tool-Hierarchie in einem generischen Plugin.
     """
     lines = []
     try:
-        import importlib
+        from .tools import health as health_mod
 
-        # Check plugin availability
-        plugins = []
-        for pname, pkg in [("🔍 code_intel", "code_intel"), ("🕵️  scout", "scout"), ("📋 plan_follow", "plan_follow")]:
-            try:
-                mod = importlib.import_module(pkg)
-                ver = getattr(mod, "__version__", getattr(mod, "version", "?"))
-                plugins.append(f"{pname} (v{ver})")
-            except Exception:
-                plugins.append(f"{pname} ❌")
-
-        lines.append("║  🛠️  TOOL-CHECK                     ║")
-        for p in plugins:
-            lines.append(f"║    {p:38}║")
-
-        # Tool hierarchy reminder (compact, only on session start)
-        lines.append("║                                       ║")
-        lines.append("║  🔴 Tool-Hierarchie:                 ║")
-        lines.append("║     code_* (symbols/search/refactor)  ║")
-        lines.append("║     → search_files (ripgrep)          ║")
-        lines.append("║     → ❌ grep im Terminal (verboten)  ║")
-        lines.append("║  (Build-Logs + Git + Pre-Commit: OK)  ║")
-
-    except Exception:
-        logger.debug("_build_tool_check_banner failed (non-blocking)", exc_info=True)
+        state = health_mod.loaded_plugins()
+        parts = [f"{name} {'✓' if ok else '?'}" for name, ok in state.items()]
+        lines.append("║  🛠️  " + " · ".join(parts))
+    except Exception as exc:
+        logger.debug("tool-check-banner failed", exc_info=True)
+        lines.append(f"║  ⚠️ Banner-Teil tools fehlgeschlagen: {type(exc).__name__}")
     return lines
 
 
@@ -732,8 +977,26 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     try:
         _try_session_recovery(kwargs)
 
-        current = plan_core.get_current_task_cached()
+        # Session-Identitaet aus dem Hook-Payload. Sie ist prozessglobal NICHT
+        # ableitbar (get_session_id() cached den ersten Wert) — im Gateway wuerde
+        # sonst jede Session den Plan der ersten sehen.
+        session_id = str(kwargs.get("session_id") or "")
+        if session_id:
+            # Disk-frisch + Besitzpruefung: der Banner zeigt nur, was diese
+            # Session besitzt und was auf der Platte steht.
+            current = plan_core.get_current_task_fresh(session_id)
+        else:
+            current = plan_core.get_current_task_cached()
         if not current:
+            # Kein aktiver Task: aufraeumen und ggf. den Abschluss einmal melden.
+            try:
+                _do_coordination_housekeeping(None, session_id=session_id)
+            except Exception:
+                logger.debug("housekeeping ohne Task fehlgeschlagen", exc_info=True)
+
+            epilogue = _safe_section("epilogue", _epilogue_lines, session_id)
+            if epilogue:
+                return _build_banner(epilogue, session_id=session_id)
             return None
 
         # ─── Banner-Frequenz-Check ─────────────────────────────────────────
@@ -752,47 +1015,33 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
         _banner_turn_counter = 0
 
         # ─── Auto-Coordination Housekeeping ─────────────────────────────
-        # Session heartbeat + auto-lock task files
+        # Session heartbeat + auto-lock task files (Lock nur mit Flag)
         try:
-            _do_coordination_housekeeping(current)
+            _do_coordination_housekeeping(current, session_id=session_id)
         except Exception:
             pass  # Best-effort
 
-        # Build banner sections sequentially
+        # Build banner sections — jeder Teil einzeln abgesichert, damit ein
+        # defekter Builder sichtbar wird statt den ganzen Banner zu verschlucken.
         lines = _build_task_header(current)
-        tool_lines = _build_tool_check_banner()
-        if tool_lines:
-            lines.append("║                                       ║")
-            lines.extend(tool_lines)
-        git_lines = _build_git_banner()
-        if git_lines:
-            lines.append("║                                       ║")
-            lines.extend(git_lines)
-        lines.extend(_build_roadmap_banner())
-        drift_lines = _build_drift_banner()
-        if drift_lines:
-            lines.append("║                                       ║")
-            lines.extend(drift_lines)
-        lines.extend(_build_due_banner())
-        coord_lines = _build_coordination_banner()
-        if coord_lines:
-            lines.append("║                                       ║")
-            lines.extend(coord_lines)
-        lines.extend(_build_tts_banner())
-        review_lines = _build_review_banner(current)
-        if review_lines:
-            lines.append("║                                       ║")
-            lines.extend(review_lines)
-        health_lines = _build_health_banner()
-        if health_lines:
-            lines.append("║                                       ║")
-            lines.extend(health_lines)
-        breaker_lines = _build_breaker_banner()
-        if breaker_lines:
-            lines.append("║                                       ║")
-            lines.extend(breaker_lines)
+        sections = [
+            _safe_section("tools", _build_tool_check_banner),
+            _safe_section("git", _build_git_banner),
+            _safe_section("roadmap", _build_roadmap_banner),
+            _safe_section("drift", _build_drift_banner),
+            _safe_section("due", _build_due_banner),
+            _safe_section("coord", _build_coordination_banner),
+            _safe_section("tts", _build_tts_banner, session_id),
+            _safe_section("review", _build_review_banner, current),
+            _safe_section("health", _build_health_banner),
+            _safe_section("breaker", _build_breaker_banner),
+        ]
+        for produced in sections:
+            if produced:
+                lines.append(_SEPARATOR)
+                lines.extend(produced)
 
-        return _build_banner(lines)
+        return _build_banner(lines, session_id=session_id)
     except Exception as e:
         logger.warning("Task banner injection failed: %s", e)
 
@@ -828,6 +1077,15 @@ def on_post_tool_call(**kwargs: Any) -> None:
         if error_type:
             detail = f"{error_type}: {detail}"
         _set_breaker(tool_name, detail)
+
+    # ─── TTS-Watermark + Epilog-Merker persistieren ─────────────────────────
+    # Der Renderpfad ist rein lesend; hier (Observer) wird der Fortschritt
+    # festgeschrieben, damit nach einem Restart nichts doppelt angesagt wird.
+    _commit_tts_state()
+
+    # ─── Git-/Drift-Snapshots aktualisieren ─────────────────────────────────
+    # Subprozesse gehoeren hierher, nicht in pre_llm_call.
+    _refresh_snapshots()
 
     # Only track plan_follow and code_* tools to avoid noise
     if not tool_name.startswith(("plan_", "code_", "patch", "terminal")):
@@ -982,7 +1240,7 @@ def on_session_end(**kwargs: Any) -> None:
         if session_id_for_recovery:
             _recovered_sessions.discard(session_id_for_recovery)
         # 1. Persist current plan state
-        plan = plan_core._get_active_plan()
+        plan = _hook_active_plan()
         if plan:
             plan["_last_session_end"] = (
                 __import__("datetime")

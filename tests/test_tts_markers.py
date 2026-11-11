@@ -165,29 +165,41 @@ class TestTTSMarkerTaskCompleted:
 
 
 class TestTTSMarkerReviewFailed:
-    """TTS marker should appear when a review fails."""
+    """review_failed ist in v0.5.33 entfernt — es gab nie einen Writer.
 
-    def test_review_failed_marker(self, mock_plan_with_tts):
-        """When tts_flags.review_failed has a task with failed review, inject TTS marker."""
+    Der Banner leitete den Marker aus ``plan["tts_flags"]["review_failed"]`` ab,
+    das von keiner Codezeile geschrieben wurde. Review-Ergebnisse stehen am Task
+    (``review_result``) und werden im Review-Banner gezeigt.
+    """
+
+    def test_review_failed_marker_is_gone(self, mock_plan_with_tts):
         with patch("plan_follow.plan_hooks.plan_core.get_current_task_cached") as mock_get:
             with patch("plan_follow.plan_hooks.plan_core._get_active_plan") as mock_plan:
                 mock_get.return_value = {
-                    "task_id": "p2", "name": "Add tests",
-                    "files": ["tests/test_main.py"], "progress": "0/1",
+                    "task_id": "p2",
+                    "name": "Add tests",
+                    "files": ["tests/test_main.py"],
+                    "progress": "0/1",
                     "review_profile": "unit-test",
-                    "review_result": {"status": "failed", "issues": [
-                        {"check": "test_coverage_90", "severity": "error",
-                         "message": "Coverage only 45%"}
-                    ]},
+                    "review_result": {
+                        "status": "failed",
+                        "issues": [
+                            {
+                                "check": "test_coverage_90",
+                                "severity": "error",
+                                "message": "Coverage only 45%",
+                            }
+                        ],
+                    },
                 }
                 mock_plan.return_value = mock_plan_with_tts
 
                 from plan_follow.plan_hooks import on_pre_llm_call
+
                 result = on_pre_llm_call()
 
                 assert result is not None
-                assert "review_failed" in result or "Coverage only 45" in result, \
-                    f"Expected review_failed TTS, got: {result[:300]}"
+                assert "review_failed" not in result
 
 
 class TestTTSMarkerFormat:

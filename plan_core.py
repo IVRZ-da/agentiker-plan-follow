@@ -104,6 +104,8 @@ _SUBMODULE_ATTRS = {
     "create_plan": ".tools.task",
     "get_current_task": ".tools.task",
     "get_current_task_cached": ".tools.task",
+    "get_current_task_fresh": ".tools.task",
+    "plan_for_write": ".tools.base",
     "get_current_tasks": ".tools.task",
     "get_current_tasks_cached": ".tools.task",
     "set_active_plan": ".tools.task",

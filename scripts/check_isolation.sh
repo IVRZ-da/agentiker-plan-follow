@@ -31,7 +31,7 @@ manifest() {
     -not -path "*/.session-logs/*" \
     -not -path "*/plans/templates/*.tmp" \
     -printf "%p %s\n" 2>/dev/null \
-  | grep -v -E "shared/(sessions|locks|notifications)\.json" \
+  | grep -v -E "shared/(sessions|locks|notifications)\\.json|shared/tts_queue\\.(json|lock)" \
   | sort
 }
 

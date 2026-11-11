@@ -2,9 +2,9 @@
 
 > **Structured plan creation, task enforcement, review gates, parallel groups, auto-verify/commit, plan validation, due dates, archive/restore, and session isolation.**
 
-> 24 tools · 2 hooks · 7 templates · 1480 tests · 0.5.29
+> 39 tools · 3 hooks · 13 templates · 1556 tests · 0.5.33
 
-[![Version](https://img.shields.io/badge/version-0.5.29-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.33-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1556%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
 ---
 
@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.32-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1521%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.33-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1557%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.32
+**Version:** 0.5.33
 
-**Tests:** 1521 tests
+**Tests:** 1557 tests
 
 **Tools (39):**
 
@@ -192,6 +192,27 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
+## [0.5.33] — 2026-11-11
+
+### 🔴 Critical — der Banner behauptete Zustände, die nicht auf der Platte standen
+- **Disk-Freshness statt Prozess-Cache.** `STATE.active_plan` gilt nur noch, solange die Signatur der Plan-Datei (mtime_ns, Größe, sha256) unverändert ist. Andernfalls wird neu geladen; ist die Datei weg, wird der Cache geleert. Ohne Signatur (Altbestand/Restart) ist die Datei autoritativ. Vorher meldete der Banner am 11.11. „CURRENT TASK: t1 — 1/15“, während die Datei 14/14 completed war.
+- **`get_current_task_fresh(session_id)`** ist der einzige Banner-Einstieg: Disk-Stand plus Besitzprüfung (`coord_state` session → plan_id). Ein Gateway-Prozess zeigt damit nicht mehr den Plan einer fremden Session. Lesezugriffe adoptieren keinen Plan mehr (`_get_active_plan(recover=False)`).
+- **Der Renderer schreibt nicht mehr.** `_build_tts_banner()` rief `_save_plan()` auf und konnte so einen veralteten In-Memory-Stand über den neueren Disk-Stand schreiben (inkl. `.bak`, `plans_index.json`, Git-Commit). TTS-Events liegen jetzt in `~/.hermes/shared/tts_queue.json`; der Renderpfad liest nur, den Water mark setzt `post_tool_call`.
+- **Keine Subprozesse im Renderpfad.** `check_drift` und `get_git_status` (je 10 s Timeout pro Repo) laufen im Observer-Hook und füllen Snapshots; der Banner liest sie nur.
+- **Abschluss-Epilog statt Dauer-Banner.** Bei erledigtem Plan ist der Banner stumm, bis auf zwei Zeilen („✅ Plan abgeschlossen …“ + berechnete Offen-Liste), genau einmal pro (plan_id, session_id). Abschluss wird aus den Tasks berechnet — plan-level `status` schreibt keine Codezeile; `current_task is None` allein trifft auch Abbrüche.
+- **Provenienz-Zeile** in jedem Banner: `Stand | Quelle (Disk, mtime) | Tasks n/m | Cache`. Falschmeldungen sind damit von echten Fortschritten unterscheidbar.
+
+### 🟠 Schreibpfad — Lost Updates verhindert
+- **`PlanConflictError`**: `_save_plan` vergleicht vor dem Schreiben die Disk-Signatur mit der geladenen. Hat ein anderer Prozess geschrieben, wird nicht überschrieben; der eigene Stand landet als `<plan_id>.conflict-<ts>.json`.
+- **Atomares Schreiben**: `tempfile.mkstemp` + `fsync` + `os.replace`, `.bak` aus dem alten Inhalt, Signatur wird NACH dem Write gesetzt (sonst Konflikt mit sich selbst).
+- **`PlanGoneError`**: ein archivierter Plan wird nicht wiederbelebt.
+- **`plan_for_write()`**: mutierende Tools (complete/update) laden frisch von der Platte statt auf einem beliebig alten Objekt zu arbeiten.
+- **`_load_plan` tolerant**: kaputtes JSON/OSError liefert `None` + Warnung statt einer Exception im Hook.
+- **`plans_index.active_plan_id`** wird nur noch bei gesetztem `current_task` geschrieben; ein erledigter Plan gilt nicht mehr als aktiv.
+
+### 🟡 Locks
+- **`PLAN_FOLLOW_LOCKS` (Default aus)**: kein Auto-Lock, kein Lock-Block im Banner. Die Fehlerklasse „Lock-Leiche auf abgeschlossenem Plan“ entfällt im Normalfall.
+
 ## [0.5.32] — 2026-11-10
 
 ### 🔴 Critical — Datenverlust durch die Testsuite
@@ -218,27 +239,6 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 ### Fixed
 - **plan_update Schema um plan_id ergänzt** — `plan_id` jetzt als optionales Property im JSON-Schema deklariert (Handler hatte es schon seit v0.5.29)
 - **test_coord_state.py: JSON-Parse-Tests gefixt** — Tests erwarteten JSON-Output, Handler gibt Rich-formatierten Text zurück
-
-## [0.5.29] — 2026-07-04
-
-### Fixed
-- **plan_create akzeptiert jetzt top-level `tasks` auch mit template** — `tasks` werden automatisch in `params.tasks` gemerged (bisher nur via `params={"tasks": [...]}`)
-- **Error-Message zeigt alle 12 Templates** — dynamisch aus `get_template_names()` statt hardcodierter 7er-Liste
-
-### Added
-- **Neues `free` Template** — ohne TDD-Zwang, review_profile=none, Tasks direkt via `tasks` oder `params.tasks`
-
-[0.5.28] — 2026-06-30
-
-### Fixed
-- **Doppelter README_AUTO-Block entfernt** — zweiter Block zwischen Architecture und Limitations war stale
-
-[0.5.27] — 2026-06-29
-
-### 📝 README-Verbesserungen
-
-- **README_AUTO Marker hinzugefügt** — Generator erkennt jetzt 39 Tools in 4 Kategorien (CRUD, Advanced, Git, Review)
-- **Limitations-Sektion** — Neu: Session Isolation, Review Profiles, Git Branching
 
 <!-- END README_AUTO -->
 
@@ -336,7 +336,7 @@ python3 scripts/generate_readme.py --check  # Verify (exit 1 if stale)
 git config core.hooksPath .githooks
 ```
 
-Currently: **1480 tests**, coverage enforced via pre-commit hook.
+Currently: **1556 tests**, coverage enforced via pre-commit hook.
 
 ---
 

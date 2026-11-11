@@ -223,6 +223,22 @@ def reset_shared_state():
     hooks._breaker_state.clear()
     hooks._banner_turn_counter = 0
     hooks._last_task_id = None
+    # v0.5.33: Renderpfad-State (TTS-Dedupe, Snapshots, Epilog)
+    hooks._tts_announced_seq = 0
+    hooks._tts_announced_legacy.clear()
+    hooks._tts_pending_watermark = 0
+    hooks._tts_pending_emitted.clear()
+    hooks._epilogue_shown.clear()
+    hooks._git_snapshot = {}
+    hooks._git_snapshot_ts = 0.0
+    hooks._drift_snapshot = []
+    hooks._drift_snapshot_ts = 0.0
+    hooks._drift_reported = ()
+    hooks._LAST_LOCKED_TASK = None
+
+    # Reset TTS-Queue (eigene Datei im Test-Shared-Root)
+    from plan_follow.tools import tts_queue
+    tts_queue.reset()
 
     # Reset tools.base STATE (active_plan, tool_metrics, drift_warnings)
     from plan_follow.tools import base as tools_base

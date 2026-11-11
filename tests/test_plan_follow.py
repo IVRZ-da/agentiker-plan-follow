@@ -4,7 +4,6 @@ import ast
 import json
 import os
 import sys
-import time
 from pathlib import Path
 
 
@@ -614,8 +613,10 @@ class TestParallelGroups:
         assert plan["parallel_groups"]["z-group"]["status"] == "pending"
 
         # Complete a-group → m-group activates
+        # (plan_for_write laedt frisch von der Platte, Objektidentitaet wechselt)
         complete_task("p1")
         complete_task("p2")
+        plan = _get_active_plan()
         assert plan["parallel_groups"]["m-group"]["status"] == "in_progress"
 
 # ─── Tests: Plan Templates ─────────────────────────────────────────────────────
@@ -1701,14 +1702,22 @@ class TestReviewBanner:
             result = on_pre_llm_call()
             assert result is None or isinstance(result, str)
 
-    def test_banner_shows_health_degraded(self):
+    def test_banner_shows_health_degraded(self, monkeypatch):
         """Health degradation shows warning but does NOT block the banner."""
-        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        import plan_follow.tools.health as health_mod
+        from plan_follow.plan_hooks import on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
-        # Set cache to degraded so health banner shows (expected format: (value, timestamp))
-        _hook_cache.pop("health", None)
-        _hook_cache["health"] = ({"status": "degraded", "issues": ["Test issue 1", "Test issue 2"]}, time.monotonic())
+        monkeypatch.setattr(
+            health_mod,
+            "health_check",
+            lambda: {
+                "status": "degraded",
+                "issues": ["Test issue 1", "Test issue 2"],
+                "pending": [],
+                "checked_at": "2026-11-11T10:00:00+00:00",
+            },
+        )
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
@@ -1721,14 +1730,17 @@ class TestReviewBanner:
         # NOT the old blocking banner
         assert "Arbeiten nicht möglich" not in output
 
-    def test_banner_no_health_warning_when_ok(self):
+    def test_banner_no_health_warning_when_ok(self, monkeypatch):
         """When health is ok, no health section in banner."""
-        from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
+        import plan_follow.tools.health as health_mod
+        from plan_follow.plan_hooks import on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
 
-        _hook_cache.pop("health", None)
-        # Cache health as "ok" so _build_health_banner() doesn't call health_check()
-        _hook_cache["health"] = {"status": "ok"}
+        monkeypatch.setattr(
+            health_mod,
+            "health_check",
+            lambda: {"status": "ok", "issues": [], "pending": [], "checked_at": None},
+        )
 
         plan_create_tool({"goal": "Test", "tasks": [{"id": "t1", "name": "T1", "files": []}]})
         output = on_pre_llm_call()
@@ -2672,87 +2684,53 @@ class TestAutoCommitEdgeCases:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class TestHealthCheckEdgeCases:
-    """Tests for health_check timeout/connection errors (lines 1123-1147)."""
+    """Verbose-Modus und Selbst-Check (v0.5.33)."""
 
-    def test_health_check_honcho_unreachable(self, monkeypatch):
-        """When _http_ok returns False for Honcho URL, report Honcho as unreachable."""
-        from plan_follow.tools.health import health_check
+    def test_http_checks_off_by_default(self, monkeypatch):
+        import plan_follow.tools.health as h
 
-        # Mock _http_ok to return False for Honcho URL
-        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
+        calls = []
+        monkeypatch.setattr(h, "_http_ok", lambda *a, **k: calls.append(a) or True)
+        monkeypatch.setattr(h, "_self_check", lambda: [])
 
-        result = health_check()
+        h.health_check()
+
+        assert calls == [], "Ohne PLAN_FOLLOW_VERBOSE_HEALTH kein HTTP-Check"
+
+    def test_honcho_unreachable_in_verbose_mode(self, monkeypatch):
+        import plan_follow.tools.health as h
+
+        monkeypatch.setenv("PLAN_FOLLOW_VERBOSE_HEALTH", "1")
+        monkeypatch.setattr(h, "_http_ok", lambda url, timeout=3: False)
+        monkeypatch.setattr(h, "_self_check", lambda: [])
+        monkeypatch.setattr(
+            "plan_follow.tools.resolver.resolve_honcho_url", lambda: "http://honcho:8001"
+        )
+
+        issues = h.health_check()["pending"]
+        honcho = [i for i in issues if "Honcho" in i]
+        assert honcho and "Health check failed" in honcho[0]
+
+    def test_self_check_failure_is_reported(self, monkeypatch):
+        import plan_follow.tools.health as h
+
+        monkeypatch.setattr(
+            h, "_self_check", lambda: ["plan_follow.plan_tools ohne Handler"]
+        )
+        h.health_check()
+        result = h.health_check()
+
         assert result["status"] == "degraded"
-        honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
-        assert len(honcho_issues) >= 1
-        assert "Health check failed" in honcho_issues[0]
+        assert any("plan_follow" in i for i in result["issues"])
 
-    def test_health_check_honcho_http_error(self, monkeypatch):
-        """When _http_ok returns False (non-200), report Honcho as degraded."""
-        from plan_follow.tools.health import health_check
+    def test_missing_external_plugin_is_not_degraded(self, monkeypatch):
+        import plan_follow.tools.health as h
 
-        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
+        monkeypatch.setattr(h, "_loaded", lambda name: name == "plan_follow")
+        monkeypatch.setattr(h, "_self_check", lambda: [])
 
-        result = health_check()
-        assert result["status"] == "degraded"
-        honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
-        assert len(honcho_issues) >= 1
+        assert h.health_check()["status"] == "ok"
 
-    def test_health_check_honcho_unexpected_format(self, monkeypatch):
-        """When _http_ok fails, Honcho is reported as unreachable."""
-        from plan_follow.tools.health import health_check
-
-        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: False)
-
-        result = health_check()
-        assert result["status"] == "degraded"
-        honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
-        assert len(honcho_issues) >= 1
-
-    def test_health_check_honcho_ok(self, monkeypatch):
-        """When _http_ok returns True for Honcho URL, health is ok (no Honcho issue)."""
-        from plan_follow.tools.health import health_check
-
-        # Mock _http_ok to return True for ANY URL (Firecrawl + Honcho)
-        monkeypatch.setattr("plan_follow.tools.health._http_ok", lambda url, timeout=3: True)
-
-        result = health_check()
-        # Still may have plan_follow/code_intel issues, but not Honcho
-        honcho_issues = [i for i in result.get("issues", []) if "Honcho" in i]
-        assert len(honcho_issues) == 0
-
-    def test_health_check_missing_plan_tool(self, monkeypatch):
-        """When plan_follow module check fails, report plan_follow issue."""
-        from plan_follow.tools.health import health_check
-
-        monkeypatch.setattr("plan_follow.tools.health._mod_available", lambda name: False)
-
-        result = health_check()
-        assert result["status"] == "degraded"
-        plan_issues = [i for i in result.get("issues", []) if "plan_follow" in i]
-        assert len(plan_issues) >= 1
-
-    def test_health_check_missing_code_tool(self, monkeypatch):
-        """When code_intel module check fails, report code_intel issue."""
-        from plan_follow.tools.health import health_check
-
-        # Only mock code_intel to fail, keep others available
-        def mock_mod_available(name):
-            if name == "code_intel":
-                return False
-            return True
-
-        monkeypatch.setattr("plan_follow.tools.health._mod_available", mock_mod_available)
-
-        result = health_check()
-        assert result["status"] == "degraded"
-        code_issues = [i for i in result.get("issues", []) if "code_intel" in i or "code_" in i]
-        assert len(code_issues) >= 1
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Edge Case Tests: get_plan_status blocked_by (lines 719-721)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class TestGetPlanStatusEdgeCases:
     """Tests for get_plan_status edge cases (blocked_by, lines 719-721)."""
@@ -3022,23 +3000,23 @@ class TestHooksCoverage:
 
     def test_hook_shows_drift(self, sample_tasks, monkeypatch):
         """Banner includes DRIFT DETECTED section."""
-        import plan_follow.plan_core as pc
         from plan_follow.plan_hooks import _hook_cache, on_pre_llm_call
         from plan_follow.plan_tools import plan_create_tool
         _hook_cache.clear()
 
         plan_create_tool({"goal": "Test", "tasks": sample_tasks})
 
-        original_drift = pc.check_drift
-        pc.check_drift = lambda: ["unplanned_file.py"]
+        import plan_follow.plan_hooks as ph
 
-        original_health = pc.health_check
-        pc.health_check = lambda: {"status": "ok"}
+        # Drift kommt aus dem Observer-Snapshot (kein git im Renderpfad)
+        old_snapshot, old_reported = ph._drift_snapshot, ph._drift_reported
+        ph._drift_snapshot = ["unplanned_file.py"]
+        ph._drift_reported = ()
         try:
             output = on_pre_llm_call()
         finally:
-            pc.check_drift = original_drift
-            pc.health_check = original_health
+            ph._drift_snapshot = old_snapshot
+            ph._drift_reported = old_reported
             _hook_cache.clear()
 
         assert output is not None

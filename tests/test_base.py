@@ -219,6 +219,7 @@ class TestIndexTimestamps:
             "plan_id": "ts-test-plan",
             "goal": "Timestamp-Test",
             "created": "2026-11-10T18:16:44",  # naiv, wie ein Legacy-Plan
+            "current_task": "t1",
             "tasks": {"t1": {"id": "t1", "status": "pending"}},
         }
         _update_plans_index(plan)
@@ -231,3 +232,25 @@ class TestIndexTimestamps:
         assert updated >= since
         assert (updated - since).total_seconds() >= 0
         assert since.astimezone(timezone.utc).isoformat() == index["active_since"]
+
+    def test_completed_plan_is_not_indexed_as_active(self):
+        """Ein Plan ohne current_task darf nicht als aktiv im Index stehen."""
+        import json
+
+        from plan_follow import plan_core
+        from plan_follow.tools.base import _update_plans_index
+
+        plan = {
+            "plan_id": "done-plan",
+            "goal": "Fertig",
+            "created": "2026-11-11T09:00:00+00:00",
+            "current_task": None,
+            "tasks": {"t1": {"id": "t1", "status": "completed"}},
+        }
+        _update_plans_index(plan)
+        index = json.loads(
+            (plan_core.PLANS_DIR / "plans_index.json").read_text(encoding="utf-8")
+        )
+        assert "active_plan_id" not in index
+        assert "active_since" not in index
+        assert "last_updated" in index

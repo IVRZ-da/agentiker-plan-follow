@@ -47,8 +47,8 @@ def make_mock_plan(plan_id="test-plan", goal="Test", task_id="p1",
 class TestPlanCreateAutoPeerReview:
     """plan_create should automatically trigger peer review."""
 
-    def test_create_adds_tts_flag(self):
-        """plan_create_tool should set tts_flags.plan_created=True."""
+    def test_create_adds_tts_event(self, tmp_path):
+        """plan_create_tool schreibt ein TTS-Event in die Queue (nicht in den Plan)."""
         from plan_follow.plan_tools import plan_create_tool
 
         mock_plan = make_mock_plan()
@@ -69,10 +69,20 @@ class TestPlanCreateAutoPeerReview:
                         assert parsed.get("status") in ("ok", "created", "warning"), \
                             f"Expected created/warning status, got: {parsed}"
 
-                        # Verify TTS flag was set in saved plan
-                        saved_plan = _ms.call_args[0][0]
-                        assert saved_plan.get("tts_flags", {}).get("plan_created") is True, \
-                            f"Expected plan_created TTS flag, got: {saved_plan.get('tts_flags')}"
+                        # TTS lebt seit v0.5.33 in der Queue, nicht im Plan
+                        from plan_follow.tools import tts_queue
+
+                        events = [
+                            e
+                            for e in tts_queue.read_state()["events"]
+                            if e.get("kind") == "plan_created"
+                        ]
+                        assert events, "plan_created-Event fehlt in der Queue"
+                        assert not any(
+                            (call.args[0] or {}).get("tts_flags")
+                            for call in _ms.call_args_list
+                            if call.args
+                        ), "Plan-Datei darf keine tts_flags mehr bekommen"
 
     def test_create_calls_run_peer_review(self):
         """plan_create_tool should automatically call run_peer_review()."""
@@ -121,8 +131,8 @@ class TestPlanCreateAutoPeerReview:
 class TestPlanCompleteTTS:
     """plan_complete should set TTS flags for completed tasks."""
 
-    def test_complete_sets_task_tts_flag(self):
-        """plan_complete_tool should add task_id to tts_flags.task_completed."""
+    def test_complete_adds_tts_event(self, tmp_path):
+        """plan_complete_tool schreibt ein task_completed-Event in die Queue."""
         from plan_follow.plan_tools import plan_complete_tool
 
         mock_plan = make_mock_plan(task_id="p1")
@@ -153,11 +163,19 @@ class TestPlanCompleteTTS:
                             assert parsed.get("status") == "completed", \
                                 f"Expected completed status, got: {parsed}"
 
-                            # Verify TTS flag was set
-                            saved_plan = _ms.call_args[0][0]
-                            tts = saved_plan.get("tts_flags", {})
-                            assert "p1" in tts.get("task_completed", []), \
-                                f"Expected task_completed to include 'p1', got: {tts}"
+                            # TTS-Event statt Plan-Flag (v0.5.33)
+                            from plan_follow.tools import tts_queue
+
+                            events = [
+                                e
+                                for e in tts_queue.read_state()["events"]
+                                if e.get("kind") == "task_completed"
+                            ]
+                            assert any(e.get("task_id") == "p1" for e in events), \
+                                f"task_completed-Event fuer p1 fehlt: {events}"
+                            saved_plan = _ms.call_args[0][0] if _ms.call_args else {}
+                            assert not saved_plan.get("tts_flags"), \
+                                "Plan-Datei darf keine tts_flags mehr bekommen"
 
 
 class TestTTSPeerReviewChain:

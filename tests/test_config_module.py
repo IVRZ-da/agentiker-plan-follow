@@ -276,35 +276,21 @@ class TestHooks:
         on_session_end()
 
 
-# ─── hooks/__init__.py (subpackage imports) ────────────────────────────────
+# ─── Circuit Breaker in plan_hooks (hooks/ wurde in v0.5.33 entfernt) ─────
 
 
 class TestHooksSubpackage:
-    """Test hooks subpackage imports where possible.
+    """Der Circuit Breaker lebt in plan_hooks.py.
 
-    hooks/__init__.py re-exports utility symbols from .breaker (exists)
-    and .base (not yet created). We test by importing breaker.py directly
-    via importlib to avoid triggering the broken hooks/__init__.py import.
+    Bis v0.5.32 gab es zusaetzlich plan_follow/hooks/ — ein zweiter Hook-Baum,
+    dessen __init__.py ein nicht existierendes hooks/base.py importierte und
+    dessen breaker.py eine byte-identische Kopie war. Er ist entfernt; die
+    Symbole werden jetzt direkt aus plan_hooks geprueft.
     """
 
-    @pytest.fixture(autouse=True)
-    def _import_breaker(self) -> None:
-        """Import breaker module directly, bypassing hooks/__init__.py."""
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location(
-            "plan_follow.hooks.breaker",
-            "/home/jo/.hermes/plugins/plan_follow/hooks/breaker.py",
-        )
-        assert spec is not None
-        mod = importlib.util.module_from_spec(spec)
-        # Don't trigger hooks/__init__.py (which has broken .base import)
-        # by NOT adding it to sys.modules with the package path
-        spec.loader.exec_module(mod)
-        self.breaker = mod
-
     def test_breaker_symbols_are_importable(self) -> None:
-        mod = self.breaker
+        from plan_follow import plan_hooks as mod
+
         assert isinstance(mod._BREAKER_CRITICAL_PREFIXES, tuple)
         assert mod._BREAKER_TTL > 0
         assert isinstance(mod._breaker_state, dict)
@@ -313,16 +299,16 @@ class TestHooksSubpackage:
         assert callable(mod._set_breaker)
 
     def test_breaker_check_and_banner(self) -> None:
-        mod = self.breaker
+        from plan_follow import plan_hooks as mod
+
+        mod._breaker_state.clear()
         result = mod._check_breaker()
         assert isinstance(result, dict)
-
-        banner = mod._build_breaker_banner()
-        assert isinstance(banner, list)
-        assert len(banner) == 0  # No active breakers → empty banner
+        assert mod._build_breaker_banner() == []
 
     def test_breaker_set_and_check(self) -> None:
-        mod = self.breaker
+        from plan_follow import plan_hooks as mod
+
         mod._breaker_state.clear()
         mod._set_breaker("plan_test", "test error")
         active = mod._check_breaker()
@@ -330,28 +316,13 @@ class TestHooksSubpackage:
         assert active["plan_test"]["error"] == "test error"
 
         mod._breaker_state.clear()
+        assert mod._check_breaker() == {}
 
-    def test_hooks_init_re_exports(self) -> None:
-        """Verify that hooks/__init__.py's __all__ lists the expected names.
+    def test_hooks_subpackage_is_gone(self) -> None:
+        """Der tote zweite Hook-Baum darf nicht zurueckkommen."""
+        import importlib.util
+        from pathlib import Path
 
-        Even though importing hooks/__init__.py fails at runtime (missing
-        hooks/base.py), the __all__ list serves as documentation of the
-        intended public API.
-        """
-        import ast
-
-        init_path = "/home/jo/.hermes/plugins/plan_follow/hooks/__init__.py"
-        with open(init_path) as f:
-            tree = ast.parse(f.read())
-
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == "__all__":
-                        all_names = [elt.value for elt in node.value.elts if isinstance(elt, ast.Constant)]
-                        assert len(all_names) > 0
-                        assert "_build_banner" in all_names
-                        assert "_check_breaker" in all_names
-                        assert "_hook_cache" in all_names
-                        return
-        pytest.fail("Could not find __all__ in hooks/__init__.py")
+        hooks_dir = Path(__file__).resolve().parent.parent / "hooks"
+        assert not hooks_dir.exists()
+        assert importlib.util.find_spec("plan_follow.hooks") is None
