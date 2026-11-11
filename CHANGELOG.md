@@ -61,6 +61,11 @@ params.tasks`, 11× `Tool 'plan_create' does not exist`.
   Turn für die 5, die übrigen 34 bleiben deferred (plan_roadmap allein ~850). Fail-open: fehlt
   oder ändert sich `_HERMES_CORE_TOOLS`, bleibt es beim Deferral, mit Warning im Log.
   Bekannter Nebeneffekt: die 5 zählen im GUI-Plugin-Panel als „builtin".
+- ⚠️ **Bekannte Einschränkung (Hermes-Seite):** bei ``hermes --resume`` wird das
+  Tool-Set gebaut, *bevor* das Plugin geladen wird (im Log: ``tool_search activated``
+  1 s vor ``5 tools eager``). Die 5 Tools sind dann in dieser einen fortgesetzten
+  Session weiter deferred; ein frischer Start (oder ``hermes prompt-size``) zeigt
+  ``plan_follow 5 tools``. Kein Plugin-Bug — Reihenfolge im Hermes-Start.
 - **Einmaliger Nudge ohne aktiven Plan:** ab Turn 3, 1× pro Session, nennt den exakten
   Aufrufweg (eager bzw. `tool_call(name='plan_create', arguments={...})`), jede Zeile ≤ 90
   Zeichen (der Banner schneidet bei 96). Nicht in delegierten Kindern, nicht auf
