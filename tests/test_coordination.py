@@ -224,158 +224,22 @@ class TestSavePlanStateToHoncho:
 
 
 class TestLoadPlanStateFromHoncho:
-    """Test _load_plan_state_from_honcho — registry dispatch → HTTP fallback."""
+    """Honcho-Fallback wurde in v0.5.32 entfernt.
 
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_returns_json_format(self, mock_dispatch):
-        """Registry dispatch returns conclusions with JSON format → returns plan_id."""
-        mock_dispatch.return_value = {
-            "conclusions": [
-                {
-                    "content": json.dumps({
-                        "source": "plan_follow",
-                        "plan_id": "plan-json-1",
-                        "task_id": "task-1",
-                        "status": "active",
-                    })
-                }
-            ]
-        }
+    Grund: ``POST /v3/workspaces/{ws}/conclusions/query`` ist semantische Suche
+    und antwortet ohne observer/observed mit HTTP 422; Workspace/Peer passten
+    nicht zu ``~/.hermes/honcho.json``; und Honcho speicherte ohnehin nur die
+    ``plan_id``. Der Aufruf bleibt als No-op-Stub erhalten, damit bestehende
+    Aufrufstellen nicht brechen.
+    """
 
-        result = _load_plan_state_from_honcho()
-        assert result == "plan-json-1"
+    def test_stub_is_noop(self):
+        assert _load_plan_state_from_honcho() is None
 
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_returns_legacy_format(self, mock_dispatch):
-        """Registry dispatch returns legacy content string → returns plan_id."""
-        mock_dispatch.return_value = {
-            "conclusions": [
-                {"content": "plan_follow:plan-legacy-1:active=true"}
-            ]
-        }
-
-        result = _load_plan_state_from_honcho()
-        assert result == "plan-legacy-1"
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_returns_no_matching_plan(self, mock_dispatch):
-        """No conclusion has plan_follow active → returns None."""
-        mock_dispatch.return_value = {
-            "conclusions": [
-                {"content": json.dumps({"source": "other", "plan_id": "p1", "status": "active"})}
-            ]
-        }
-
-        result = _load_plan_state_from_honcho()
-        assert result is None
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_returns_empty_conclusions(self, mock_dispatch):
-        """Empty conclusions list → returns None."""
-        mock_dispatch.return_value = {"conclusions": []}
-        result = _load_plan_state_from_honcho()
-        assert result is None
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_returns_none_type_not_handled(self, mock_dispatch):
-        """registry_result is not a dict → treats empty conclusions → None."""
-        mock_dispatch.return_value = None
-        result = _load_plan_state_from_honcho()
-        assert result is None
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    def test_registry_no_active_plan_returns_none(self, mock_dispatch):
-        """Plan exists but status is not 'active' → returns None."""
-        mock_dispatch.return_value = {
-            "conclusions": [
-                {
-                    "content": json.dumps({
-                        "source": "plan_follow",
-                        "plan_id": "plan-completed",
-                        "status": "completed",
-                    })
-                }
-            ]
-        }
-        result = _load_plan_state_from_honcho()
-        assert result is None
-
-    # ── HTTP fallback tests ──
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    @patch("urllib.request.urlopen")
-    @patch("urllib.request.Request")
-    def test_http_fallback_json_format(self, mock_request, mock_urlopen, mock_dispatch):
-        """Registry returns None → HTTP fallback → JSON format → returns plan_id."""
-        mock_dispatch.return_value = None
-
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps([
-            {
-                "content": json.dumps({
-                    "source": "plan_follow",
-                    "plan_id": "plan-http-1",
-                    "task_id": "task-x",
-                    "status": "active",
-                })
-            }
-        ]).encode()
-        mock_urlopen.return_value = mock_response
-        mock_request.return_value = MagicMock()
-
-        result = _load_plan_state_from_honcho()
-        assert result == "plan-http-1"
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    @patch("urllib.request.urlopen")
-    @patch("urllib.request.Request")
-    def test_http_fallback_legacy_format(self, mock_request, mock_urlopen, mock_dispatch):
-        """Registry returns None → HTTP fallback → legacy format → returns plan_id."""
-        mock_dispatch.return_value = None
-
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps([
-            {"content": "plan_follow:plan-legacy-http:active=true"}
-        ]).encode()
-        mock_urlopen.return_value = mock_response
-        mock_request.return_value = MagicMock()
-
-        result = _load_plan_state_from_honcho()
-        assert result == "plan-legacy-http"
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    @patch("urllib.request.urlopen")
-    @patch("urllib.request.Request")
-    def test_http_fallback_no_plan_found(self, mock_request, mock_urlopen, mock_dispatch):
-        """HTTP fallback finds no active plan → returns None."""
-        mock_dispatch.return_value = None
-
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps([
-            {"content": json.dumps({"source": "other", "plan_id": "p99", "status": "active"})}
-        ]).encode()
-        mock_urlopen.return_value = mock_response
-        mock_request.return_value = MagicMock()
-
-        result = _load_plan_state_from_honcho()
-        assert result is None
-
-    @patch("plan_follow.tools.coordination._dispatch_honcho_tool")
-    @patch("urllib.request.urlopen")
-    @patch("plan_follow.tools.coordination.logger")
-    def test_http_fails_logs_warning(self, mock_logger, mock_urlopen, mock_dispatch):
-        """HTTP fallback raises exception → logs warning, returns None."""
-        mock_dispatch.return_value = None
-        mock_urlopen.side_effect = ConnectionError("timeout")
-
-        result = _load_plan_state_from_honcho()
-
-        assert result is None
-        mock_logger.warning.assert_called_once()
-        assert "Honcho load failed after retries" in mock_logger.warning.call_args[0][0]
-
-
-# ─── _git_commit_if_active ──────────────────────────────────────────────────────
+    def test_stub_accepts_arguments(self):
+        # Alte Aufrufer uebergeben teils plan_id/session_id — darf nicht werfen.
+        assert _load_plan_state_from_honcho("plan-x") is None
+        assert _load_plan_state_from_honcho(plan_id="plan-x", session_id="s1") is None
 
 
 class TestGitCommitIfActive:

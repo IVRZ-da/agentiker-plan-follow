@@ -5,6 +5,7 @@ import logging
 
 from .. import plan_core
 from .._fmt import fmt_err, fmt_info, fmt_ok
+from .paths import assert_writable
 
 logger = logging.getLogger("plan_follow")
 
@@ -75,6 +76,8 @@ def plan_git_init_tool(args: dict, **kwargs) -> str:
     git_dir = plan_core.PLANS_DIR / ".git"
     if git_dir.exists():
         return fmt_info("Git-Versionierung bereits aktiv in ~/.hermes/plans/")
+
+    assert_writable(git_dir)
 
     commit_msg = args.get("commit_message", "plan: initial commit")
 

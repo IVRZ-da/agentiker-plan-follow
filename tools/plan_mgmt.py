@@ -20,6 +20,7 @@ from .base import (
 from .coordination import (
     _auto_unlock_task_files,
 )
+from .paths import assert_writable
 from .resolver import resolve_archive_dir
 from .state import STATE
 from .task import set_active_plan
@@ -96,6 +97,7 @@ def delete_plan(plan_id: str) -> dict:
         STATE.active_plan = None
         STATE.active_plan_id = None
 
+    assert_writable(path)
     path.unlink()
 
     # Clear index if deleted plan was the active one
@@ -263,6 +265,8 @@ def archive_plan(plan_id: str) -> dict:
     dest = resolve_archive_dir() / f"{plan_id}.json"
 
     import shutil
+    assert_writable(path)
+    assert_writable(dest)
     try:
         shutil.move(str(path), str(dest))
     except OSError as e:
@@ -307,6 +311,8 @@ def restore_plan(plan_id: str) -> dict:
 
     dest = _plan_path(plan_id)
     import shutil
+    assert_writable(archived)
+    assert_writable(dest)
     try:
         shutil.move(str(archived), str(dest))
     except OSError as e:

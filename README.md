@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.31-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1480%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.32-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1521%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.31
+**Version:** 0.5.32
 
-**Tests:** 1480 tests
+**Tests:** 1521 tests
 
 **Tools (39):**
 
@@ -192,6 +192,27 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
+## [0.5.32] — 2026-11-10
+
+### 🔴 Critical — Datenverlust durch die Testsuite
+- **Test-Isolation auf Import-Ebene** — `tests/conftest.py` bog bisher nur `plan_core.PLANS_DIR` um (und das auch nur in 7 von 37 Testfiles). Die autouse-Fixture schrieb `"{}"` in ALLE `*.json` des ECHTEN `~/.hermes/plans` und `rmtree`'te Unterordner. Am 10.11.2026 wurden so 81 Pläne, `plans_index.json`, `archived/` und `templates/` zerstört — bei 1480/1480 grünen Tests. Jetzt werden alle sieben Import-Zeit-Pfadkonstanten (`plan_core.PLANS_DIR/PLANS_INDEX/ARCHIVE_DIR/ROADMAPS_DIR`, `plan_templates.TEMPLATES_DIR`, `plan_suggest._TRACKING_FILE`, `coord_state.SHARED_DIR`) auf ein tmp-Root umgebogen, inkl. fail-fast-Assertion pro Test. `except Exception: pass` im destruktiven Block entfernt.
+- **Write-Guard im Produktionscode** — neues `tools/paths.py` mit `assert_writable()`; aufgerufen in allen Schreib-Primitiven (`_save_plan`, `_update_plans_index`, `_clear_plans_index`, `_ensure_dirs`, `coord_state._atomic_write`, `save_user_template`, `delete_user_template`, `_ensure_tracking_file`, `archive_plan`, `delete_plan`, `restore_plan`, `plan_git_init`). Aktiv bei `PLAN_FOLLOW_TEST_GUARD=1`.
+- **`_save_plan` verweigert kaputte Pläne** — `ValueError` ohne `plan_id` oder ohne `tasks`; vor dem Überschreiben eines Plans mit Inhalt wird ein `.json.bak` angelegt.
+- **Env-Overrides für Isolation** — `PLAN_FOLLOW_PLANS_DIR`, `PLAN_FOLLOW_ROADMAPS_DIR`, `PLAN_FOLLOW_SHARED_DIR` wirken bereits beim Import (auch für Subprozesse/Skripte).
+- **`scripts/check_isolation.sh`** — CI-Beweis: Manifest vor/nach der vollen Suite muss identisch sein.
+
+### Fixed
+- **Hook-Regression `session_end` → `on_session_end`** — der falsche Name wurde bei jedem Load nur als WARNING gemeldet; `_register_hooks` prüft die Namen jetzt gegen die Hermes-`VALID_HOOKS`-Liste und protokolliert Fehler als ERROR (`HOOK_REGISTRATION_ERRORS`).
+- **Companion-Skill wurde nie registriert** — `_register_skill` suchte `skills/plan-follow.md`, real heißt die Datei `skills/SKILL.md`. Jetzt Fallback auf beide Namen + `logger.error` wenn keine Datei existiert; der Test in `test_init.py` ist nicht mehr bedingt formuliert.
+- **Banner-Recovery ohne Session-Leak** — nach einem Hermes-Restart blieb der Task-Banner stumm, bis ein `plan_`-Tool lief. Jetzt wird beim ersten Turn einer Session (`is_first_turn`) einmalig von Disk adoptiert — aber nur, wenn die Session den Plan besitzt (`coord_state.get_session`), sonst nicht. Regressionstest: zwei Sessions, kein Cross-Banner.
+- **Circuit-Breaker las `error`** — Hermes sendet `error_type`/`error_message`; der Fallback auf `result` schrieb die komplette Tool-Ausgabe (bei `terminal` die volle stdout) als "Fehlertext" in den Banner. Jetzt `error_type: error_message`, Platzhalter wenn leer.
+- **`plan_list` unbrauchbar** — 82 Einträge, 80 leere 2-Byte-Dateien, alle als `is_active: true` (Vergleich `None == None`). Leere/beschädigte Dateien werden übersprungen, `is_active` nur bei gesetzter `active_plan_id`, Sortierung nach `created`, Default-Limit 20 mit `total`/`has_more`.
+- **Honcho-Fallback entfernt** — `POST /v3/workspaces/{ws}/conclusions/query` ist semantische Suche (HTTP 422 ohne observer/observed), Workspace/Peer passten nicht zu `~/.hermes/honcho.json`, und Honcho speicherte nur die `plan_id`. `_load_plan_state_from_honcho()` ist jetzt ein No-op.
+- **`plans_index.json`-Timestamps** — `active_since` war naiv/lokal, `last_updated` UTC-aware (Vergleiche 1-2h falsch, `TypeError` möglich). `created` wird UTC-aware geschrieben, Bestandswerte werden konvertiert (`_to_utc_iso`).
+- **`rich` und `PyYAML` waren undeklariert** — das Plugin-`.venv` konnte 13 Testdateien nicht einsammeln. `_fmt.py` hat jetzt einen reinen Text-Fallback (12 Formatter, 300 Aufrufstellen unverändert), `plan_templates.py` behandelt PyYAML optional; beide sind in `pyproject.toml` (`dependencies`) und `plugin.yaml` (`python_dependencies`) deklariert. `build-backend` korrigiert (`setuptools.build_meta`).
+
+### Changed (Verhalten)
+
 ## [0.5.30] — 2026-07-07
 
 ### Fixed
@@ -218,18 +239,6 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 - **README_AUTO Marker hinzugefügt** — Generator erkennt jetzt 39 Tools in 4 Kategorien (CRUD, Advanced, Git, Review)
 - **Limitations-Sektion** — Neu: Session Isolation, Review Profiles, Git Branching
-
-## [0.5.26] (2026-06-29)
-
-### Removed
-- **Hardcodierte Frameworks:** `_detect_project_type()` entfernt medusa, nextjs, react dependency-scan
-- **Dead Code:** Duplicate Tool-Handler aus plan_suggest.py (Relikt aus Monolith-Split v0.5.7)
-
-### Changed
-- **Framework Detection:** _detect_project_type() ist jetzt rein marker-basiert (package.json, go.mod, pyproject.toml, Cargo.toml, composer.json, Gemfile)
-
-### Tests
-- 5 Framework-spezifische Tests entfernt, 60 Tests passed
 
 <!-- END README_AUTO -->
 

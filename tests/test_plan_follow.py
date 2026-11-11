@@ -2490,18 +2490,25 @@ class TestListPlansEdgeCases:
         assert len(plans) == 0
 
     def test_list_plans_skips_missing_tasks_key(self, reset_plans_dir):
-        """JSON files missing the 'tasks' key are handled gracefully."""
+        """Dateien ohne 'tasks' werden uebersprungen (v0.5.32).
+
+        Frueher wurden sie als "0/0"-Plan gelistet — in der Praxis waren das die
+        80 auf "{}" geschrumpften Dateien, die plan_list unbrauchbar machten.
+        """
         import json
 
         from plan_follow.plan_core import PLANS_DIR, list_plans
-        # Write valid JSON but plan_id is there — 'tasks' will be missing
-        data = {"plan_id": "test-123", "goal": "Test"}
-        (PLANS_DIR / "no-tasks.json").write_text(json.dumps(data))
+        # Plan-Datei ohne 'tasks' (Relikt eines abgebrochenen Schreibvorgangs)
+        (PLANS_DIR / "no-tasks.json").write_text(
+            json.dumps({"plan_id": "test-123", "goal": "Test"})
+        )
+        (PLANS_DIR / "echt.json").write_text(
+            json.dumps({"plan_id": "echt", "goal": "Echt", "created": "2026-01-01T00:00:00+00:00",
+                        "tasks": {"t1": {"id": "t1", "status": "pending"}}})
+        )
         plans = list_plans()
         assert isinstance(plans, list)
-        # Should appear as having 0/0 progress
-        assert len(plans) == 1
-        assert plans[0]["progress"] == "0/0"
+        assert [p["plan_id"] for p in plans] == ["echt"]
 
     def test_list_plans_with_archived_not_exists(self, reset_plans_dir):
         """list_plans(include_archived=True) when ARCHIVE_DIR doesn't exist should not crash."""

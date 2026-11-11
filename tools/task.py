@@ -29,8 +29,8 @@ from .status import _format_progress
 
 
 def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optional[dict] = None,
-                repos: Optional[list[str]] = None, plan_id_override: str = "") -> str:
-    """Create a new plan and persist it. Returns plan_id.
+                repos: Optional[list[str]] = None, plan_id_override: str = "") -> Optional[str]:
+    """Create a new plan and persist it. Returns plan_id (None bei leeren Tasks).
 
     Args:
         goal: The plan goal.
@@ -43,6 +43,17 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
             of auto-generated from goal.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    # Ein Plan ohne Tasks ist wertlos und war historisch der Ausloeser fuer
+    # 2-Byte-"{}"-Dateien. _save_plan verweigert das mit ValueError (v0.5.32);
+    # hier sauber und ohne Exception abfangen, damit Aufrufer (Tools, Tests)
+    # ein definiertes None bekommen.
+    if not tasks:
+        logger.warning("create_plan: keine Tasks angegeben — Plan wird nicht erstellt (goal=%r)", goal)
+        return None
+    # Zeitstempel immer UTC-aware speichern (v0.5.32): vorher war 'created' naiv
+    # (lokal interpretierbar), waehrend plans_index['last_updated'] UTC-aware war
+    # -> Vergleiche/Sortierung lagen 1-2h daneben bzw. warfen TypeError.
+    created = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if plan_id_override:
         plan_id = plan_id_override
     else:
@@ -64,7 +75,7 @@ def create_plan(goal: str, tasks: list, repo: str = "", parallel_groups: Optiona
     plan = {
         "plan_id": plan_id,
         "goal": goal,
-        "created": now,
+        "created": created,
         "plan_version": "1",
         "repo": repo,
         "current_task": None,
@@ -454,8 +465,10 @@ def plan_create_tool(args: dict, **kwargs) -> str:
     repo = args.get("repo", "")
     plan_id_override = args.get("plan_id", "")
     template_name = args.get("template", "")
-    template_params = args.get("params", {})
+    template_params = dict(args.get("params", {}) or {})
     parallel_groups = args.get("parallel_groups")
+    # p0-Peer-Review-Task voranstellen? (Default: ja — bisheriges Verhalten)
+    template_params.setdefault("p0_review", bool(args.get("p0_review", True)))
 
     if template_name:
         # Template expansion

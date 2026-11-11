@@ -17,9 +17,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .tools.paths import assert_writable
+
 logger = logging.getLogger("plan_follow")
 
-SHARED_DIR = Path.home() / ".hermes" / "shared"
+SHARED_DIR = Path(
+    os.environ.get("PLAN_FOLLOW_SHARED_DIR") or (Path.home() / ".hermes" / "shared")
+)
 SESSIONS_FILE = SHARED_DIR / "sessions.json"
 LOCKS_FILE = SHARED_DIR / "locks.json"
 
@@ -70,6 +74,7 @@ def _ensure_shared_dir():
     """Einmalige Initialisierung des shared-Verzeichnisses."""
     global _SHARED_DIR_INIT
     if not _SHARED_DIR_INIT:
+        assert_writable(SHARED_DIR)
         SHARED_DIR.mkdir(parents=True, exist_ok=True)
         _SHARED_DIR_INIT = True
 
@@ -79,6 +84,7 @@ def _atomic_write(path: Path, data: dict) -> None:
 
     Uses fcntl flock on a .lock file for cross-session coordination.
     """
+    assert_writable(path)
     _ensure_shared_dir()
     lock_fd = _acquire_file_lock(path, shared=False)
     try:

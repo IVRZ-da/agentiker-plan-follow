@@ -429,7 +429,11 @@ class TestGitIntegration:
                 _sp.run(["cp", "-a", str(git_dir), str(backup)], capture_output=True, timeout=30)
                 _sp.run(["rm", "-rf", str(git_dir)], capture_output=True, timeout=30)
 
-            plan = {"plan_id": "no-git-test", "tasks": {}, "current_task": None}
+            # v0.5.32: _save_plan verweigert Plaene ohne Tasks (Datenverlust-Schutz),
+            # deshalb ein minimaler echter Task statt "tasks": {}
+            plan = {"plan_id": "no-git-test",
+                    "tasks": {"t1": {"id": "t1", "status": "pending"}},
+                    "current_task": None}
             _save_plan(plan)  # Should not raise
 
             # Verify plan was saved

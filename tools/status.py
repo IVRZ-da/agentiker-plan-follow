@@ -43,11 +43,12 @@ def get_plan_status() -> Optional[dict]:
     }
 
 
-def list_plans(include_archived: bool = False) -> list[dict]:
+def list_plans(include_archived: bool = False, limit: int = 0) -> list[dict]:
     """List all plans from PLANS_DIR, newest first (including completed/aborted).
 
     Args:
         include_archived: If True, also list plans from the archive directory.
+        limit: If > 0, nur die ersten N Eintraege zurueckgeben.
 
     Returns:
         List of plan summary dicts.
@@ -62,32 +63,55 @@ def list_plans(include_archived: bool = False) -> list[dict]:
                 ap["is_archived"] = True
             plans.extend(archived_plans)
 
+    if limit and limit > 0:
+        return plans[:limit]
     return plans
 
 
 def _list_plans_from_dir(directory: Path, is_active: bool = False) -> list[dict]:
-    """List plans from a specific directory."""
+    """List plans from a specific directory.
+
+    Leere/beschaedigte Plan-Dateien (kein ``plan_id`` oder keine ``tasks``) werden
+    uebersprungen — nach dem Datenverlust vom 10.11.2026 lagen 80 solcher
+    2-Byte-``{}``-Dateien im Verzeichnis und machten das Listing unbrauchbar.
+    Sortiert wird nach ``created`` (nicht nach Dateiname), damit die Reihenfolge
+    der Realitaet entspricht.
+    """
     plans = []
-    for f in sorted(directory.glob("*.json"), reverse=True):
+    active_id = STATE.active_plan_id
+    for f in directory.glob("*.json"):
         if f.name == "plans_index.json":
             continue
         try:
             data = json.loads(f.read_text(encoding="utf-8"))
-            tasks = data.get("tasks", {})
-            total = len(tasks)
-            completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
-            plans.append({
-                "plan_id": data.get("plan_id", f.stem),
-                "goal": data.get("goal", "")[:60],
-                "created": data.get("created", ""),
-                "current_task": data.get("current_task"),
-                "total_tasks": total,
-                "completed_tasks": completed,
-                "progress": f"{completed}/{total}" if total else "0/0",
-                "is_active": data.get("plan_id") == STATE.active_plan_id if is_active else False,
-            })
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, OSError):
             continue
+        if not isinstance(data, dict):
+            continue
+        plan_id = data.get("plan_id")
+        tasks = data.get("tasks")
+        if not plan_id or not isinstance(tasks, dict) or not tasks:
+            continue  # leere/beschaedigte Datei ueberspringen
+
+        total = len(tasks)
+        completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
+        plans.append({
+            "plan_id": plan_id,
+            "goal": str(data.get("goal", ""))[:60],
+            "created": data.get("created", ""),
+            "current_task": data.get("current_task"),
+            "total_tasks": total,
+            "completed_tasks": completed,
+            "progress": f"{completed}/{total}",
+            "is_active": bool(is_active and active_id) and plan_id == active_id,
+            # Nur Sortierhilfe: 'created' hat Sekundengenauigkeit, zwei kurz
+            # nacheinander erzeugte Plaene sind damit gleich alt.
+            "_mtime": f.stat().st_mtime,
+        })
+
+    plans.sort(key=lambda p: (str(p.get("created") or ""), p.get("_mtime", 0.0)), reverse=True)
+    for p in plans:
+        p.pop("_mtime", None)
     return plans
 
 
@@ -149,11 +173,28 @@ def plan_status_tool(args: dict, **kwargs) -> str:
 
 
 def plan_list_tool(args: dict, **kwargs) -> str:
-    """List all plans (including completed/aborted), newest first."""
-    include_archived = args.get("include_archived", False)
-    plans = plan_core.list_plans(include_archived=include_archived)
+    """List all plans (including completed/aborted), newest first.
+
+    Parameters:
+    - include_archived (bool, optional): auch archivierte Plaene zeigen
+    - limit (int, optional): max. Eintraege (default 20, 0 = alle)
+
+    Die Ausgabe ist bewusst begrenzt: 81 Plaene erzeugten ~22k Zeichen
+    Tool-Result, davon 80 leere Dateien ohne Erkenntniswert.
+    """
+    include_archived = bool(args.get("include_archived", False))
+    try:
+        limit = int(args.get("limit", 20) or 0)
+    except (TypeError, ValueError):
+        limit = 20
+
+    all_plans = plan_core.list_plans(include_archived=include_archived)
+    total = len(all_plans)
+    shown = all_plans[:limit] if limit and limit > 0 else all_plans
     return fmt_ok({
         "status": "ok",
-        "count": len(plans),
-        "plans": plans,
+        "count": len(shown),
+        "total": total,
+        "has_more": total > len(shown),
+        "plans": shown,
     })

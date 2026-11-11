@@ -1,19 +1,19 @@
 ---
 name: plan-follow
-description: "Plugin-provided skill (v1.5.1) — 24 plan tools + 2 hooks + 10 templates + template-required + p0 auto + TDD + parallel groups + roadmap + cross-session. Bietet strukturierte Task-Abarbeitung mit Enforcement."
-version: 1.4.3
+description: "Plugin-provided skill (v1.5.2) — 39 plan tools + 3 hooks + 13 templates + p0-Review (opt-out) + TDD + parallel groups + roadmap + cross-session + Write-Guard. Strukturierte Task-Abarbeitung mit Enforcement."
+version: 1.5.2
 author: Hermes Agent
 tags: [planning, enforcement, review, tasks, workflow, execution, templates, parallel, peer-review, tts, roadmap, cross-session]
 related_skills: [requesting-code-review, code-intel-code-review, plan-peer-review]
 ---
 
-# Plan-Follow Skill v1.4.2
+# Plan-Follow Skill v1.5.2
 
-**Plugin-provided skill (plan_follow plugin, v1.4.2).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
+**Plugin-provided skill (plan_follow plugin, v0.5.32).** Nutze `plan_create` → `plan_current` → `plan_complete` für strukturierte Task-Abarbeitung mit optionalem Review-Gate, Auto-Verify, Auto-Commit, parallelen Gruppen, automatischem Peer Review und TTS-Event-Markern.
 
 Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage mit 10 Modulen + Re-Export Facade.
 
-## Tools (31)
+## Tools (39)
 
 | Tool | Funktion |
 |------|----------|
@@ -49,7 +49,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `plan_git_tag(action, tag_name, message)` | Tag create/list/delete |
 | `plan_pr_create(title, body, head, base, owner, repo_name)` | PR via Forgejo API erstellen |
 
-## Templates (12)
+## Templates (13)
 
 | Template | Tasks | Review | Beschreibung |
 |----------|-------|--------|-------------|
@@ -96,7 +96,7 @@ Seit v1.4.2 Module-Split: `plan_core.py` (1774 Zeilen) → `tools/` Subpackage m
 | `remove-phase` | `phase` | Phase entfernen |
 | `delete` | `name` | Ganze Roadmap löschen |
 
-## Hooks (2)
+## Hooks (3)
 
 ### pre_llm_call — Task-Banner (Complexity: 52)
 Injiziert in JEDEN Turn einen Banner mit:
@@ -117,11 +117,12 @@ Injiziert in JEDEN Turn einen Banner mit:
 ## Verhalten
 
 - **Flexibles Plan-Erstellen:** `plan_create()` akzeptiert entweder ein `template` (Vorlage, z.B. fix/deploy/bugfix) ODER eine `tasks`-Liste mit eigenen Task-Definitionen. Ohne beides: Fehler.
-- **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch einen p0-Task (Peer Review) vor alle Template-Tasks. Der erste Code-Task hängt von p0 ab.
+- **p0 Auto-Peer-Review:** `expand_template()` stellt automatisch einen p0-Task (Peer Review) vor alle Template-Tasks. Der erste Code-Task hängt von p0 ab. Abschaltbar mit `p0_review=false` (Template-Parameter oder `plan_create`-Argument). Der Direkt-Tasks-Zweig (ohne Template) erzeugt kein p0.
+- **Write-Guard (v0.5.32):** `tools/paths.py` blockt Schreibzugriffe auf `~/.hermes/plans|roadmaps|shared`, wenn `PLAN_FOLLOW_TEST_GUARD=1` gesetzt ist. `_save_plan` verweigert Pläne ohne `plan_id`/`tasks` und legt vor dem Überschreiben ein `.json.bak` an. Env-Overrides: `PLAN_FOLLOW_PLANS_DIR`, `PLAN_FOLLOW_ROADMAPS_DIR`, `PLAN_FOLLOW_SHARED_DIR`.
 - **TDD in Code-Templates:** `fix`, `bugfix`, `feature` haben RED→GREEN (→REFACTOR). Tests werden VOR Implementation geschrieben.
-- **pre_llm_call Hook** injiziert Task-Banner in JEDEN Turn
+- **pre_llm_call Hook** injiziert den Task-Banner alle 4 Turns bzw. sofort bei Task-Wechsel (`_BANNER_FULL_EVERY_N_TURNS`). Beim ersten Turn einer Session wird der Plan einmalig von Disk adoptiert (nur wenn die Session ihn besitzt — kein Cross-Session-Leak).
 - **TTL-Cache (60s)** — health_check + drift nicht auf jedem Turn
-- **Disk-Recovery:** nach `/new` wird letzter aktiver Plan automatisch geladen (via plans_index.json)
+- **Disk-Recovery:** via `plans_index.json`/neuester Plan-Datei — im Hook beim ersten Turn der Session, sonst beim ersten `plan_`-Tool-Aufruf. Der Honcho-Fallback wurde in v0.5.32 entfernt (HTTP 422, speicherte nur die plan_id).
 - **Parallele Gruppen:** `plan_create(parallel_groups={"g1": {"tasks": ["a","b"]}})`
 - **Auto-Verify:** `plan_complete(task_id, auto_verify=true)` führt verify-Command aus
 - **Auto-Commit:** `plan_complete(task_id, auto_commit=true)` committed Task-Files via Git

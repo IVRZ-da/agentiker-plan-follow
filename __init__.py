@@ -19,6 +19,7 @@ from . import (
     plan_todo,
     plan_tools,
 )
+from .tools.descriptions import TOOL_DESCRIPTIONS
 
 logger = logging.getLogger("plan_follow")
 
@@ -26,7 +27,10 @@ logger = logging.getLogger("plan_follow")
 VALID_REVIEW_PROFILES = ["none", "unit-test", "api-route", "ui-component", "security", "full"]
 VALID_REVIEW_PROFILES_WITH_AUTO = ["auto"] + VALID_REVIEW_PROFILES
 
-from .tools.descriptions import TOOL_DESCRIPTIONS
+
+# Muss nach den VALID_REVIEW_PROFILES stehen: tools/schemas.py importiert sie aus
+# diesem Modul (Zirkularitaet), daher E402.
+from .tools.schemas import PER_TOOL_SCHEMAS  # noqa: E402
 
 PLAN_TOOLS = [
     ("plan_create", plan_tools.plan_create_tool),
@@ -70,13 +74,32 @@ PLAN_TOOLS = [
     ("plan_coord_cleanup", plan_tools.plan_coord_cleanup_tool),
 ]
 
-from .tools.schemas import PER_TOOL_SCHEMAS
 
 
 def _register_tools(ctx: PluginContext) -> None:
-    """Register all 6 plan tools."""
+    """Register all plan tools.
+
+    Schema-Fix: PER_TOOL_SCHEMAS hat ``type/properties/required`` auf
+    Top-Level (JSON-Schema-Stil), aber das OpenAI-Format braucht diese
+    Felder unter ``parameters``.  Ohne den Wrapper ersetzt
+    ``sanitize_tool_schemas()`` die Parameters durch ``{}`` — das Model
+    sieht dann keine Parameter und sendet leere/toolche Arguments.
+    """
     for name, handler in PLAN_TOOLS:
-        schema = PER_TOOL_SCHEMAS.get(name, {})
+        raw = PER_TOOL_SCHEMAS.get(name, {})
+        # Wrap into OpenAI function-call format if needed
+        if "parameters" not in raw and "properties" in raw:
+            schema = {
+                "name": name,
+                "description": TOOL_DESCRIPTIONS.get(name, ""),
+                "parameters": {
+                    "type": raw.get("type", "object"),
+                    "properties": raw.get("properties", {}),
+                    **({"required": raw["required"]} if "required" in raw else {}),
+                },
+            }
+        else:
+            schema = raw
         ctx.register_tool(
             name=name,
             toolset="plan_follow",
@@ -87,28 +110,114 @@ def _register_tools(ctx: PluginContext) -> None:
     logger.info("plan_follow: %d tools registered", len(PLAN_TOOLS))
 
 
-def _register_hooks(ctx: PluginContext) -> None:
-    """Register hooks for task injection, logging, and session lifecycle."""
-    from .plan_hooks import on_post_tool_call, on_pre_llm_call, on_session_end
-    ctx.register_hook("pre_llm_call", on_pre_llm_call)
-    ctx.register_hook("post_tool_call", on_post_tool_call)
+def _valid_hook_names() -> set:
+    """Namen der in dieser Hermes-Installation gueltigen Hooks (leer = unbekannt).
+
+    Liest das ``VALID_HOOKS``-Literal per AST aus ``hermes_cli/plugins.py`` statt
+    es zu importieren: ein Import privater Hermes-Interna bricht bei jedem
+    Release (und der Plugin-Validator warnt dafuer). Faellt die Analyse aus, ist
+    das Ergebnis leer — dann wird nicht validiert (fail-open, wie vorher).
+    """
     try:
-        ctx.register_hook("session_end", on_session_end)
-        logger.info("plan_follow: pre_llm_call + post_tool_call + session_end hooks registered")
+        import ast
+        import os as _os
+
+        hermes_home = Path(_os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+        candidates = [
+            Path(__file__).resolve().parents[2] / "hermes-agent" / "hermes_cli" / "plugins.py",
+            hermes_home / "hermes-agent" / "hermes_cli" / "plugins.py",
+        ]
+
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            tree = ast.parse(candidate.read_text(encoding="utf-8", errors="replace"))
+            for node in tree.body:
+                targets: list = []
+                value = None
+                if isinstance(node, ast.Assign):
+                    targets, value = node.targets, node.value
+                elif isinstance(node, ast.AnnAssign):
+                    targets, value = [node.target], node.value
+                if not any(isinstance(t, ast.Name) and t.id == "VALID_HOOKS" for t in targets):
+                    continue
+                if isinstance(value, (ast.Set, ast.List, ast.Tuple)):
+                    return {
+                        elt.value for elt in value.elts
+                        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+                    }
+        return set()
     except Exception:
-        logger.warning("plan_follow: session_end hook registration failed (may not be supported)")
+        return set()
+
+
+# Wird bei jedem Plugin-Load gefuellt; Health-Check und Tests pruefen darauf.
+HOOK_REGISTRATION_ERRORS: list[str] = []
+
+
+def _register_hooks(ctx: PluginContext) -> None:
+    """Register hooks for task injection, logging, and session lifecycle.
+
+    Hook-Namen werden gegen die Hermes-VALID_HOOKS-Liste geprueft. Vor v0.5.32
+    verschluckte ein ``except Exception`` den falschen Namen ``session_end`` —
+    der Hook wurde bei jeder Session stillschweigend nicht ausgefuehrt und bei
+    jedem Load nur mit einer WARNING quittiert.
+    """
+    from .plan_hooks import on_post_tool_call, on_pre_llm_call, on_session_end
+
+    hook_pairs = [
+        ("pre_llm_call", on_pre_llm_call),
+        ("post_tool_call", on_post_tool_call),
+        ("on_session_end", on_session_end),
+    ]
+    valid = _valid_hook_names()
+    HOOK_REGISTRATION_ERRORS.clear()
+
+    for name, callback in hook_pairs:
+        if valid and name not in valid:
+            msg = (
+                f"Hook '{name}' ist in dieser Hermes-Version unbekannt "
+                f"({len(valid)} gueltige Hooks) — Hook wird nicht registriert."
+            )
+            HOOK_REGISTRATION_ERRORS.append(msg)
+            logger.error("plan_follow: %s", msg)
+            continue
+        ctx.register_hook(name, callback)
+
+    registered = len(hook_pairs) - len(HOOK_REGISTRATION_ERRORS)
+    if HOOK_REGISTRATION_ERRORS:
+        logger.error(
+            "plan_follow: %d/%d hooks registriert (%d ungueltig)",
+            registered, len(hook_pairs), len(HOOK_REGISTRATION_ERRORS),
+        )
+    else:
+        logger.info("plan_follow: %d hooks registriert (pre_llm_call, post_tool_call, on_session_end)", registered)
 
 
 def _register_skill(ctx: PluginContext) -> None:
-    """Register the companion skill."""
+    """Register the companion skill.
+
+    Vor v0.5.32 wurde hier ausschliesslich ``skills/plan-follow.md`` geprueft —
+    die Datei heisst real ``skills/SKILL.md``. Folge: der Companion-Skill wurde
+    bei jedem Load stillschweigend NICHT registriert (kein Warning, kein Fehler).
+    """
     skill_dir = Path(__file__).parent / "skills"
-    skill_path = skill_dir / "plan-follow.md"
-    if skill_path.exists():
-        ctx.register_skill(
-            name="plan-follow",
-            path=skill_path,
-            description="Plan-Follow: task enforcement via plan_create/current/complete/verify/status/todo/update tools",
+    skill_path = next(
+        (p for p in (skill_dir / "SKILL.md", skill_dir / "plan-follow.md") if p.exists()),
+        None,
+    )
+    if skill_path is None:
+        logger.error(
+            "plan_follow: Companion-Skill nicht gefunden in %s (erwartet SKILL.md)", skill_dir
         )
+        return
+
+    ctx.register_skill(
+        name="plan-follow",
+        path=skill_path,
+        description="Plan-Follow: task enforcement via plan_create/current/complete/verify/status/todo/update tools",
+    )
+    logger.info("plan_follow: Companion-Skill registriert (%s)", skill_path.name)
 
 
 def _inject_steering_hints() -> None:

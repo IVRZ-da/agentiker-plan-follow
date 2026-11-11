@@ -26,6 +26,13 @@ _banner_turn_counter: int = 0
 _BANNER_FULL_EVERY_N_TURNS = 4  # Voller Banner nur alle N Turns
 _last_task_id: Optional[str] = None  # Task-Wechsel = sofort voller Banner
 
+# ─── Banner-Recovery (einmal pro Session) ───────────────────────────────────────
+# Nach einem Hermes-Restart ist der In-Memory-Cache leer. Der Banner kam deshalb
+# erst, wenn irgendein plan_-Tool aufgerufen wurde. Recovery passiert jetzt beim
+# ersten Turn einer Session — aber nur, wenn die Session den Plan besitzen darf
+# (kein Cross-Session-Leak von Plaenen fremder Sessions im Gateway-Prozess).
+_recovered_sessions: set[str] = set()
+
 # ─── Cross-Session Auto-Coordination ────────────────────────────────────────────
 # Track which task's files are currently locked, so we can release on task change.
 _LAST_LOCKED_TASK: Optional[str] = None
@@ -610,7 +617,107 @@ def _build_health_banner() -> list[str]:
     return lines
 
 
+def _build_tool_check_banner() -> list[str]:
+    """Build tool-availability banner (first turn / task change only).
+    Erinnert an die Tool-Hierarchie: code_* FIRST, search_files OK, grep VERBOTEN.
+    Zeigt welche Plugins verfügbar sind (Scout, code_intel, plan_follow).
+    """
+    lines = []
+    try:
+        import importlib
+
+        # Check plugin availability
+        plugins = []
+        for pname, pkg in [("🔍 code_intel", "code_intel"), ("🕵️  scout", "scout"), ("📋 plan_follow", "plan_follow")]:
+            try:
+                mod = importlib.import_module(pkg)
+                ver = getattr(mod, "__version__", getattr(mod, "version", "?"))
+                plugins.append(f"{pname} (v{ver})")
+            except Exception:
+                plugins.append(f"{pname} ❌")
+
+        lines.append("║  🛠️  TOOL-CHECK                     ║")
+        for p in plugins:
+            lines.append(f"║    {p:38}║")
+
+        # Tool hierarchy reminder (compact, only on session start)
+        lines.append("║                                       ║")
+        lines.append("║  🔴 Tool-Hierarchie:                 ║")
+        lines.append("║     code_* (symbols/search/refactor)  ║")
+        lines.append("║     → search_files (ripgrep)          ║")
+        lines.append("║     → ❌ grep im Terminal (verboten)  ║")
+        lines.append("║  (Build-Logs + Git + Pre-Commit: OK)  ║")
+
+    except Exception:
+        logger.debug("_build_tool_check_banner failed (non-blocking)", exc_info=True)
+    return lines
+
+
 # ─── pre_llm_call Hook ──────────────────────────────────────────────────────
+
+
+def _try_session_recovery(kwargs: dict) -> None:
+    """Adoptiert beim ersten Turn einer Session einen Plan von Disk — mit Besitzpruefung.
+
+    Ohne diese Recovery blieb der Banner nach einem Hermes-Restart stumm, bis
+    irgendein plan_-Tool lief. Ohne Besitzpruefung wuerde ein Gateway-Prozess,
+    der mehrere Sessions bedient, den Plan von Session A in Session B anzeigen
+    (STATE ist prozessglobal) und zusaetzlich fremde Task-Dateien locken.
+    """
+    if not kwargs.get("is_first_turn"):
+        return
+
+    session_id = str(kwargs.get("session_id") or "")
+    if not session_id or session_id in _recovered_sessions:
+        return
+    _recovered_sessions.add(session_id)
+
+    from .tools.state import STATE
+
+    if STATE.active_plan is not None:
+        return
+
+    # Wichtig: NICHT _get_active_plan() benutzen — das adoptiert den Plan bereits
+    # in STATE, bevor die Besitzpruefung greifen kann. _recover_plan_from_disk()
+    # liefert nur die plan_id und laesst STATE unangetastet.
+    try:
+        from .tools.base import _recover_plan_from_disk
+
+        plan_id = _recover_plan_from_disk()
+    except Exception as exc:  # Recovery ist best-effort
+        logger.debug("plan_follow: Banner-Recovery fehlgeschlagen: %s", exc)
+        return
+
+    if not plan_id:
+        return
+
+    owner = ""
+    try:
+        from . import coord_state
+
+        owner = (coord_state.get_session(session_id) or {}).get("plan_id") or ""
+    except Exception:  # Koordinations-State optional
+        owner = ""
+
+    if owner and owner != plan_id:
+        logger.info(
+            "plan_follow: Banner-Recovery uebersprungen — Session %s gehoert zu Plan %s (nicht %s)",
+            session_id[:8], owner, plan_id,
+        )
+        return
+
+    try:
+        from .tools.task import set_active_plan
+
+        if not set_active_plan(plan_id):
+            return
+    except Exception as exc:
+        logger.debug("plan_follow: Banner-Recovery (Adoption) fehlgeschlagen: %s", exc)
+        return
+
+    logger.info(
+        "plan_follow: Banner-Recovery fuer Session %s -> Plan %s", session_id[:8], plan_id
+    )
 
 
 def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
@@ -623,6 +730,8 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
     global _banner_turn_counter, _last_task_id
 
     try:
+        _try_session_recovery(kwargs)
+
         current = plan_core.get_current_task_cached()
         if not current:
             return None
@@ -651,6 +760,10 @@ def on_pre_llm_call(**kwargs: Any) -> Optional[str]:
 
         # Build banner sections sequentially
         lines = _build_task_header(current)
+        tool_lines = _build_tool_check_banner()
+        if tool_lines:
+            lines.append("║                                       ║")
+            lines.extend(tool_lines)
         git_lines = _build_git_banner()
         if git_lines:
             lines.append("║                                       ║")
@@ -702,13 +815,19 @@ def on_post_tool_call(**kwargs: Any) -> None:
     tool_name = kwargs.get("tool_name", "")
     duration = kwargs.get("duration_ms", 0)
     status = kwargs.get("status", "")
-    error = kwargs.get("error", "")
+    # Hermes sendet seit v0.23.1 error_type/error_message, NICHT 'error'.
+    # Vorher las der Hook kwargs['error'] (immer leer) und fiel auf kwargs['result']
+    # zurueck -> der Breaker-Banner zeigte rohe Tool-Ausgabe statt der Ursache.
+    error_type = kwargs.get("error_type", "") or ""
+    error_message = kwargs.get("error_message", "") or kwargs.get("error", "") or ""
 
     # ─── Circuit Breaker ────────────────────────────────────────────────────
     # Check BEFORE the early-return filter so firecrawl/honcho failures are caught
     if status == "error" and tool_name.startswith(_BREAKER_CRITICAL_PREFIXES):
-        error_msg = str(error or kwargs.get("result", "Unknown error"))[:80]
-        _set_breaker(tool_name, error_msg)
+        detail = str(error_message).strip() or "(no error message)"
+        if error_type:
+            detail = f"{error_type}: {detail}"
+        _set_breaker(tool_name, detail)
 
     # Only track plan_follow and code_* tools to avoid noise
     if not tool_name.startswith(("plan_", "code_", "patch", "terminal")):
@@ -859,6 +978,9 @@ def on_post_tool_call(**kwargs: Any) -> None:
 def on_session_end(**kwargs: Any) -> None:
     """Session end: persist plan state, release locks, unregister session."""
     try:
+        session_id_for_recovery = str(kwargs.get("session_id") or "")
+        if session_id_for_recovery:
+            _recovered_sessions.discard(session_id_for_recovery)
         # 1. Persist current plan state
         plan = plan_core._get_active_plan()
         if plan:

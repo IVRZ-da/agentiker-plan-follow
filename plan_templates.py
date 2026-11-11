@@ -14,16 +14,22 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
+try:  # PyYAML ist optional — User-Templates werden sonst uebersprungen
+    import yaml
+except ImportError:  # pragma: no cover
+    yaml = None  # type: ignore[assignment]
 
 from ._fmt import fmt_err, fmt_ok, fmt_table
+from .tools.paths import assert_writable
 
 logger = logging.getLogger("plan_follow")
 
-TEMPLATES_DIR = Path.home() / ".hermes" / "plans" / "templates"
+_TEMPLATES_ROOT = os.environ.get("PLAN_FOLLOW_PLANS_DIR")
+TEMPLATES_DIR = (Path(_TEMPLATES_ROOT) if _TEMPLATES_ROOT else Path.home() / ".hermes" / "plans") / "templates"
 
 # ─── Built-in Templates ───────────────────────────────────────────────────────
 
@@ -274,6 +280,12 @@ def _load_user_templates() -> dict[str, dict[str, Any]]:
     templates = {}
     if not TEMPLATES_DIR.exists():
         return templates
+    if yaml is None:
+        logger.warning(
+            "User-Templates uebersprungen: PyYAML ist nicht installiert "
+            "(pip install PyYAML oder 'hermes plugins repair')"
+        )
+        return templates
 
     for yaml_file in sorted(TEMPLATES_DIR.glob("*.yaml")):
         try:
@@ -298,12 +310,14 @@ def _load_user_templates() -> dict[str, dict[str, Any]]:
 
 
 def _parse_yaml_simple(content: str) -> Optional[dict]:
-    """Parse YAML content via PyYAML.
+    """Parse YAML content via PyYAML (optional).
 
-    PyYAML is always available in Hermes plugins (standard dependency).
-    This function exists for backward compatibility — delegates to yaml.safe_load.
+    Ohne PyYAML wird ``None`` zurueckgegeben; Aufrufer behandeln das als
+    "nicht parsebar".
     """
-    import yaml
+    if yaml is None:
+        logger.warning("_parse_yaml_simple: PyYAML nicht installiert")
+        return None
     return yaml.safe_load(content)
 
 
@@ -353,6 +367,7 @@ def save_user_template(name: str, tasks: list[dict],
         Dict with status and path.
     """
     if not TEMPLATES_DIR.exists():
+        assert_writable(TEMPLATES_DIR)
         TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
     # Build YAML content manually to avoid dependency on pyyaml dump formatting
@@ -374,6 +389,7 @@ def save_user_template(name: str, tasks: list[dict],
         lines.append(f"    depends_on: {tdepends}")
 
     filepath = TEMPLATES_DIR / f"{name}.yaml"
+    assert_writable(filepath)
     filepath.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info("User-Template '%s' gespeichert als %s", name, filepath)
     return {"status": "saved", "name": name, "path": str(filepath), "task_count": len(tasks)}
@@ -393,6 +409,7 @@ def delete_user_template(name: str) -> dict:
     filepath = TEMPLATES_DIR / f"{name}.yaml"
     if not filepath.exists():
         return {"status": "error", "message": f"User template '{name}' not found at {filepath}."}
+    assert_writable(filepath)
     filepath.unlink()
     logger.info("User-Template '%s' gelöscht", name)
     return {"status": "deleted", "name": name}
@@ -437,6 +454,7 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
         Returns {'error': '...'} if template not found.
     """
     templates = _get_all_templates()
+    params = params or {}
     template = templates.get(name)
     if not template:
         available = sorted(templates.keys())
@@ -469,26 +487,31 @@ def expand_template(name: str, goal: str = "", params: Optional[dict] = None) ->
             return {"error": "multi-Template erfordert params.tasks als Liste mit mindestens einem Task"}
 
     # ─── Auto p0: Peer-Review-Task vor alle anderen Tasks ────────────────
-    # JEDER Plan hat einen p0-review Task als Task 0. Der Review prüft den
-    # Plan gegen die 8-Punkte-Checkliste (depends_on, verify, files, etc.)
-    # und wendet Korrekturen an. Erst danach gehts an die Umsetzung.
-    # User-defined Templates kriegen den p0 ebenfalls automatisch.
-    p0_task = {
-        "id": "p0",
-        "name": "Peer Review: Plan prüfen + Korrekturen einarbeiten",
-        "files": [],
-        "verify": "echo '✅ Plan reviewed and accepted'",
-        "depends_on": [],
-    }
-    result["tasks"].insert(0, p0_task)
-    # Adjust depends_on: erster Template-Task hängt von p0 ab
-    if len(result["tasks"]) > 1 and result["tasks"][1].get("depends_on"):
-        if p0_task["id"] not in result["tasks"][1]["depends_on"]:
-            result["tasks"][1]["depends_on"] = [p0_task["id"]] + result["tasks"][1]["depends_on"]
-    elif len(result["tasks"]) > 1:
-        result["tasks"][1]["depends_on"] = [p0_task["id"]]
-    if template.get("repo_hint"):
-        result["repo_hint"] = template["repo_hint"]
+    # JEDER Plan aus einem Template bekommt einen p0-review Task als Task 0.
+    # Der Review prueft den Plan gegen die 8-Punkte-Checkliste (depends_on,
+    # verify, files, etc.) und wendet Korrekturen an.
+    # Opt-out: p0_review=false (Template-Parameter bzw. plan_create-Argument).
+    # Hinweis: der Direkt-Tasks-Zweig (ohne Template) erzeugt kein p0.
+    if not params.get("p0_review", True):
+        if template.get("repo_hint"):
+            result["repo_hint"] = template["repo_hint"]
+    else:
+        p0_task = {
+            "id": "p0",
+            "name": "Peer Review: Plan prüfen + Korrekturen einarbeiten",
+            "files": [],
+            "verify": "echo '✅ Plan reviewed and accepted'",
+            "depends_on": [],
+        }
+        result["tasks"].insert(0, p0_task)
+        # Adjust depends_on: erster Template-Task hängt von p0 ab
+        if len(result["tasks"]) > 1 and result["tasks"][1].get("depends_on"):
+            if p0_task["id"] not in result["tasks"][1]["depends_on"]:
+                result["tasks"][1]["depends_on"] = [p0_task["id"]] + result["tasks"][1]["depends_on"]
+        elif len(result["tasks"]) > 1:
+            result["tasks"][1]["depends_on"] = [p0_task["id"]]
+        if template.get("repo_hint"):
+            result["repo_hint"] = template["repo_hint"]
 
     # ─── skip_refactor für bugfix ─────────────────────────────────────
     # Wenn params.skip_refactor=true, REFACTOR-Schritt überspringen

@@ -183,3 +183,51 @@ class TestGetActivePlanHonchoRecovery:
         )
         result = _base_mod._get_active_plan()
         assert result is None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v0.5.32: plans_index-Timestamps immer UTC-aware (vorher naiv/lokal gemischt)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestIndexTimestamps:
+    def test_naive_value_is_normalized_to_utc(self):
+        from plan_follow.tools.base import _to_utc_iso
+        out = _to_utc_iso("2026-11-10T18:16:44")
+        assert out.endswith("+00:00"), out
+
+    def test_aware_value_kept_as_utc(self):
+        from plan_follow.tools.base import _to_utc_iso
+        out = _to_utc_iso("2026-11-10T18:16:44+02:00")
+        assert out.endswith("+00:00")
+        assert "16:16:44" in out  # 18:16+02:00 = 16:16 UTC
+
+    def test_empty_and_garbage(self):
+        from plan_follow.tools.base import _to_utc_iso
+        assert _to_utc_iso("") == ""
+        assert _to_utc_iso(None) == ""
+        assert _to_utc_iso("kein-datum") == "kein-datum"
+
+    def test_index_fields_are_comparable(self):
+        """last_updated - active_since darf nicht am tz-Mix scheitern."""
+        import json
+        from datetime import datetime, timezone
+
+        from plan_follow import plan_core
+        from plan_follow.tools.base import _update_plans_index
+
+        plan = {
+            "plan_id": "ts-test-plan",
+            "goal": "Timestamp-Test",
+            "created": "2026-11-10T18:16:44",  # naiv, wie ein Legacy-Plan
+            "tasks": {"t1": {"id": "t1", "status": "pending"}},
+        }
+        _update_plans_index(plan)
+        index = json.loads(
+            (plan_core.PLANS_DIR / "plans_index.json").read_text(encoding="utf-8")
+        )
+        since = datetime.fromisoformat(index["active_since"])
+        updated = datetime.fromisoformat(index["last_updated"])
+        assert since.tzinfo is not None and updated.tzinfo is not None
+        assert updated >= since
+        assert (updated - since).total_seconds() >= 0
+        assert since.astimezone(timezone.utc).isoformat() == index["active_since"]

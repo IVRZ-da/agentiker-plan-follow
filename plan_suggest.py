@@ -16,6 +16,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .tools.paths import assert_writable
+
 logger = logging.getLogger("plan_follow")
 
 
@@ -204,10 +206,12 @@ def suggest_plan(goal: str, project_root: str = "") -> dict:
 
 # ─── Time Tracking ────────────────────────────────────────────────────────────
 
-_TRACKING_FILE = Path.home() / ".hermes" / "plans" / "time_tracking.json"
+_TRACKING_ROOT = os.environ.get("PLAN_FOLLOW_PLANS_DIR")
+_TRACKING_FILE = (Path(_TRACKING_ROOT) if _TRACKING_ROOT else Path.home() / ".hermes" / "plans") / "time_tracking.json"
 
 
 def _ensure_tracking_file():
+    assert_writable(_TRACKING_FILE)
     _TRACKING_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not _TRACKING_FILE.exists():
         _TRACKING_FILE.write_text("{}", encoding="utf-8")

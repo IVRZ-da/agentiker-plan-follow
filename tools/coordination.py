@@ -100,65 +100,21 @@ def _save_plan_state_to_honcho(plan_id: str, task_id: str, status: str):
         logger.warning("Honcho save failed after retries (non-fatal): %s", e)
 
 
-def _load_plan_state_from_honcho() -> Optional[str]:
-    """Load active plan ID from Honcho. Returns plan_id or None."""
-    # Try registry dispatch first
-    registry_result = _dispatch_honcho_tool("honcho_search", {
-        "query": "plan_follow:active",
-    })
-    if registry_result is not None:
-        conclusions = registry_result.get("conclusions", []) if isinstance(registry_result, dict) else []
-        for c in conclusions:
-            content = c.get("content", "") if isinstance(c, dict) else ""
-            if isinstance(content, str):
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and parsed.get("source") == "plan_follow" and parsed.get("status") == "active":
-                        return parsed.get("plan_id")
-                except (json.JSONDecodeError, TypeError):
-                    # Legacy format: "plan_follow:<plan_id>:active=true"
-                    if "plan_follow:" in content and "active=true" in content:
-                        parts = content.split(":")
-                        if len(parts) >= 2:
-                            return parts[1]
-        return None
+def _load_plan_state_from_honcho(*args, **kwargs) -> Optional[str]:
+    """Entfernt in v0.5.32 — Honcho taugt nicht als Plan-Recovery.
 
-    # Fallback: raw HTTP with exponential backoff
-    import urllib.request
-    def _do_load():
-        req = urllib.request.Request(
-            f"{resolve_honcho_url()}/v3/workspaces/{resolve_honcho_workspace()}/conclusions/query",
-            data=json.dumps({
-                "query": "plan_follow:active",
-                "observer_id": resolve_honcho_peer(),
-                "observed_id": resolve_honcho_peer()
-            }).encode(),
-            headers={"Content-Type": "application/json"},
-        )
-        resp = urllib.request.urlopen(req, timeout=5)
-        conclusions = json.loads(resp.read())
-        for c in conclusions:
-            content = c.get("content", "")
-            # Try JSON data model first
-            if isinstance(content, str):
-                try:
-                    parsed = json.loads(content)
-                    if isinstance(parsed, dict) and parsed.get("source") == "plan_follow" and parsed.get("status") == "active":
-                        return parsed.get("plan_id")
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            # Legacy: "plan_follow:<plan_id>:active=true"
-            if isinstance(content, str) and "plan_follow:" in content and "active=true" in content:
-                parts = content.split(":")
-                if len(parts) >= 2:
-                    return parts[1]
-        return None
+    Drei unabhaengige Gruende (alle verifiziert):
+      1. ``POST /v3/workspaces/{ws}/conclusions/query`` ist die semantische Suche
+         und antwortet ohne observer/observed mit HTTP 422.
+      2. Workspace/Peer des Plugins ('plan-follow'/'plan-follow-agent') passen
+         nicht zu ``~/.hermes/honcho.json`` ('hermes'/'johannes').
+      3. Honcho speichert nur die plan_id, nie den Planinhalt.
 
-    try:
-        return _retry_with_backoff(_do_load)
-    except Exception as e:
-        logger.warning("Honcho load failed after retries (non-fatal): %s", e)
-        return None
+    Bleibt als No-op erhalten, damit Re-Exports und externe Aufrufer nicht brechen.
+    Akzeptiert daher beliebige Positions-/Keyword-Argumente (alte Signaturen
+    uebergeben teils plan_id/session_id).
+    """
+    return None
 
 
 # ─── Git Commit Integration ────────────────────────────────────────────────────

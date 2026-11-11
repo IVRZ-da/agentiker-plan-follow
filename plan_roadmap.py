@@ -321,7 +321,10 @@ def plan_roadmap_handler(args: dict, **kwargs: Any) -> str:
         elif _active_roadmap_name is None:
             roadmaps = _list_roadmaps()
             if not roadmaps:
-                return "Keine Roadmaps verfuegbar. Lege eine unter ~/.hermes/roadmaps/ an."
+                return (
+                    "Keine Roadmaps verfuegbar. Lege eine unter ~/.hermes/roadmaps/ an "
+                    "oder nenne eine Roadmap mit name=<name>."
+                )
             if not set_active_roadmap(roadmaps[0]["name"]):
                 return f"Konnte Roadmap '{roadmaps[0]['name']}' nicht laden"
 

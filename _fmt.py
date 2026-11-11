@@ -12,16 +12,148 @@ Verwendung in Tool-Handlern:
 """
 
 import json
+import re
 from typing import Any, Optional
 
-from rich import box as rich_box
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.rule import Rule
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.tree import Tree
+try:  # pragma: no cover - rich ist in Hermes vorhanden, Fallback fuer schlanke Umgebungen
+    from rich import box as rich_box
+    from rich.console import Console
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.rule import Rule
+    from rich.syntax import Syntax
+    from rich.table import Table
+    from rich.tree import Tree
+
+    HAS_RICH = True
+except ImportError:  # Fallback: reine Text-Ausgabe ohne rich
+    HAS_RICH = False
+
+    _MARKUP_RE = re.compile(r"\[/?[a-zA-Z0-9 _#.,\-]+\]")
+
+    def _strip_markup(text: Any) -> str:
+        return _MARKUP_RE.sub("", str(text))
+
+    class _Box:
+        ROUNDED = ""
+        HEAVY = ""
+        SIMPLE = ""
+        MINIMAL = ""
+
+    rich_box = _Box()  # type: ignore[assignment]
+
+    class _PlainCapture:
+        def __init__(self) -> None:
+            self._parts: list[str] = []
+
+        def get(self) -> str:
+            return "\n".join(self._parts)
+
+    class Console:  # noqa: D101 - Shim
+        def capture(self):
+            capture = _PlainCapture()
+            self._active_capture = capture
+
+            class _Ctx:
+                def __enter__(self_inner):
+                    return capture
+
+                def __exit__(self_inner, *exc):
+                    return False
+
+            return _Ctx()
+
+        def print(self, renderable=None, **kwargs):
+            capture = getattr(self, "_active_capture", None)
+            text = "" if renderable is None else str(renderable)
+            if capture is not None:
+                capture._parts.append(text)
+
+    class Panel:  # noqa: D101 - Shim
+        def __init__(self, content, title=None, border_style=None, box=None, **kw):
+            self.content = content
+            self.title = title
+
+        def __str__(self) -> str:
+            body = self.content if isinstance(self.content, str) else str(self.content)
+            header = f"== {_strip_markup(self.title)} ==" if self.title else ""
+            return "\n".join(part for part in (header, body) if part)
+
+    class Table:  # noqa: D101 - Shim
+        def __init__(self, title=None, box=None, header_style=None,
+                     show_header=True, **kw):
+            self.title = title
+            self.show_header = show_header
+            self.columns: list[str] = []
+            self.rows: list[list[str]] = []
+
+        def add_column(self, name, **kw):
+            self.columns.append(str(name))
+
+        def add_row(self, *cells):
+            self.rows.append([_strip_markup(cell) for cell in cells])
+
+        def __str__(self) -> str:
+            lines = []
+            if self.title:
+                lines.append(f"== {_strip_markup(self.title)} ==")
+            widths = [len(c) for c in self.columns] or [0]
+            for row in self.rows:
+                for idx, cell in enumerate(row):
+                    if idx < len(widths):
+                        widths[idx] = max(widths[idx], len(cell))
+            if self.show_header and self.columns:
+                lines.append("  ".join(c.ljust(widths[i]) for i, c in enumerate(self.columns)))
+                lines.append("  ".join("-" * widths[i] for i in range(len(self.columns))))
+            for row in self.rows:
+                lines.append("  ".join(cell.ljust(widths[i]) if i < len(widths) else cell
+                                       for i, cell in enumerate(row)))
+            return "\n".join(lines)
+
+    class Tree:  # noqa: D101 - Shim
+        def __init__(self, label, guide_style=None, **kw):
+            self.label = _strip_markup(label)
+            self.children: list["Tree"] = []
+
+        def add(self, label):
+            child = Tree(label)
+            self.children.append(child)
+            return child
+
+        def __str__(self) -> str:
+            out = [self.label]
+            for child in self.children:
+                for line in str(child).splitlines():
+                    out.append("  " + line)
+            return "\n".join(out)
+
+    class Markdown:  # noqa: D101 - Shim
+        def __init__(self, text):
+            self.text = text
+
+        def __str__(self) -> str:
+            return str(self.text)
+
+    class Syntax:  # noqa: D101 - Shim
+        def __init__(self, code, lang="", theme="", line_numbers=False, **kw):
+            self.code = code
+            self.lang = lang
+            self.line_numbers = line_numbers
+
+        def __str__(self) -> str:
+            if not self.line_numbers:
+                return str(self.code)
+            return "\n".join(f"{i:4d} {line}"
+                             for i, line in enumerate(str(self.code).splitlines(), 1))
+
+    class Rule:  # noqa: D101 - Shim
+        def __init__(self, title=None, style=None, **kw):
+            self.title = title
+
+        def __str__(self) -> str:
+            if self.title:
+                return f"--- {_strip_markup(self.title)} ---"
+            return "---"
 
 # ─── Globale Console (erkennt Terminal-Breite automatisch) ──────
 _console = Console()
@@ -312,6 +444,8 @@ def _strip_ansi(text: str) -> str:
         plain = _strip_ansi(fmt_ok({"a": 1}))
         assert "a" in plain and "1" in plain
     """
+    if not HAS_RICH:
+        return re.sub(r"\x1b\[[0-9;]*m", "", text)
     from rich.ansi import AnsiDecoder
     decoder = AnsiDecoder()
     return "".join(segment.plain for segment in decoder.decode(text))

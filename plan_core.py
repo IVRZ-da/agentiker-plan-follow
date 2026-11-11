@@ -22,6 +22,7 @@ Submodules:
 # These are REAL attributes on the module, so tests can do
 # monkeypatch.setattr(plan_core, "PLANS_DIR", tmp_path) and
 # resolvers in tools/ will read the monkeypatched value at call time.
+import os
 from pathlib import Path
 
 # ─── Auto Operations ─────────────────────────────────────────────────────────
@@ -42,10 +43,17 @@ from pathlib import Path
 
 # ─── Plan Validation ─────────────────────────────────────────────────────────
 
-PLANS_DIR: Path = Path.home() / ".hermes" / "plans"
-PLANS_INDEX: Path = Path.home() / ".hermes" / "plans" / "plans_index.json"
-ARCHIVE_DIR: Path = Path.home() / ".hermes" / "plans" / "archived"
-ROADMAPS_DIR: Path = Path.home() / ".hermes" / "roadmaps"
+# Env-Overrides: erlauben Isolation auch fuer Subprozesse/Skript-Laeufe
+# (tests/conftest.py setzt sie, bevor plan_follow importiert wird).
+_ENV_PLANS_DIR = os.environ.get("PLAN_FOLLOW_PLANS_DIR")
+_ENV_ROADMAPS_DIR = os.environ.get("PLAN_FOLLOW_ROADMAPS_DIR")
+
+PLANS_DIR: Path = Path(_ENV_PLANS_DIR) if _ENV_PLANS_DIR else Path.home() / ".hermes" / "plans"
+PLANS_INDEX: Path = PLANS_DIR / "plans_index.json"
+ARCHIVE_DIR: Path = PLANS_DIR / "archived"
+ROADMAPS_DIR: Path = (
+    Path(_ENV_ROADMAPS_DIR) if _ENV_ROADMAPS_DIR else Path.home() / ".hermes" / "roadmaps"
+)
 
 
 # ─── Backward-Compatible Dynamic Access ──────────────────────────────────────

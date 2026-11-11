@@ -1,12 +1,18 @@
 [build-system]
 requires = ["setuptools>=64.0", "wheel"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "agentiker-plan-follow"
-version = "0.5.31"
+version = "0.5.32"
 description = "Plan-Follow Plugin for Hermes Agent — task enforcement, peer review, cross-session coordination"
 requires-python = ">=3.11"
+# rich: Ausgabe-Formatierung (Fallback in _fmt.py, falls nicht vorhanden)
+# PyYAML: User-Templates + Roadmaps (Fallback: JSON / Ueberspringen)
+dependencies = [
+    "rich>=13",
+    "PyYAML>=6",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

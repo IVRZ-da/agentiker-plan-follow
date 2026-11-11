@@ -251,3 +251,43 @@ class TestParseYamlSimple:
         from plan_follow.plan_templates import _parse_yaml_simple
         result = _parse_yaml_simple('{"key": "value"}')
         assert result == {"key": "value"}
+
+
+# ─── v0.5.32: p0-Opt-out via p0_review ─────────────────────────────────────
+
+class TestP0OptOut:
+    def test_p0_present_by_default(self):
+        from plan_follow.plan_templates import expand_template
+        result = expand_template("free", "x", {"tasks": [{"id": "a", "name": "A"}]})
+        assert result["tasks"][0]["id"] == "p0"
+        assert result["tasks"][1]["depends_on"] == ["p0"]
+
+    def test_p0_skipped_with_flag(self):
+        from plan_follow.plan_templates import expand_template
+        result = expand_template(
+            "free", "x", {"tasks": [{"id": "a", "name": "A"}], "p0_review": False}
+        )
+        ids = [t["id"] for t in result["tasks"]]
+        assert "p0" not in ids
+        assert ids == ["a"]
+
+    def test_p0_skipped_for_standard_template(self):
+        from plan_follow.plan_templates import expand_template
+        with_p0 = expand_template("deploy")
+        without_p0 = expand_template("deploy", "", {"p0_review": False})
+        assert len(without_p0["tasks"]) == len(with_p0["tasks"]) - 1
+        assert without_p0["tasks"][0]["id"] != "p0"
+        assert without_p0["tasks"][0]["depends_on"] == []
+
+    def test_params_none_is_tolerated(self):
+        from plan_follow.plan_templates import expand_template
+        result = expand_template("fix")
+        assert "error" not in result
+        assert result["tasks"][0]["id"] == "p0"
+
+    def test_plan_create_schema_exposes_p0_review(self):
+        from plan_follow.tools.schemas import PER_TOOL_SCHEMAS
+        schema = PER_TOOL_SCHEMAS["plan_create"]
+        props = (schema.get("parameters") or schema)["properties"]
+        assert "p0_review" in props
+        assert props["p0_review"]["type"] == "boolean"

@@ -1,6 +1,7 @@
 """Tests for __init__.py — Plugin registration, hooks, steering hints."""
 
 import logging
+import pathlib
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -51,10 +52,21 @@ class TestRegisterTools:
         assert "plan_history" in ctx.tools
 
     def test_each_tool_has_schema(self):
-        """Every registered tool has a non-empty schema."""
+        """Every registered tool has a non-empty schema with parameters."""
         ctx = self._call(MockPluginContext())
         for name, info in ctx.tools.items():
-            assert "properties" in info["schema"], f"{name} has no properties in schema"
+            schema = info["schema"]
+            # Schema must have either top-level properties (raw) or
+            # properties nested under parameters (OpenAI format)
+            has_props = (
+                "properties" in schema
+                or (
+                    "parameters" in schema
+                    and isinstance(schema["parameters"], dict)
+                    and "properties" in schema["parameters"]
+                )
+            )
+            assert has_props, f"{name} has no properties in schema"
 
     def test_each_tool_has_handler(self):
         """Every registered tool has a callable handler."""
@@ -66,7 +78,10 @@ class TestRegisterTools:
         """Verify specific tool descriptions."""
         ctx = self._call(MockPluginContext())
         create_schema = ctx.tools["plan_create"]["schema"]
+        # Support both raw format (properties on top) and OpenAI format (under parameters)
         props = create_schema.get("properties", {})
+        if not props and "parameters" in create_schema:
+            props = create_schema["parameters"].get("properties", {})
         assert "goal" in props
         assert "tasks" in props
 
@@ -75,6 +90,8 @@ class TestRegisterTools:
         ctx = self._call(MockPluginContext())
         todo_schema = ctx.tools["plan_todo"]["schema"]
         props = todo_schema.get("properties", {})
+        if not props and "parameters" in todo_schema:
+            props = todo_schema["parameters"].get("properties", {})
         assert "todos" in props or "merge" in props
 
 
@@ -104,14 +121,20 @@ class TestRegisterHooks:
 
 class TestRegisterSkill:
     def test_skill_registered_when_file_exists(self):
-        """Skill is registered when plan-follow.md exists."""
+        """Skill MUSS registriert werden — die Datei heisst skills/SKILL.md.
+
+        Vor v0.5.32 pruefte _register_skill auf 'plan-follow.md', fand nichts und
+        registrierte den Companion-Skill stillschweigend nie. Der Test war bedingt
+        formuliert ('if ... in ctx.skills') und konnte deshalb nie fehlschlagen.
+        """
         from plan_follow.__init__ import _register_skill
+
         ctx = MockPluginContext()
         _register_skill(ctx)
-        # Skill file exists, so it should be registered
-        if "plan-follow" in ctx.skills:
-            assert "description" in ctx.skills["plan-follow"]
-        # If the file doesn't exist in the test environment, skill won't register
+        assert "plan-follow" in ctx.skills, "Companion-Skill wurde nicht registriert"
+        assert ctx.skills["plan-follow"].get("description")
+        path = ctx.skills["plan-follow"].get("path")
+        assert path is not None and pathlib.Path(str(path)).exists(), f"Skill-Datei fehlt: {path}"
 
     def test_skill_has_name_and_description(self):
         """Registered skill has proper metadata."""

@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .paths import assert_writable
 from .resolver import resolve_plans_dir, resolve_plans_index, resolve_roadmaps_dir
 from .state import STATE
 
@@ -92,6 +94,25 @@ def get_drift_warnings() -> list[str]:
 # ─── Plans Index (Cross-Session Recovery) ─────────────────────────────────────
 
 
+def _to_utc_iso(value: object) -> str:
+    """Best-effort: beliebigen ISO-Timestamp nach UTC-aware normalisieren.
+
+    Legacy-Werte in plans_index.json waren naiv/lokal, neue sind UTC-aware.
+    Gemischte Werte machen jeden Vergleich/Sortierung um 1-2h falsch bzw. werfen
+    TypeError beim Subtrahieren.
+    """
+    if not value:
+        return ""
+    text = str(value)
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return text
+    if dt.tzinfo is None:
+        dt = dt.astimezone()  # naiver Wert = lokale Zeit
+    return dt.astimezone(timezone.utc).isoformat()
+
+
 def _update_plans_index(plan: dict) -> None:
     """Write active plan info to a small index file for session recovery."""
     index = {}
@@ -102,8 +123,9 @@ def _update_plans_index(plan: dict) -> None:
             pass
     index["active_plan_id"] = plan["plan_id"]
     index["active_goal"] = plan.get("goal", "")[:80]
-    index["active_since"] = plan.get("created", "")
+    index["active_since"] = _to_utc_iso(plan.get("created", ""))
     index["last_updated"] = datetime.now(timezone.utc).isoformat()
+    assert_writable(resolve_plans_index())
     try:
         resolve_plans_index().write_text(json.dumps(index, indent=2), encoding="utf-8")
     except OSError:
@@ -122,6 +144,7 @@ def _clear_plans_index() -> None:
     index.pop("active_goal", None)
     index.pop("active_since", None)
     index["last_updated"] = datetime.now(timezone.utc).isoformat()
+    assert_writable(resolve_plans_index())
     try:
         resolve_plans_index().write_text(json.dumps(index, indent=2), encoding="utf-8")
     except OSError:
@@ -175,8 +198,12 @@ def _recover_plan_from_disk() -> Optional[str]:
 
 def _ensure_dirs() -> None:
     """Lazy init: create data dirs on first write (not at module import)."""
-    resolve_plans_dir().mkdir(parents=True, exist_ok=True)
-    resolve_roadmaps_dir().mkdir(parents=True, exist_ok=True)
+    plans_dir = resolve_plans_dir()
+    roadmaps_dir = resolve_roadmaps_dir()
+    assert_writable(plans_dir)
+    assert_writable(roadmaps_dir)
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    roadmaps_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _plan_path(plan_id: str) -> Path:
@@ -184,8 +211,36 @@ def _plan_path(plan_id: str) -> Path:
 
 
 def _save_plan(plan: dict) -> None:
+    """Persist a plan. Refuses incomplete plans and guards production paths.
+
+    Datenverlust-Schutz (v0.5.32): ein Plan ohne ``plan_id`` oder ohne ``tasks``
+    darf niemals geschrieben werden — genau so wurden 2-Byte-Dateien ``{}`` in
+    echte Plaene geschrieben. Vor dem Ueberschreiben eines bestehenden Plans mit
+    Inhalt wird ein ``.json.bak`` angelegt.
+    """
     _ensure_dirs()
-    path = _plan_path(plan["plan_id"])
+    plan_id = plan.get("plan_id") if isinstance(plan, dict) else None
+    if not plan_id:
+        raise ValueError("_save_plan: 'plan_id' fehlt — Schreiben abgelehnt (Datenverlust-Schutz)")
+    if not plan.get("tasks"):
+        raise ValueError(
+            f"_save_plan: Plan '{plan_id}' hat keine Tasks — Schreiben abgelehnt (Datenverlust-Schutz)"
+        )
+
+    path = _plan_path(plan_id)
+    assert_writable(path)
+
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+        if isinstance(existing, dict) and existing.get("tasks"):
+            try:
+                shutil.copy2(path, path.with_suffix(".json.bak"))
+            except OSError:
+                logger.warning("plan backup failed for %s", path)
+
     path.write_text(json.dumps(plan, indent=2, ensure_ascii=False), encoding="utf-8")
     STATE.active_plan = plan
     STATE.active_plan_id = plan["plan_id"]
@@ -224,18 +279,12 @@ def _get_active_plan() -> Optional[dict]:
         if set_active_plan(plan_id):
             return STATE.active_plan
 
-    # 3. Honcho
-    try:
-        from .coordination import _load_plan_state_from_honcho  # noqa: F811
-        plan_id = _load_plan_state_from_honcho()
-        if plan_id:
-            from .task import set_active_plan  # noqa: F811
-            if set_active_plan(plan_id):
-                return STATE.active_plan
-    except Exception:
-        logger.debug("Honcho recovery failed (best-effort)")
-        pass
-
+    # 3. Honcho — bewusst NICHT mehr (v0.5.32)
+    # Der Fallback war doppelt kaputt: POST /v3/workspaces/{ws}/conclusions/query
+    # ist semantische Suche und antwortet ohne observer/observed mit HTTP 422;
+    # zusaetzlich schrieb das Plugin hart in Workspace 'plan-follow'/Peer
+    # 'plan-follow-agent', waehrend ~/.hermes/honcho.json 'hermes'/'johannes' nutzt.
+    # Honcho speichert ohnehin nur die plan_id, nie den Planinhalt (Recovery unmoeglich).
     return None
 
 

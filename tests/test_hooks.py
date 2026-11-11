@@ -1623,7 +1623,13 @@ class TestEdgeCases:
         assert not called[0]
 
     def test_on_post_tool_call_error_result_fallback(self, monkeypatch, mock_time):
-        """Line 471: fallback to result when error is empty."""
+        """Kein Fallback auf 'result' mehr (v0.5.32).
+
+        Hermes liefert error_type/error_message. Der frueher benutzte
+        'result'-Fallback schrieb die komplette Tool-Ausgabe (bei terminal die
+        volle stdout) als Fehlertext in den Breaker-Banner. Fehlt die Message,
+        steht dort ein Platzhalter.
+        """
         from plan_follow.plan_hooks import _check_breaker, on_post_tool_call
         monkeypatch.setattr(
             "plan_follow.plan_hooks.plan_core.get_current_task_cached",
@@ -1633,13 +1639,14 @@ class TestEdgeCases:
             tool_name="code_refactor",
             duration_ms=100,
             status="error",
-            error="",
+            error_message="",
             result="Critical failure occurred",
             args={},
         )
         active = _check_breaker()
         assert "code_refactor" in active
-        assert "Critical failure" in active["code_refactor"]["error"]
+        assert active["code_refactor"]["error"] == "(no error message)"
+        assert "Critical failure" not in active["code_refactor"]["error"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

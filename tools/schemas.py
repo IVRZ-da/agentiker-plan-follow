@@ -36,6 +36,10 @@ PER_TOOL_SCHEMAS = {
                 "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, müssen tasks angegeben werden.\n  - multi: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
             },
             "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},
+            "p0_review": {
+                "type": "boolean",
+                "description": "p0-Peer-Review-Task vor die eigenen Tasks stellen (default: true). Bei false beginnt der Plan direkt mit dem ersten eigenen Task — der automatische Plan-Review (run_peer_review) laeuft unabhaengig davon weiter.",
+            },
             "parallel_groups": {
                 "type": "object",
                 "description": "Optionale parallele Gruppen. Jeder Key ist eine Gruppen-ID, Value ist {\"tasks\": [task_id, ...]}. Gruppen werden sequentiell verarbeitet — alle Tasks einer Gruppe laufen parallel.",
