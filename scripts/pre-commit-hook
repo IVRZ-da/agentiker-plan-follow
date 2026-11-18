@@ -768,6 +768,33 @@ def check_manifest_capabilities() -> bool:
     return False
 
 
+def check_schema_budget() -> bool:
+    """Schema-Tokens der Tool-Flaeche unter Budget (tool_schema_audit.py).
+
+    Die Tool-Schemata kosten in JEDEM Turn mit; ein unbemerkt gewachsenes Schema
+    (neue Properties, lange Beschreibungen) ist die teuerste Form von Drift, weil
+    sie sich still in jeden Prompt einbaut. Budgets: eager-Set (plan_create/current/complete) <7.000 Zeichen (Ist 6.698).
+    """
+    script = os.path.join(REPO_ROOT, "scripts", "tool_schema_audit.py")
+    if not os.path.exists(script):
+        return True
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    try:
+        r = subprocess.run(
+            [VENV_PYTHON, script, ".", "--max-eager-chars", "7000"],
+            capture_output=True, text=True, timeout=180, cwd=REPO_ROOT, env=env,
+        )
+    except Exception as exc:
+        print(f"  \u26a0\ufe0f  Schema-Budget nicht pruefbar: {exc}")
+        return True
+    if r.returncode == 0:
+        print("  \u2705 Schema-Budget: " + (r.stdout.strip().splitlines()[0][:80] if r.stdout.strip() else "ok"))
+        return True
+    print("  \u274c Schema-Budget verletzt:")
+    print((r.stderr or r.stdout).strip()[:400])
+    return False
+
+
 def main():
     os.chdir(REPO_ROOT)
 
@@ -866,6 +893,10 @@ def main():
 
     # 11b. Manifest-Capabilities (provides_tools/-hooks spiegeln register())
     if not check_manifest_capabilities():
+        return 1
+
+    # 11c. Schema-Tokens der Tool-Flaeche (Tool-Schemata kosten jeden Turn)
+    if not check_schema_budget():
         return 1
 
     # Bei nur Docs: hier aufhören (keine Tests)

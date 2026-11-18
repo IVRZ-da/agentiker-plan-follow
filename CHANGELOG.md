@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.37] — 2026-11-18
+
+### 🔒 Pre-Commit: Schema-Token-Budget
+
+Neuer blockierender Check `check_schema_budget()` — ruft
+`scripts/tool_schema_audit.py . --max-eager-chars 7000` auf. Die drei eager Tools
+kosten derzeit 6.698 Zeichen; waechst eines davon (neue Properties, laengere
+Beschreibung), faellt der Commit statt still den Prompt zu vergroessern.
+
+**Verifikation:** `check_schema_budget()` → True; 12/13 Checks gruen.
+
 ## [0.5.36] — 2026-11-18
 
 ### 🏷️ Katalog-Fähigkeit: `requires_hermes` + generierte Capabilities
