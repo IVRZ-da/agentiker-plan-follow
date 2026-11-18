@@ -688,17 +688,27 @@ def run_tests(test_files: list[str]) -> bool:
     print(f"  🧪 {label}...")
 
     args = [VENV_PYTHON, "-m", "pytest", "-q", "--tb=line", "-x"]
+    # Parallelisieren, wenn pytest-xdist vorhanden ist. Die volle Suite braucht
+    # single-threaded ~176 s und lief damit direkt in das 180-s-Timeout — der Hook brach
+    # dann mit "0 Test(s) fehlgeschlagen" ab, ohne dass ein Test rot war.
+    if run_cmd([VENV_PYTHON, "-c", "import xdist"], timeout=15).returncode == 0:
+        args.extend(["-n", "8"])
     if test_files != ["all"]:
         args.extend(test_files)
 
     env = {**os.environ, "PYTHONPATH": os.path.expanduser("~/.hermes/plugins")}
-    r = run_cmd(args, timeout=180, cwd=REPO_ROOT, env=env)
+    r = run_cmd(args, timeout=600, cwd=REPO_ROOT, env=env)
 
     if r.returncode == 0:
         summary = [l for l in r.stdout.strip().split("\n") if "passed" in l]
         print(f"  ✅ Tests bestanden ({summary[-1] if summary else 'OK'})")
         return True
     else:
+        if r.returncode == 124:
+            print("  ❌ Testlauf-Timeout (600 s) — kein Testfehler, aber ungeprüft.")
+            print("     Gezielt prüfen: pytest tests -q -n 8")
+            print("\n  Commit abgebrochen.")
+            return False
         failures = [l for l in (r.stderr or "").strip().split("\n") if "FAILED" in l]
         errors = [l for l in (r.stdout or "").strip().split("\n") if "ERROR" in l]
         all_fails = failures + errors
@@ -720,8 +730,13 @@ def check_coverage() -> bool:
     args = [VENV_PYTHON, "-m", "pytest", "tests/",
             "--cov-config", coverage_rc,
             "-q", "--no-header"]
+    # Gleiche Falle wie beim Testlauf: ohne xdist liegt die Suite über dem 180-s-Timeout,
+    # der Lauf endet mit 124, es gibt keine TOTAL-Zeile — und der Hook meldet
+    # faelschlich "Coverage zu niedrig" statt "Timeout".
+    if run_cmd([VENV_PYTHON, "-c", "import xdist"], timeout=15).returncode == 0:
+        args.extend(["-n", "8"])
     env = {**os.environ, "PYTHONPATH": os.path.expanduser("~/.hermes/plugins")}
-    r = run_cmd(args, timeout=180, cwd=REPO_ROOT, env=env)
+    r = run_cmd(args, timeout=600, cwd=REPO_ROOT, env=env)
     if r.returncode == 0:
         cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
         if cov_line:
@@ -730,6 +745,11 @@ def check_coverage() -> bool:
             print("  ✅ Coverage >=90%")
         return True
     else:
+        if r.returncode == 124:
+            print("  ❌ Coverage-Lauf-Timeout (600 s) — keine Aussage über die Coverage.")
+            print("     Gezielt prüfen: pytest tests/ -n 8 --cov-config .coveragerc")
+            print("  Commit abgebrochen.")
+            return False
         cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
         if cov_line:
             print(f"  ❌ {cov_line[0].strip()} — Coverage zu niedrig!")

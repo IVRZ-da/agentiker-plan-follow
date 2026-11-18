@@ -314,15 +314,43 @@ class TestEagerIntegration:
         Plugin-Verzeichnis wird 'tools' als Namespace-Paket gefunden. Ein eigener
         Interpreter mit explizitem PYTHONPATH ist deterministisch.
         """
+        import glob
         import os
         import subprocess
         import sys
 
+        import pytest as _pytest
+
         hermes_root = str(Path.home() / ".hermes" / "hermes-agent")
         if not (Path(hermes_root) / "toolsets.py").exists():
-            import pytest as _pytest
-
             _pytest.skip("Hermes-Checkout nicht vorhanden")
+
+        # Der Subprozess braucht die Hermes-Runtime: Interpreter UND site-packages müssen
+        # zusammenpassen. ``sys.executable`` ist beim Testlauf oft das System-Python, und
+        # dessen Version verträgt die Runtime-Pakete nicht (pydantic_core-ImportError).
+        # Deshalb Kandidaten gegen den ECHTEN Import prüfen, mit genau dem env, das der
+        # Lauf benutzt.
+        env = dict(os.environ)
+        # PYTHONPATH ERGÄNZEN, nicht ersetzen: die Runtime-Pakete (snowballstemmer für
+        # tool_search) liegen in der site-packages des aufrufenden Prozesses.
+        parts = [hermes_root, str(Path(__file__).resolve().parents[2])]
+        if os.environ.get("PYTHONPATH"):
+            parts.append(os.environ["PYTHONPATH"])
+        env["PYTHONPATH"] = os.pathsep.join(parts)
+
+        candidates = sorted(
+            glob.glob(os.path.expanduser("~/.hermes/tools/python-*/bin/python3")),
+            reverse=True) + [sys.executable]
+        interpreter = ""
+        for cand in candidates:
+            probe = subprocess.run([cand, "-c", "import toolsets, tools.tool_search"],
+                                   capture_output=True, text=True, env=env,
+                                   cwd=str(tmp_path))
+            if probe.returncode == 0:
+                interpreter = cand
+                break
+        if not interpreter:
+            _pytest.skip("kein Interpreter kann die Hermes-Runtime (toolsets) importieren")
 
         script = (
             "import toolsets, tools.tool_search as ts\n"
@@ -339,12 +367,8 @@ class TestEagerIntegration:
             "other = ts.is_deferrable_tool_name('plan_roadmap')\n"
             "print(f'{before} {after} {other}')\n"
         )
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.pathsep.join(
-            [hermes_root, str(Path(__file__).resolve().parents[2])]
-        )
         proc = subprocess.run(
-            [sys.executable, "-c", script],
+            [interpreter, "-c", script],
             capture_output=True, text=True, timeout=120,
             cwd=str(tmp_path), env=env,
         )

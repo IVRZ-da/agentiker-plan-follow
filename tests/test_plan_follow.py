@@ -2795,9 +2795,27 @@ class TestGetPlanStatusEdgeCases:
 class TestDispatchHonchoTool:
     """Tests for _dispatch_honcho_tool fallback paths (lines 267-275)."""
 
-    def test_dispatch_tool_entry_not_found(self):
-        """When entry is None, return None."""
+    def test_dispatch_tool_entry_not_found(self, monkeypatch):
+        """When entry is None, return None.
+
+        Das echte Registry wird hier bewusst durch ein leeres ersetzt: andere Testmodule
+        legen ein Fake-``tools.registry`` in ``sys.modules`` ab, und in der vollen Suite
+        (xdist-Worker) sah dieser Test sonst einen fremden Handler, der ``{'result': 'ok'}``
+        zurückgab — der Test war dann reihenfolgeabhängig.
+        """
+        import sys
+        import types
+
+        class _EmptyRegistry:
+            def get_entry(self, name):
+                return None
+
+        fake = types.ModuleType("tools.registry")
+        fake.registry = _EmptyRegistry()
+        monkeypatch.setitem(sys.modules, "tools.registry", fake)
+
         from plan_follow.plan_core import _dispatch_honcho_tool
+
         result = _dispatch_honcho_tool("nonexistent_tool_xyz", {})
         assert result is None
 

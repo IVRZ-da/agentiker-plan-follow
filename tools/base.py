@@ -37,23 +37,37 @@ class PlanGoneError(RuntimeError):
     """Der Plan wurde archiviert oder geloescht — er darf nicht auferstehen."""
 
 
+def _runtime_session_id() -> str:
+    """Echte Session-ID zur Laufzeit — ContextVar des Gateways zuerst.
+
+    ``os.environ`` ist prozessglobal: im Gateway, wo mehrere Sessions im selben Prozess
+    laufen, gewinnt sonst die Session, die zuerst gefragt hat — alle anderen erben deren
+    ID. Die Auflösung liegt in ``tools/session_scope.py``, weil ``tools/state.py`` sie
+    ebenfalls braucht und nicht von hier importieren darf.
+    """
+    from .session_scope import runtime_session_id
+
+    return runtime_session_id()
+
+
 def get_session_id() -> str:
     """Get the current Hermes session ID, with fallback.
 
-    Uses HERMES_SESSION_ID first (set by Hermes runtime), then SESSION_ID,
-    then a once-generated UUID as last resort. Cached in _SESSION_ID after
-    first call so all callers within a plan_session lifecycle agree on the
-    same ID.
+    Reihenfolge: ContextVar des Gateways (pro Session korrekt) → ``HERMES_SESSION_ID`` aus
+    der Env → ``SESSION_ID`` → einmalig erzeugte UUID. ``STATE.session_id`` ist nur noch ein
+    Zwischenspeicher fuer den UUID-Fall; sobald die Laufzeit eine echte ID liefert, gewinnt
+    immer diese — ein prozessweiter Cache darf keine Session an die andere vererben.
     """
-    if STATE.session_id is not None:
+    runtime = _runtime_session_id()
+    if runtime:
+        if STATE.session_id != runtime:
+            STATE.session_id = runtime
+        return runtime
+    if STATE.session_id:
         return STATE.session_id
-    sid = os.environ.get("HERMES_SESSION_ID") or os.environ.get("SESSION_ID") or ""
-    if not sid:
-        sid = str(uuid.uuid4())
-    # Setze die Umgebungsvariable, damit Subprozesse die selbe Session-ID sehen
-    os.environ.setdefault("HERMES_SESSION_ID", sid)
+    sid = str(uuid.uuid4())
     STATE.session_id = sid
-    return STATE.session_id
+    return sid
 
 
 def reset_session_id() -> None:
@@ -133,8 +147,101 @@ def _to_utc_iso(value: object) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+INDEX_OWNER_TTL_MINUTES = 60
+_INDEX_WARNED: set = set()
+
+
+def _parse_ts(value: object) -> Optional[datetime]:
+    """ISO-Timestamp tolerant lesen (naiv = UTC annehmen, wie coord_state es schreibt)."""
+    text = str(value or "")
+    if not text:
+        return None
+    try:
+        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _session_registry() -> dict:
+    try:
+        from .. import coord_state
+
+        return coord_state.get_sessions() or {}
+    except Exception:  # Koordination ist Komfort, nie Pflicht
+        logger.debug("sessions.json nicht lesbar", exc_info=True)
+        return {}
+
+
+def index_owner(plan_id: str, ttl_minutes: int = INDEX_OWNER_TTL_MINUTES) -> str:
+    """Session-ID, die diesen Plan laut sessions.json frisch hält — sonst ``""``.
+
+    „Frisch" heißt: ``last_seen`` liegt innerhalb von ``ttl_minutes``. Eine tote Session
+    darf den Index nicht blockieren, sonst wäre ein abgestürzter Prozess eine Dauerbremse.
+    Die eigene Session zählt nicht als fremder Besitzer.
+    """
+    if not plan_id:
+        return ""
+    me = get_session_id()
+    now = datetime.now(timezone.utc)
+    for sid, info in _session_registry().items():
+        if sid == me or not isinstance(info, dict):
+            continue
+        if (info.get("plan_id") or "") != plan_id:
+            continue
+        seen = _parse_ts(info.get("last_seen") or info.get("registered"))
+        if seen is None:
+            continue
+        if (now - seen).total_seconds() <= ttl_minutes * 60:
+            return sid
+    return ""
+
+
+def _register_own_plan(plan: dict) -> None:
+    """Eigenen Plan in sessions.json führen, wenn der globale Index belegt ist."""
+    try:
+        from .. import coord_state
+
+        sid = get_session_id()
+        if not sid:
+            return
+        payload = {"plan_id": plan.get("plan_id", ""), "goal": plan.get("goal", "")}
+        if coord_state.get_session(sid):
+            coord_state.update_session(sid, **payload)
+        else:
+            coord_state.register_session(sid, **payload)
+    except Exception:  # pragma: no cover - defensiv
+        logger.debug("eigene Session konnte nicht registriert werden", exc_info=True)
+
+
+def index_status_hint() -> str:
+    """Hinweis, wenn plans_index.json auf den Plan einer anderen lebenden Session zeigt."""
+    try:
+        if not resolve_plans_index().exists():
+            return ""
+        index = json.loads(resolve_plans_index().read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    foreign_plan = (index.get("active_plan_id") or "").strip()
+    mine = STATE.active_plan_id or ""
+    if not foreign_plan or foreign_plan == mine:
+        return ""
+    owner = index_owner(foreign_plan)
+    if not owner:
+        return ""
+    return (f"plans_index.json zeigt auf '{foreign_plan}' (Session {owner[:20]}), nicht auf "
+            f"deinen Plan '{mine or '-'}'. Der Index ist geteilt, dein Plan bleibt davon "
+            f"unberührt — fremde Task-IDs in Fehlermeldungen kommen daher.")
+
+
 def _update_plans_index(plan: dict) -> None:
-    """Write active plan info to a small index file for session recovery."""
+    """Write active plan info to a small index file for session recovery.
+
+    Der Index ist EIN geteiltes Feld. Hält ihn gerade eine andere lebende Session, wird er
+    nicht überschrieben: der eigene Plan lebt dann in ``sessions.json`` weiter (und in der
+    eigenen Plan-Datei), der fremde Anker bleibt für dessen Recovery intakt. Vorher gewann
+    schlicht der letzte Schreiber — und die andere Session verlor ihren aktiven Plan.
+    """
     index = {}
     if resolve_plans_index().exists():
         try:
@@ -143,6 +250,20 @@ def _update_plans_index(plan: dict) -> None:
             pass
     index["last_updated"] = datetime.now(timezone.utc).isoformat()
     if plan.get("current_task"):
+        foreign = (index.get("active_plan_id") or "").strip()
+        if foreign and foreign != plan.get("plan_id"):
+            owner = index_owner(foreign)
+            if owner:
+                _register_own_plan(plan)
+                key = (owner, plan.get("plan_id", ""))
+                if key not in _INDEX_WARNED:
+                    _INDEX_WARNED.add(key)
+                    hint = (f"plans_index.json gehört Session {owner[:20]} (Plan '{foreign}') — "
+                            f"eigener Plan '{plan.get('plan_id')}' wird nicht als globaler "
+                            f"Anker eingetragen")
+                    STATE.drift_warnings.append(hint)
+                    logger.info(hint)
+                return
         index["active_plan_id"] = plan["plan_id"]
         index["active_goal"] = plan.get("goal", "")[:80]
         index["active_since"] = _to_utc_iso(plan.get("created", ""))

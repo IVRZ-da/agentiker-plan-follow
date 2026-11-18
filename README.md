@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.36-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1641%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.38-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1658%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.36
+**Version:** 0.5.38
 
-**Tests:** 1641 tests
+**Tests:** 1658 tests
 
 **Tools (39):**
 
@@ -193,6 +193,38 @@ Supply the tasks either as template=<name>... |
 
 ### Recent Changelog
 
+## [0.5.38] — 2026-11-18
+
+### 🔒 Parallele Sessions nehmen sich den aktiven Plan nicht mehr weg
+
+Drei Ursachen, drei Fixes — jede Ebene einzeln getestet
+(`references/cross-session-kollision.md`).
+
+- **Session-ID pro Session statt pro Prozess.** `get_session_id()` las `HERMES_SESSION_ID`
+  aus `os.environ` und cachte sie prozessweit; im Gateway erbten alle Sessions die ID der
+  ersten. Neue Auflösung in `tools/session_scope.py`: ContextVar des Gateways
+  (`gateway.session_context.get_session_env`) vor Env vor UUID. Der Cache vererbt keine
+  fremde Session mehr.
+- **State pro Session.** `STATE.active_plan` / `active_plan_id` / `active_plan_sig` liegen
+  jetzt in session-scoped Slots (Properties, `tools/state.py`). Die 56 Aufrufstellen bleiben
+  unverändert; ohne Runtime-Session greift ein gemeinsamer Fallback-Slot wie bisher.
+  `tool_metrics` und `drift_warnings` bleiben bewusst prozessweit.
+- **Ownership-Guard am geteilten Index.** `_update_plans_index()` überschreibt
+  `plans_index.json` nicht mehr, wenn der Eintrag einer anderen *lebenden* Session gehört
+  (`sessions.json`, `last_seen` < 60 min). Der eigene Plan wird stattdessen in
+  `sessions.json` geführt, eine Warnung landet in den Drift-Warnungen. Tote Sessions
+
+## [0.5.37] — 2026-11-18
+
+### 🔒 Pre-Commit: Schema-Token-Budget
+
+Neuer blockierender Check `check_schema_budget()` — ruft
+`scripts/tool_schema_audit.py . --max-eager-chars 7000` auf. Die drei eager Tools
+kosten derzeit 6.698 Zeichen; waechst eines davon (neue Properties, laengere
+Beschreibung), faellt der Commit statt still den Prompt zu vergroessern.
+
+**Verifikation:** `check_schema_budget()` → True; 12/13 Checks gruen.
+
 ## [0.5.36] — 2026-11-18
 
 ### 🏷️ Katalog-Fähigkeit: `requires_hermes` + generierte Capabilities
@@ -207,48 +239,6 @@ Supply the tasks either as template=<name>... |
 
 **Verifikation:** `gen_manifest_capabilities.py --check` → OK (39 Tools, 3 Hooks);
 `hermes plugins validate` 14/15 grün (Allowlist: `no core override`).
-
-## [0.5.35] — 2026-11-18
-
-### ⚡ Tool-Fläche: −1.063 Tokens pro Turn (2.737 → 1.674)
-
-Nach dem Vorbild des code_intel-Umbaus (v0.6.25) erst gemessen, dann gekürzt:
-
-- **`plan_create`-Schema 6.713 → 2.383 Zeichen (−64 %)** — die `items`-Struktur und die
-  Parameter-Wiederholung in der Tool-Beschreibung sind raus; die Feldnamen (inkl.
-  `title`-Alias) und die `review_profile`-Werte stehen jetzt kompakt in der
-  `tasks`-Beschreibung. Details im Companion-Skill statt im Schema.
-- **Eager-Set 5 → 3** (`plan_create`, `plan_current`, `plan_complete`). `plan_update` und
-  `plan_status` sind nicht im Loop und kommen über die Bridge. Gemessen:
-  10.947 → 6.698 Zeichen eager (−39 %).
-- **`scripts/tool_schema_audit.py`** — registriert das Plugin gegen einen Stub-Context und
-  weist chars/Tokens pro Tool sowie die Eager-Summe aus; CI-taugliche Budgets via
-  `--max-chars TOOL=N` / `--max-eager-chars N` (Exit 1 bei Verletzung).
-  Baseline dokumentiert in `references/tool-surface-baseline.md`.
-
-### 🐛 Health-Selbst-Check meldete faelschlich DEGRADED
-
-
-## [0.5.34] — 2026-11-11
-
-Anlass: Am 11.11. scheiterte `plan_create` in einer Session mit „Tool 'plan_create' does not
-exist", dann mit „template is required", und drei Pläne blockierten sich selbst. Eine
-Auswertung von 479 Sessions (state.db, nur echte Tool-Ausgaben) ergab ~56 % Fehlschläge beim
-ersten Versuch: 65× `Each task needs 'id' and 'name'`, 49× `template is required`, 29×
-`Plan could not be created — critical issues remain`, 25× `multi-Template erfordert
-params.tasks`, 11× `Tool 'plan_create' does not exist`.
-
-### 🔴 Root-Cause — Auto-Fixes wurden nie angewandt
-- **`apply_findings()` verwarf jeden Fix, dessen Schlüssel im Task noch nicht existierte**
-  (`if key in task`). Ein Task ohne `verify` bekam den vorgeschlagenen Testbefehl deshalb nie,
-  die Nachprüfung fand das Finding erneut und der Plan blockierte sich selbst — genau die
-  29 dokumentierten Blockaden. Jetzt Whitelist `APPLYABLE_FIX_KEYS` (verify, files,
-  review_profile, depends_on) statt Existenzprüfung.
-
-### 🔴 Der Plan blockiert sich nicht mehr selbst
-- **Review-Tasks sind von der Prüfung ausgenommen** (`is_review_task()`): `kind: review`,
-  Namensmuster für die Review-Handlung, oder `id: p0` ohne Dateien und ohne echten verify.
-  Der vom Template erzeugte p0-Task (`verify: echo '✅ …'`) erzeugte vorher ein CRITICAL-Finding
 
 <!-- END README_AUTO -->
 

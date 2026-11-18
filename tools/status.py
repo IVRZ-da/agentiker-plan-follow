@@ -10,6 +10,7 @@ from .. import plan_core
 from .._fmt import fmt_info, fmt_ok
 from .base import (
     _get_active_plan,
+    index_status_hint,
 )
 from .resolver import resolve_plans_dir
 from .state import STATE
@@ -160,8 +161,16 @@ def plan_current_tool(args: dict, **kwargs) -> str:
     """Show the current task. Only ONE task is visible at a time."""
     current = plan_core.get_current_task()
     if not current:
+        hint = index_status_hint()
+        if hint:
+            return fmt_info("No active plan in dieser Session. " + hint
+                            + " Use plan_select(<eigene plan_id>) to continue.")
         return fmt_info("No active plan. Use plan_create() to start one.")
-    return fmt_ok(current)
+    payload = dict(current) if isinstance(current, dict) else {"task": current}
+    hint = index_status_hint()
+    if hint:
+        payload["hinweis"] = hint
+    return fmt_ok(payload)
 
 
 def plan_status_tool(args: dict, **kwargs) -> str:
@@ -169,6 +178,10 @@ def plan_status_tool(args: dict, **kwargs) -> str:
     status = plan_core.get_plan_status()
     if not status:
         return fmt_info("No active plan.")
+    hint = index_status_hint()
+    if hint:
+        status = dict(status)
+        status["hinweis"] = hint
     return fmt_ok(status)
 
 

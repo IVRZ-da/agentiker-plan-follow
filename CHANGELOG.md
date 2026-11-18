@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.5.38] — 2026-11-18
+
+### 🔒 Parallele Sessions nehmen sich den aktiven Plan nicht mehr weg
+
+Drei Ursachen, drei Fixes — jede Ebene einzeln getestet
+(`references/cross-session-kollision.md`).
+
+- **Session-ID pro Session statt pro Prozess.** `get_session_id()` las `HERMES_SESSION_ID`
+  aus `os.environ` und cachte sie prozessweit; im Gateway erbten alle Sessions die ID der
+  ersten. Neue Auflösung in `tools/session_scope.py`: ContextVar des Gateways
+  (`gateway.session_context.get_session_env`) vor Env vor UUID. Der Cache vererbt keine
+  fremde Session mehr.
+- **State pro Session.** `STATE.active_plan` / `active_plan_id` / `active_plan_sig` liegen
+  jetzt in session-scoped Slots (Properties, `tools/state.py`). Die 56 Aufrufstellen bleiben
+  unverändert; ohne Runtime-Session greift ein gemeinsamer Fallback-Slot wie bisher.
+  `tool_metrics` und `drift_warnings` bleiben bewusst prozessweit.
+- **Ownership-Guard am geteilten Index.** `_update_plans_index()` überschreibt
+  `plans_index.json` nicht mehr, wenn der Eintrag einer anderen *lebenden* Session gehört
+  (`sessions.json`, `last_seen` < 60 min). Der eigene Plan wird stattdessen in
+  `sessions.json` geführt, eine Warnung landet in den Drift-Warnungen. Tote Sessions
+  blockieren nicht (TTL), das Schreiben eines erledigten Plans leert den Anker wie bisher.
+
+### ✨ Sichtbarkeit
+
+- `index_status_hint()` + `plan_current`/`plan_status` melden, wenn der Index auf einen
+  fremden Plan zeigt. Damit ist „Task X is not the current task (Aktuell: T5)" sofort als
+  fremder Anker erkennbar statt als eigener Fehler.
+
+### 🧪 Tests
+
+- `tests/test_session_scope.py` (9): ContextVar → Env → UUID, Cache-Vererbung, Slots pro
+  Session, Fallback, Slot-Aufräumen.
+- `tests/test_index_ownership.py` (8): fremde lebende Session, eigene Session, stale Owner,
+  leerer Index, erledigter Plan, Hinweistexte.
+- Zwei **pre-existing** Failures der Suite repariert statt toleriert:
+  `test_tool_becomes_non_deferrable` prüfte gegen `sys.executable` und scheiterte an
+  Interpreter/PYTHONPATH (System-Python vs. 3.14-Runtime, `pydantic_core`-ImportError) —
+  jetzt Kandidatenwahl gegen den echten `toolsets`-Import mit ergänztem statt ersetztem
+  PYTHONPATH, sonst Skip. `test_dispatch_tool_entry_not_found` war reihenfolgeabhängig, weil
+  ein anderes Testmodul ein Fake-`tools.registry` in `sys.modules` hinterließ — jetzt
+  explizit leeres Registry.
+
+**Verifikation:** `/usr/bin/python3 -m pytest tests -q -n 8 -p no:cacheprovider` →
+1657 passed, 1 skipped, 0 failed (vorher 1638 passed, 2 failed).
+
 ## [0.5.37] — 2026-11-18
 
 ### 🔒 Pre-Commit: Schema-Token-Budget
