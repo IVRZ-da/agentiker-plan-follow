@@ -214,6 +214,84 @@ plan_follow/
      `plan_validate(plan_id)` → `plan_status()`
    - In `verify` nur ASCII und einfache Anführungszeichen verwenden; mehrzeilige oder
      backslash-lastige Regex-Kommandos stattdessen in ein `scripts/`-Skript auslagern.
+8. **Was der Auto-Review beim Anlegen ablehnt** — `plan_create` endet dann mit
+   `status=blocked` und schreibt nichts auf Disk:
+   - `parallel_groups`-Tasks, die per `depends_on` auf einen Task **ausserhalb** der Gruppe
+     zeigen → `critical`. Entweder die Abhängigkeit mit in die Gruppe nehmen oder die
+     Gruppe weglassen. Der praktische Nutzen der Gruppe ist gering: Build und Download
+     lassen sich im EXECUTE auch ohne Gruppendefinition gleichzeitig anstossen.
+   - Tasks ohne `files`-Eintrag → `important`. Jeder Task braucht mindestens einen Pfad,
+     auch reine Ops-Tasks — das Protokoll- oder Doku-File, das er schreibt, genügt.
+     Ohne `files` funktionieren Drift-Check und Auto-Commit nicht.
+9. **Einen Task nachträglich einfügen** (neue Erkenntnis mitten in der Planung):
+   `plan_update` ändert nur bestehende Tasks und kann keinen anlegen. Plan-JSON direkt
+   editieren, Task-Dict einsetzen, die `depends_on` der Nachfolger umbiegen, Task-Keys in
+   Laufreihenfolge neu sortieren, dann `plan_select(plan_id)` + `plan_validate(plan_id)`.
+   Task-IDs müssen nicht numerisch fortlaufend sein — `P5G` zwischen `P5` und `P6` ist
+   zulässig, die Laufreihenfolge steuert allein `depends_on`.
+10. **Zwei Sessions, ein Index.** `plans_index.json` ist geteilt: eine parallele Session, die
+    `plan_select`/`plan_create` aufruft, verschiebt den aktiven Plan. Dein `plan_complete`
+    scheitert dann mit `P3 is not the current task (current: P5)` oder — wenn der fremde
+    Index gerade auf einem abgeschlossenen Plan steht — mit `No active plan`, obwohl P3 in
+    deiner Plan-Datei offen ist: die Plan-Dateien sind getrennt, nur der Index kollidiert.
+    Beide Meldungen haben dieselbe Ursache. `plan_status()` zeigt, welcher Plan aktiv ist,
+    `plan_select(<eigene plan_id>)` holt ihn zurück.
+    `plan_select` vor jedem Block hilft nur bis zum nächsten Umschalten der anderen Session.
+    Vorgehen: verify-Command einmal im Terminal laufen lassen, dann `status` und
+    `current_task` direkt im eigenen Plan-JSON setzen (die fremde Session fasst nur den Index
+    an, nie deine Datei). Am Ende gegenprüfen, dass alle Tasks `completed` sind.
+11. **`auto_verify` läuft in einer Subprocess-Shell mit der Env des Hermes-Prozesses.**
+    Verify-Strings mit Kommandosubstitution oder Pipes (`test $(find … | wc -l) -le 5`) können dort
+    fehlschlagen, obwohl derselbe String im Terminal grün ist — dann bleibt der Task auf
+    `pending` und der Plan sieht aus, als wäre die Arbeit nicht getan. Bei allem jenseits
+    eines einzelnen einfachen Kommandos: erst im Terminal verifizieren, dann
+    `plan_complete(auto_verify=false)`.
+    - **Geerbter `PYTHONPATH` ist die häufigste Ursache.** Der Hermes-Prozess setzt
+      `PYTHONPATH` auf Kernel-Scratch + eine fremde Runtime-venv; ein Verify, der `pytest`
+      im Plugin-Repo startet, importiert dann fremde `site-packages` und liefert Dutzende
+      Phantom-Failures (`ModuleNotFoundError`, ein Bruchteil der Tests wird überhaupt
+      gesammelt). Fix: jeden Interpreter-Aufruf im Verify mit `env -u PYTHONPATH` prefixen
+      (`env -u PYTHONPATH /path/to/venv/bin/python -m pytest …`). Im Terminal-Tool tritt das
+      nicht auf — nur im `plan_complete`-Pfad, was die Diagnose verfälscht.
+    - **Ketten ohne `;`.** `a && b; c` führt `c` auch aus, wenn `b` scheitert, und der Task
+      wird grün. Ausschließlich `&&` verketten.
+    - **Vor dem Abschließen syntaktisch prüfen:** `bash -n -c "<verify>"` über alle Tasks.
+      Ein Verify mit Syntaxfehler ist ein garantiert roter Task.
+    - **Remote-Vergleich nicht über lokale Refs.** `git rev-parse github/main` schlägt fehl,
+      wenn der Ref lokal nie gefetcht wurde, obwohl der Push klappte. Stattdessen
+      `test "$(git rev-parse HEAD)" = "$(git ls-remote <remote> refs/heads/main | cut -f1)"`.
+    - **Kein `grep -q pattern && exit 1`-Muster** — das `||`/`&&`-Konstrukt feuert auch bei
+      gefundenem Pattern falsch. `test -z "$(git status --porcelain)"` bzw.
+      `if grep -q …; then exit 1; else echo ✅; fi` schreiben.
+15. **Ein grep-Verify darf nicht auf den eigenen Erklärtext passen.** Verifiziert ein Task ein
+    Dokument, das seine Regel selbst beschreibt, matcht das Suchmuster den Satz „keine mit
+    Status: OFFEN" oder das Kleingeschriebene im Fließtext — der Task wird rot, obwohl die
+    Arbeit stimmt. Muster an den Zeilenanfang binden (`^[[:space:]]*Status: OFFEN`),
+    Flags nutzen (`test("dispatcher"; "i")` in jq) oder die Prüfung auf Code-Zeilen filtern
+    (`line for line in src.splitlines() if not line.lstrip().startswith("#")`). Gilt auch für
+    Source-Checks gegen Docstrings: Kommentare/Prosa, die das entfernte Muster nur erklären,
+    müssen ausgenommen werden.
+16. **Eine unbeantwortete Entscheidungsfrage blockiert die Ausführung nicht.** Läuft ein
+    `clarify` in einen Timeout (oder antwortet der User nicht), nicht warten und nicht raten:
+    den Teil der Arbeit erledigen, der unter **allen** Optionen identisch ist, und die
+    Entscheidung ausdrücklich offen halten (im Plan-Task benannt, im Abschlussbericht
+    genannt). Bei einer Weggabelung wie „Feature X behalten oder durch Config ersetzen“
+    ist alles andere am Task unabhängig — Rückfrage später, Fortschritt jetzt.
+12. **`plan_id` bleibt ASCII.** Ein `goal` mit `+`, `&`, `/` oder Umlauten kann die
+    abgeleitete Plan-ID zerhacken, sodass `plan_create` zwar antwortet, der Plan aber nicht
+    auffindbar/validierbar ist. ID vorab selbst festlegen (Buchstaben, Ziffern, Bindestrich),
+    Sonderzeichen im `goal` vermeiden.
+13. **Bei Template-Plänen zuerst `p0` abschließen.** `plan_create` mit `template` stellt
+    einen Peer-Review-Task `p0` voran; der ist der aktuelle Task. Ein `plan_complete` auf
+    den ersten eigenen Task scheitert mit `Task 'X' is not the current task. Aktuell: p0`.
+    Reihenfolge: `plan_complete('p0', skip_review=true)` (der automatische Review lief schon
+    beim Anlegen) → dann der erste eigene Task. Wer keinen p0 braucht: `p0_review=false`
+    oder eigene `tasks`-Liste übergeben.
+14. **Verify prüft ein Artefakt, das beim Abschließen schon existieren muss.**
+    `verify: test -s <reportdatei>` schlägt fehl, wenn der Report erst nach dem
+    `plan_complete` geschrieben wird — und das kostet eine Runde. Artefakt zuerst schreiben,
+    dann abschließen. Wer den Verify an eine Datei bindet, die ein *späterer* Task erzeugt,
+    baut die Prüfung falsch herum.
 
 ## Review-Workflow
 
@@ -224,3 +302,43 @@ plan_follow/
 5. `save_review_result(task_id, result)` persistieren
 6. `plan_complete(task_id)` → Review-Gate gibt frei
 7. Bei Fail: Issues fixen → erneut reviewen
+
+## Externer Peer Review (Standard bei jedem Nicht-Trivial-Plan)
+
+Johannes will vor der EXECUTE-Freigabe einen kritischen Zweitblick — **immer mit
+`deepseek-v4.1-flash`**, nicht mit MiniMax. Aufruf über `~/bin/peer-review`:
+
+```
+peer-review                          # aktiver plan_follow-Plan
+peer-review <plan.json>              # konkreter Plan
+peer-review --file konzept.md        # freier Text (Konzept, Patch, Doku)
+peer-review --context fakten.txt <plan.json>
+```
+
+Ablauf, der sich bewährt hat:
+
+1. **Fakten ins `--context`-File legen**, nicht in den Chat: verifizierte Beobachtungen
+   (Tool-Output, Messwerte, Quellcode-Stellen mit Datei:Zeile), das eigentliche Ziel des
+   Users und was der Plan bewusst **nicht** tut. Ohne diesen Kontext erfindet der Reviewer
+   Risiken, die an deinem Plan vorbeigehen.
+2. **Findings in eine Datei schreiben**, je Finding eine Zeile `- F<n> <severity>` plus
+   `Status: FIXED — <Maßnahme>` oder `Status: REJECTED — <Begründung>`. Kein Finding ohne
+   Entscheidung; „offen" ist keine gültige Endlage.
+3. **Plan überarbeiten**, nicht nur zur Kenntnis nehmen: neue Tasks einfügen, `verify`
+   schärfen, Abhängigkeiten/A-Reihenfolge korrigieren, und dem User die Änderungen nennen.
+4. `p0` („Peer Review + Korrekturen einarbeiten") erst abschließen, wenn die Findings-Datei
+   vollständig entschieden ist (`test -f … && test $(grep -c '^- F' …) -ge N && ! grep -qE '^[[:space:]]*Status: OFFEN' …`).
+
+Pitfalls:
+
+- **Cloudflare 403 statt Auth-Fehler.** `opencode.ai` antwortet ohne `User-Agent`-Header mit
+  `HTTP 403 / error code: 1010` (Browser Integrity Check) — das sieht wie ein Key-Problem aus,
+  ist keins. Immer `User-Agent: HermesAgent/...` mitsenden.
+- **`max_tokens` ≥ 16000.** Das Modell ist ein Reasoning-Modell: mit einem kleinen Budget
+  frisst das Thinking alles, `content` kommt leer oder mitten im Satz abgeschnitten zurück.
+- **Der Reviewer sieht nur, was du ihm gibst.** Abgeschnittene `verify`-Strings im Prompt
+  (z.B. `t["verify"][:400]`) führt garantiert zu falschen Findings über „truncated commands".
+  Immer das vollständige Plan-JSON zustellen.
+- **Findings sind Vorschläge, nicht Wahrheit.** Manche Befunde beruhen auf Annahmen über
+  APIs, die du schon geprüft hast (z.B. „P5 ist nicht umsetzbar") — dann mit Nachweis
+  ablehnen und das im Status-File dokumentieren, statt den Plan zu verbiegen.
