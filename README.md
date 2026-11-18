@@ -84,9 +84,9 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.35-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1641%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.36-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1641%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.35
+**Version:** 0.5.36
 
 **Tests:** 1641 tests
 
@@ -193,6 +193,21 @@ Supply the tasks either as template=<name>... |
 
 ### Recent Changelog
 
+## [0.5.36] — 2026-11-18
+
+### 🏷️ Katalog-Fähigkeit: `requires_hermes` + generierte Capabilities
+
+- **`requires_hermes: ">=0.23.1"`** deklariert (Hermes validiert die SemVer-Untergrenze).
+- **`scripts/gen_manifest_capabilities.py`** — leitet `provides_tools`/`provides_hooks` aus der
+  echten `register()`-Registrierung ab (Stub-Context, kein PyYAML-Dump) und schreibt sie ins
+  Manifest; `--check` meldet Drift. Die vorher handgepflegte 39er-Liste wich in Format und
+  Reihenfolge ab, `manifest_version: 2` fehlte.
+- **Pre-Commit-Gate:** `check_manifest_capabilities()` in `.githooks/pre-commit` (blockierend) —
+  ein Manifest, das nicht zur Registrierung passt, blockiert den Commit statt still zu driften.
+
+**Verifikation:** `gen_manifest_capabilities.py --check` → OK (39 Tools, 3 Hooks);
+`hermes plugins validate` 14/15 grün (Allowlist: `no core override`).
+
 ## [0.5.35] — 2026-11-18
 
 ### ⚡ Tool-Fläche: −1.063 Tokens pro Turn (2.737 → 1.674)
@@ -234,27 +249,6 @@ params.tasks`, 11× `Tool 'plan_create' does not exist`.
 - **Review-Tasks sind von der Prüfung ausgenommen** (`is_review_task()`): `kind: review`,
   Namensmuster für die Review-Handlung, oder `id: p0` ohne Dateien und ohne echten verify.
   Der vom Template erzeugte p0-Task (`verify: echo '✅ …'`) erzeugte vorher ein CRITICAL-Finding
-
-## [0.5.33] — 2026-11-11
-
-### 🔴 Critical — der Banner behauptete Zustände, die nicht auf der Platte standen
-- **Disk-Freshness statt Prozess-Cache.** `STATE.active_plan` gilt nur noch, solange die Signatur der Plan-Datei (mtime_ns, Größe, sha256) unverändert ist. Andernfalls wird neu geladen; ist die Datei weg, wird der Cache geleert. Ohne Signatur (Altbestand/Restart) ist die Datei autoritativ. Vorher meldete der Banner am 11.11. „CURRENT TASK: t1 — 1/15“, während die Datei 14/14 completed war.
-- **`get_current_task_fresh(session_id)`** ist der einzige Banner-Einstieg: Disk-Stand plus Besitzprüfung (`coord_state` session → plan_id). Ein Gateway-Prozess zeigt damit nicht mehr den Plan einer fremden Session. Lesezugriffe adoptieren keinen Plan mehr (`_get_active_plan(recover=False)`).
-- **Der Renderer schreibt nicht mehr.** `_build_tts_banner()` rief `_save_plan()` auf und konnte so einen veralteten In-Memory-Stand über den neueren Disk-Stand schreiben (inkl. `.bak`, `plans_index.json`, Git-Commit). TTS-Events liegen jetzt in `~/.hermes/shared/tts_queue.json`; der Renderpfad liest nur, den Water mark setzt `post_tool_call`.
-- **Keine Subprozesse im Renderpfad.** `check_drift` und `get_git_status` (je 10 s Timeout pro Repo) laufen im Observer-Hook und füllen Snapshots; der Banner liest sie nur.
-- **Abschluss-Epilog statt Dauer-Banner.** Bei erledigtem Plan ist der Banner stumm, bis auf zwei Zeilen („✅ Plan abgeschlossen …“ + berechnete Offen-Liste), genau einmal pro (plan_id, session_id). Abschluss wird aus den Tasks berechnet — plan-level `status` schreibt keine Codezeile; `current_task is None` allein trifft auch Abbrüche.
-- **Provenienz-Zeile** in jedem Banner: `Stand | Quelle (Disk, mtime) | Tasks n/m | Cache`. Falschmeldungen sind damit von echten Fortschritten unterscheidbar.
-
-### 🟠 Schreibpfad — Lost Updates verhindert
-- **`PlanConflictError`**: `_save_plan` vergleicht vor dem Schreiben die Disk-Signatur mit der geladenen. Hat ein anderer Prozess geschrieben, wird nicht überschrieben; der eigene Stand landet als `<plan_id>.conflict-<ts>.json`.
-- **Atomares Schreiben**: `tempfile.mkstemp` + `fsync` + `os.replace`, `.bak` aus dem alten Inhalt, Signatur wird NACH dem Write gesetzt (sonst Konflikt mit sich selbst).
-- **`PlanGoneError`**: ein archivierter Plan wird nicht wiederbelebt.
-- **`plan_for_write()`**: mutierende Tools (complete/update) laden frisch von der Platte statt auf einem beliebig alten Objekt zu arbeiten.
-- **`_load_plan` tolerant**: kaputtes JSON/OSError liefert `None` + Warnung statt einer Exception im Hook.
-- **`plans_index.active_plan_id`** wird nur noch bei gesetztem `current_task` geschrieben; ein erledigter Plan gilt nicht mehr als aktiv.
-
-### 🟡 Locks
-- **`PLAN_FOLLOW_LOCKS` (Default aus)**: kein Auto-Lock, kein Lock-Block im Banner. Die Fehlerklasse „Lock-Leiche auf abgeschlossenem Plan“ entfällt im Normalfall.
 
 <!-- END README_AUTO -->
 

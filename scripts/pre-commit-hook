@@ -741,6 +741,33 @@ def check_coverage() -> bool:
 
 # ── Main ──────────────────────────────────────────────
 
+def check_manifest_capabilities() -> bool:
+    """provides_tools/provides_hooks muessen die echte register()-Registrierung spiegeln.
+
+    Handgepflegte Capability-Listen driften; `hermes plugins validate` meldet jede
+    registrierte Faehigkeit, die im Manifest fehlt, als Fehler. Das Skript liest die
+    Wahrheit aus register() und vergleicht (--check), ohne PyYAML-Dump.
+    """
+    script = os.path.join(REPO_ROOT, "scripts", "gen_manifest_capabilities.py")
+    if not os.path.exists(script):
+        return True
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    try:
+        r = subprocess.run(
+            [VENV_PYTHON, script, "--check"],
+            capture_output=True, text=True, timeout=120, cwd=REPO_ROOT, env=env,
+        )
+    except Exception as exc:  # Skript defekt darf den Commit nicht blockieren
+        print(f"  ⚠️  Manifest-Capabilities nicht pruefbar: {exc}")
+        return True
+    if r.returncode == 0:
+        print(f"  \u2705 Manifest-Capabilities: {r.stdout.strip()[:70]}")
+        return True
+    print("  \u274c Manifest-Capabilities driften (plugin.yaml != register()):")
+    print((r.stderr or r.stdout).strip()[:400])
+    return False
+
+
 def main():
     os.chdir(REPO_ROOT)
 
@@ -835,6 +862,10 @@ def main():
 
     # 12. Ruff Lint (replaces syntax-check)
     if not ruff_check(py_files):
+        return 1
+
+    # 11b. Manifest-Capabilities (provides_tools/-hooks spiegeln register())
+    if not check_manifest_capabilities():
         return 1
 
     # Bei nur Docs: hier aufhören (keine Tests)

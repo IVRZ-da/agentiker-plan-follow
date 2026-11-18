@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.36] — 2026-11-18
+
+### 🏷️ Katalog-Fähigkeit: `requires_hermes` + generierte Capabilities
+
+- **`requires_hermes: ">=0.23.1"`** deklariert (Hermes validiert die SemVer-Untergrenze).
+- **`scripts/gen_manifest_capabilities.py`** — leitet `provides_tools`/`provides_hooks` aus der
+  echten `register()`-Registrierung ab (Stub-Context, kein PyYAML-Dump) und schreibt sie ins
+  Manifest; `--check` meldet Drift. Die vorher handgepflegte 39er-Liste wich in Format und
+  Reihenfolge ab, `manifest_version: 2` fehlte.
+- **Pre-Commit-Gate:** `check_manifest_capabilities()` in `.githooks/pre-commit` (blockierend) —
+  ein Manifest, das nicht zur Registrierung passt, blockiert den Commit statt still zu driften.
+
+**Verifikation:** `gen_manifest_capabilities.py --check` → OK (39 Tools, 3 Hooks);
+`hermes plugins validate` 14/15 grün (Allowlist: `no core override`).
+
 ## [0.5.35] — 2026-11-18
 
 ### ⚡ Tool-Fläche: −1.063 Tokens pro Turn (2.737 → 1.674)
