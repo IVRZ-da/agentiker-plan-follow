@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.38-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1658%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.39-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1676%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.38
+**Version:** 0.5.39
 
-**Tests:** 1658 tests
+**Tests:** 1676 tests
 
 **Tools (39):**
 
@@ -193,6 +193,27 @@ Supply the tasks either as template=<name>... |
 
 ### Recent Changelog
 
+## [0.5.39] — 2026-11-18
+
+### 🔧 Das Coverage-Gate misst jetzt wirklich
+
+`check_coverage()` lief mit `--cov-config .coveragerc`, aber **ohne `--cov`**. pytest-cov
+berichtet dann nichts, es gibt keine TOTAL-Zeile — und der Hook meldete trotzdem
+„✅ Coverage >=90%". Das Gate war seit seiner Einführung wirkungslos.
+
+- `--cov` und `--cov-report=term` ergänzt; die Schwelle kommt aus `.coveragerc`
+  (`fail_under`, eine Quelle) und wird im Log angezeigt.
+- Fehlt die TOTAL-Zeile im Report oder fehlt `pytest-cov`, **bricht der Hook ab** statt
+  grün zu melden. Grün ohne Messung ist kein Gate.
+- Timeout wird als Timeout gemeldet, nicht als „Coverage zu niedrig".
+
+**Reale Quote (gemessen, 18.11.):** TOTAL **91,25 %** — 5735 Statements, 502 fehlend
+(vorher als „≥90 %" behauptet, tatsächlich nie geprüft). Schwelle 90 ist erreichbar und
+greift: mit `fail_under = 99` bricht der Hook mit
+„TOTAL … 91.25% — unter der Schwelle 99%" ab (verifiziert).
+
+### 🧪 Eigene neue Zeilen nachgetestet
+
 ## [0.5.38] — 2026-11-18
 
 ### 🔒 Parallele Sessions nehmen sich den aktiven Plan nicht mehr weg
@@ -224,21 +245,6 @@ kosten derzeit 6.698 Zeichen; waechst eines davon (neue Properties, laengere
 Beschreibung), faellt der Commit statt still den Prompt zu vergroessern.
 
 **Verifikation:** `check_schema_budget()` → True; 12/13 Checks gruen.
-
-## [0.5.36] — 2026-11-18
-
-### 🏷️ Katalog-Fähigkeit: `requires_hermes` + generierte Capabilities
-
-- **`requires_hermes: ">=0.23.1"`** deklariert (Hermes validiert die SemVer-Untergrenze).
-- **`scripts/gen_manifest_capabilities.py`** — leitet `provides_tools`/`provides_hooks` aus der
-  echten `register()`-Registrierung ab (Stub-Context, kein PyYAML-Dump) und schreibt sie ins
-  Manifest; `--check` meldet Drift. Die vorher handgepflegte 39er-Liste wich in Format und
-  Reihenfolge ab, `manifest_version: 2` fehlte.
-- **Pre-Commit-Gate:** `check_manifest_capabilities()` in `.githooks/pre-commit` (blockierend) —
-  ein Manifest, das nicht zur Registrierung passt, blockiert den Commit statt still zu driften.
-
-**Verifikation:** `gen_manifest_capabilities.py --check` → OK (39 Tools, 3 Hooks);
-`hermes plugins validate` 14/15 grün (Allowlist: `no core override`).
 
 <!-- END README_AUTO -->
 

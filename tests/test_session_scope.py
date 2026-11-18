@@ -121,3 +121,26 @@ class TestSessionScopedState:
         assert "session-c" in state._slots
         state.active_plan = None
         assert "session-c" not in state._slots
+
+
+class TestOhneGateway:
+    def test_kaputter_gateway_import_faellt_auf_env(self, monkeypatch):
+        """Kein importierbares ``gateway.session_context`` (None in sys.modules) → Env gilt."""
+        monkeypatch.setitem(sys.modules, "gateway", None)
+        monkeypatch.setitem(sys.modules, "gateway.session_context", None)
+        monkeypatch.setenv("HERMES_SESSION_ID", "env-99")
+
+        from plan_follow.tools.session_scope import _read_contextvar, runtime_session_id
+
+        assert _read_contextvar() == ""
+        assert runtime_session_id() == "env-99"
+
+    def test_weder_gateway_noch_env_gibt_leeren_schluessel(self, monkeypatch):
+        monkeypatch.setitem(sys.modules, "gateway", None)
+        monkeypatch.setitem(sys.modules, "gateway.session_context", None)
+        monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
+        monkeypatch.delenv("SESSION_ID", raising=False)
+
+        from plan_follow.tools.session_scope import scope_key
+
+        assert scope_key() == ""

@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.5.39] — 2026-11-18
+
+### 🔧 Das Coverage-Gate misst jetzt wirklich
+
+`check_coverage()` lief mit `--cov-config .coveragerc`, aber **ohne `--cov`**. pytest-cov
+berichtet dann nichts, es gibt keine TOTAL-Zeile — und der Hook meldete trotzdem
+„✅ Coverage >=90%". Das Gate war seit seiner Einführung wirkungslos.
+
+- `--cov` und `--cov-report=term` ergänzt; die Schwelle kommt aus `.coveragerc`
+  (`fail_under`, eine Quelle) und wird im Log angezeigt.
+- Fehlt die TOTAL-Zeile im Report oder fehlt `pytest-cov`, **bricht der Hook ab** statt
+  grün zu melden. Grün ohne Messung ist kein Gate.
+- Timeout wird als Timeout gemeldet, nicht als „Coverage zu niedrig".
+
+**Reale Quote (gemessen, 18.11.):** TOTAL **91,25 %** — 5735 Statements, 502 fehlend
+(vorher als „≥90 %" behauptet, tatsächlich nie geprüft). Schwelle 90 ist erreichbar und
+greift: mit `fail_under = 99` bricht der Hook mit
+„TOTAL … 91.25% — unter der Schwelle 99%" ab (verifiziert).
+
+### 🧪 Eigene neue Zeilen nachgetestet
+
+- `tools/session_scope.py`: 75 % → **100 %** (ungenutzter Helfer-Cache entfernt statt
+  getestet).
+- `tools/base.py`: 84 % → **89,26 %** — Cache-Freshness-Zweige, die vorher ungetestet
+  waren: Cache ohne `plan_id`, Signatur ohne Anker (Platte gewinnt), verschwundene Datei,
+  geänderte Datei, kaputtes JSON bei abweichender Signatur, `plan_for_write` ohne Plan,
+  Legacy-Aliase via `__getattr__`.
+- Neu: `tests/test_base_cache.py` (16 Tests), `tests/test_session_scope.py` +2
+  (Gateway-Import kaputt → Env gilt).
+
+**Verifikation:** 1675 passed, 1 skipped, 0 failed; TOTAL 91,25 %.
+
 ## [0.5.38] — 2026-11-18
 
 ### 🔒 Parallele Sessions nehmen sich den aktiven Plan nicht mehr weg

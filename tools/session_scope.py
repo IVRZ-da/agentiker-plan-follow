@@ -14,11 +14,9 @@ from __future__ import annotations
 
 import os
 
-_CACHE: dict[str, str] = {}
-_CACHE_KEY = "_last"
-
 
 def _read_contextvar() -> str:
+    """Session-ID aus dem Gateway-ContextVar, ``""`` ohne Gateway im Prozess."""
     try:
         from gateway.session_context import get_session_env
 
@@ -38,18 +36,3 @@ def runtime_session_id() -> str:
 def scope_key() -> str:
     """Schlüssel für session-scoped State. ``""`` = gemeinsamer Fallback-Slot."""
     return runtime_session_id()
-
-
-def cache(name: str, value: str) -> str:
-    """Kleiner Helfer für Aufrufer, die eine ID nur einmal erzeugen wollen (UUID-Fall)."""
-    _CACHE[name] = value
-    return value
-
-
-def cached(name: str) -> str:
-    return _CACHE.get(name, "")
-
-
-def reset() -> None:
-    """Nur für Tests."""
-    _CACHE.clear()

@@ -726,9 +726,19 @@ def check_coverage() -> bool:
     if not os.path.exists(coverage_rc):
         print("  📊 Keine .coveragerc — Coverage-Gate übersprungen")
         return True
-    print("  📊 Coverage-Gate (>90%)...")
+    threshold = _coverage_threshold(coverage_rc)
+    print(f"  📊 Coverage-Gate (>={threshold:g}%)...")
+    # Ohne ``--cov`` misst pytest-cov NICHTS: der Lauf ist dann grün, es gibt keine
+    # TOTAL-Zeile — und das Gate meldete jahrelang "✅ Coverage >=90%", ohne zu messen.
+    if run_cmd([VENV_PYTHON, "-c", "import pytest_cov"], timeout=15).returncode != 0:
+        print("  ❌ pytest-cov fehlt — Coverage nicht messbar (Gate greift nicht)")
+        print("     Installieren: pip install pytest-cov")
+        print("  Commit abgebrochen.")
+        return False
     args = [VENV_PYTHON, "-m", "pytest", "tests/",
+            "--cov",
             "--cov-config", coverage_rc,
+            "--cov-report=term",
             "-q", "--no-header"]
     # Gleiche Falle wie beim Testlauf: ohne xdist liegt die Suite über dem 180-s-Timeout,
     # der Lauf endet mit 124, es gibt keine TOTAL-Zeile — und der Hook meldet
@@ -737,26 +747,40 @@ def check_coverage() -> bool:
         args.extend(["-n", "8"])
     env = {**os.environ, "PYTHONPATH": os.path.expanduser("~/.hermes/plugins")}
     r = run_cmd(args, timeout=600, cwd=REPO_ROOT, env=env)
+    cov_line = [l for l in (r.stdout or "").split("\n") if l.strip().startswith("TOTAL")]
+    threshold = _coverage_threshold(coverage_rc)
     if r.returncode == 0:
-        cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
-        if cov_line:
-            print(f"  ✅ {cov_line[0].strip()}")
-        else:
-            print("  ✅ Coverage >=90%")
+        if not cov_line:
+            # Genau der alte Blindflug: grün, aber nichts gemessen.
+            print("  ❌ Coverage wurde nicht gemessen (keine TOTAL-Zeile im Report)")
+            print("  Commit abgebrochen — Gate ohne Messung ist kein Gate.")
+            return False
+        print(f"  ✅ {cov_line[0].strip()} (Schwelle {threshold:g}%)")
         return True
     else:
         if r.returncode == 124:
             print("  ❌ Coverage-Lauf-Timeout (600 s) — keine Aussage über die Coverage.")
-            print("     Gezielt prüfen: pytest tests/ -n 8 --cov-config .coveragerc")
+            print("     Gezielt prüfen: pytest tests/ -n 8 --cov")
             print("  Commit abgebrochen.")
             return False
-        cov_line = [l for l in (r.stdout or "").split("\n") if "TOTAL" in l]
         if cov_line:
-            print(f"  ❌ {cov_line[0].strip()} — Coverage zu niedrig!")
+            print(f"  ❌ {cov_line[0].strip()} — unter der Schwelle {threshold:g}%")
         else:
             print("  ❌ Coverage <90% — Tests oder Coverage verbessern!")
         print("  Commit abgebrochen — Coverage erhöhen vor erneutem Commit.")
         return False
+
+
+def _coverage_threshold(coverage_rc: str) -> float:
+    """``fail_under`` aus ``.coveragerc`` lesen (eine Quelle für die Schwelle)."""
+    try:
+        import configparser
+
+        cfg = configparser.ConfigParser()
+        cfg.read(coverage_rc, encoding="utf-8")
+        return cfg.getfloat("report", "fail_under", fallback=90.0)
+    except Exception:
+        return 90.0
 
 
 # ── Main ──────────────────────────────────────────────
