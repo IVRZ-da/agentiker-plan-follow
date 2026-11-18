@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.34-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1620%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.35-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1641%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.34
+**Version:** 0.5.35
 
-**Tests:** 1620 tests
+**Tests:** 1641 tests
 
 **Tools (39):**
 
@@ -108,7 +108,7 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 | Tool | Description |
 |------|-------------|
-| `plan_coord_cleanup` | —. |
+| `plan_coord_cleanup` | Clean the shared coordination state: removes stale sessions and file locks. Run it before touching files that a crashed session still holds. |
 | `plan_lock` | Manage resource locks for cross-session coordination. |
 | `plan_notify` | Send a notification to another session or check own notifications. |
 | `plan_session` | Show active sessions with their plans, locks, and pending notifications. |
@@ -135,7 +135,8 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 |------|-------------|
 | `plan_abort` | Abort the active plan or a specific task. |
 | `plan_complete` | Complete the current task, verify it, advance to the next one. |
-| `plan_create` | Create a tracked, enforceable plan — the default tool for any task that needs more than about two minutes of work. Never write an ad-hoc markdown p... |
+| `plan_create` | Create the tracked plan for any task >~2 minutes. Default planner — never write an ad-hoc markdown plan.
+Supply the tasks either as template=<name>... |
 | `plan_current` | Show the current task. ONLY ONE task is returned at a time — you see only what needs to be done now. Returns task details including allowed files, ... |
 | `plan_todo` | Manage your task list for the active plan. |
 
@@ -192,6 +193,27 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 ### Recent Changelog
 
+## [0.5.35] — 2026-11-18
+
+### ⚡ Tool-Fläche: −1.063 Tokens pro Turn (2.737 → 1.674)
+
+Nach dem Vorbild des code_intel-Umbaus (v0.6.25) erst gemessen, dann gekürzt:
+
+- **`plan_create`-Schema 6.713 → 2.383 Zeichen (−64 %)** — die `items`-Struktur und die
+  Parameter-Wiederholung in der Tool-Beschreibung sind raus; die Feldnamen (inkl.
+  `title`-Alias) und die `review_profile`-Werte stehen jetzt kompakt in der
+  `tasks`-Beschreibung. Details im Companion-Skill statt im Schema.
+- **Eager-Set 5 → 3** (`plan_create`, `plan_current`, `plan_complete`). `plan_update` und
+  `plan_status` sind nicht im Loop und kommen über die Bridge. Gemessen:
+  10.947 → 6.698 Zeichen eager (−39 %).
+- **`scripts/tool_schema_audit.py`** — registriert das Plugin gegen einen Stub-Context und
+  weist chars/Tokens pro Tool sowie die Eager-Summe aus; CI-taugliche Budgets via
+  `--max-chars TOOL=N` / `--max-eager-chars N` (Exit 1 bei Verletzung).
+  Baseline dokumentiert in `references/tool-surface-baseline.md`.
+
+### 🐛 Health-Selbst-Check meldete faelschlich DEGRADED
+
+
 ## [0.5.34] — 2026-11-11
 
 Anlass: Am 11.11. scheiterte `plan_create` in einer Session mit „Tool 'plan_create' does not
@@ -233,27 +255,6 @@ params.tasks`, 11× `Tool 'plan_create' does not exist`.
 
 ### 🟡 Locks
 - **`PLAN_FOLLOW_LOCKS` (Default aus)**: kein Auto-Lock, kein Lock-Block im Banner. Die Fehlerklasse „Lock-Leiche auf abgeschlossenem Plan“ entfällt im Normalfall.
-
-## [0.5.32] — 2026-11-10
-
-### 🔴 Critical — Datenverlust durch die Testsuite
-- **Test-Isolation auf Import-Ebene** — `tests/conftest.py` bog bisher nur `plan_core.PLANS_DIR` um (und das auch nur in 7 von 37 Testfiles). Die autouse-Fixture schrieb `"{}"` in ALLE `*.json` des ECHTEN `~/.hermes/plans` und `rmtree`'te Unterordner. Am 10.11.2026 wurden so 81 Pläne, `plans_index.json`, `archived/` und `templates/` zerstört — bei 1480/1480 grünen Tests. Jetzt werden alle sieben Import-Zeit-Pfadkonstanten (`plan_core.PLANS_DIR/PLANS_INDEX/ARCHIVE_DIR/ROADMAPS_DIR`, `plan_templates.TEMPLATES_DIR`, `plan_suggest._TRACKING_FILE`, `coord_state.SHARED_DIR`) auf ein tmp-Root umgebogen, inkl. fail-fast-Assertion pro Test. `except Exception: pass` im destruktiven Block entfernt.
-- **Write-Guard im Produktionscode** — neues `tools/paths.py` mit `assert_writable()`; aufgerufen in allen Schreib-Primitiven (`_save_plan`, `_update_plans_index`, `_clear_plans_index`, `_ensure_dirs`, `coord_state._atomic_write`, `save_user_template`, `delete_user_template`, `_ensure_tracking_file`, `archive_plan`, `delete_plan`, `restore_plan`, `plan_git_init`). Aktiv bei `PLAN_FOLLOW_TEST_GUARD=1`.
-- **`_save_plan` verweigert kaputte Pläne** — `ValueError` ohne `plan_id` oder ohne `tasks`; vor dem Überschreiben eines Plans mit Inhalt wird ein `.json.bak` angelegt.
-- **Env-Overrides für Isolation** — `PLAN_FOLLOW_PLANS_DIR`, `PLAN_FOLLOW_ROADMAPS_DIR`, `PLAN_FOLLOW_SHARED_DIR` wirken bereits beim Import (auch für Subprozesse/Skripte).
-- **`scripts/check_isolation.sh`** — CI-Beweis: Manifest vor/nach der vollen Suite muss identisch sein.
-
-### Fixed
-- **Hook-Regression `session_end` → `on_session_end`** — der falsche Name wurde bei jedem Load nur als WARNING gemeldet; `_register_hooks` prüft die Namen jetzt gegen die Hermes-`VALID_HOOKS`-Liste und protokolliert Fehler als ERROR (`HOOK_REGISTRATION_ERRORS`).
-- **Companion-Skill wurde nie registriert** — `_register_skill` suchte `skills/plan-follow.md`, real heißt die Datei `skills/SKILL.md`. Jetzt Fallback auf beide Namen + `logger.error` wenn keine Datei existiert; der Test in `test_init.py` ist nicht mehr bedingt formuliert.
-- **Banner-Recovery ohne Session-Leak** — nach einem Hermes-Restart blieb der Task-Banner stumm, bis ein `plan_`-Tool lief. Jetzt wird beim ersten Turn einer Session (`is_first_turn`) einmalig von Disk adoptiert — aber nur, wenn die Session den Plan besitzt (`coord_state.get_session`), sonst nicht. Regressionstest: zwei Sessions, kein Cross-Banner.
-- **Circuit-Breaker las `error`** — Hermes sendet `error_type`/`error_message`; der Fallback auf `result` schrieb die komplette Tool-Ausgabe (bei `terminal` die volle stdout) als "Fehlertext" in den Banner. Jetzt `error_type: error_message`, Platzhalter wenn leer.
-- **`plan_list` unbrauchbar** — 82 Einträge, 80 leere 2-Byte-Dateien, alle als `is_active: true` (Vergleich `None == None`). Leere/beschädigte Dateien werden übersprungen, `is_active` nur bei gesetzter `active_plan_id`, Sortierung nach `created`, Default-Limit 20 mit `total`/`has_more`.
-- **Honcho-Fallback entfernt** — `POST /v3/workspaces/{ws}/conclusions/query` ist semantische Suche (HTTP 422 ohne observer/observed), Workspace/Peer passten nicht zu `~/.hermes/honcho.json`, und Honcho speicherte nur die `plan_id`. `_load_plan_state_from_honcho()` ist jetzt ein No-op.
-- **`plans_index.json`-Timestamps** — `active_since` war naiv/lokal, `last_updated` UTC-aware (Vergleiche 1-2h falsch, `TypeError` möglich). `created` wird UTC-aware geschrieben, Bestandswerte werden konvertiert (`_to_utc_iso`).
-- **`rich` und `PyYAML` waren undeklariert** — das Plugin-`.venv` konnte 13 Testdateien nicht einsammeln. `_fmt.py` hat jetzt einen reinen Text-Fallback (12 Formatter, 300 Aufrufstellen unverändert), `plan_templates.py` behandelt PyYAML optional; beide sind in `pyproject.toml` (`dependencies`) und `plugin.yaml` (`python_dependencies`) deklariert. `build-backend` korrigiert (`setuptools.build_meta`).
-
-### Changed (Verhalten)
 
 <!-- END README_AUTO -->
 

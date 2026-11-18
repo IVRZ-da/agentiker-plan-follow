@@ -78,7 +78,9 @@ PLAN_TOOLS = [
 
 # Tools, die ohne Bridge direkt im Tool-Set liegen sollen. Sie sind der
 # Hot-Path jeder Plan-Abarbeitung; der Rest der 39 bleibt deferred.
-EAGER_TOOLS = ("plan_create", "plan_current", "plan_complete", "plan_update", "plan_status")
+# 2026-11-18: 5 -> 3. plan_update/plan_status sind nicht im Loop (der ist
+# create -> current -> complete) und kommen ueber die Bridge.
+EAGER_TOOLS = ("plan_create", "plan_current", "plan_complete")
 
 
 def _mark_tools_eager() -> None:
@@ -90,9 +92,10 @@ def _mark_tools_eager() -> None:
     ueber die Bridge (``tool_describe`` + ``tool_call``) erreichbar, was pro
     Plan-Erstellung zwei Extra-Turns und eine Fehlerquelle kostet.
 
-    Die 5 Tools kosten gemessen 7336 Zeichen Schema ≈ 1834 Tokens pro Turn
-    (davon plan_create allein ~1139). Bewusst nur diese: die restlichen 34
-    (u.a. plan_roadmap mit ~850 Tokens allein) bleiben deferred.
+    Die 3 Tools kosten gemessen 6.698 Zeichen Schema ≈ 1.674 Tokens pro Turn
+    (davon plan_create 2.454 = 37 %; vor der Kuerzung waren es 6.713 = 75 %).
+    Bewusst nur diese: die restlichen 36 (u.a. plan_roadmap mit ~1.296 Tokens
+    allein) bleiben deferred. Messung: ``scripts/tool_schema_audit.py .``.
 
     Fail-open: Aendert eine kuenftige Hermes-Version die Interna, bleibt es beim
     bisherigen Deferral — es gibt keinen Crash und keinen Startabbruch. Die

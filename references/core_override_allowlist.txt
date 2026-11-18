@@ -1,0 +1,6 @@
+# Allowlist fuer scripts/validate_gate.py — Checks, die rot sein duerfen.
+# Format: check_name: Begruendung
+# Ein Eintrag, dessen Check gruen wird, laesst das Gate absichtlich fehlschlagen
+# ("stale") — dann muss er hier raus.
+
+no core override: bewusst — plan_create/plan_current/plan_complete muessen eager sein, es gibt keine Plugin-API dafuer. Wirkungsnachweis: references/core-override-analysis.md

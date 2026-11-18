@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.5.35] — 2026-11-18
+
+### ⚡ Tool-Fläche: −1.063 Tokens pro Turn (2.737 → 1.674)
+
+Nach dem Vorbild des code_intel-Umbaus (v0.6.25) erst gemessen, dann gekürzt:
+
+- **`plan_create`-Schema 6.713 → 2.383 Zeichen (−64 %)** — die `items`-Struktur und die
+  Parameter-Wiederholung in der Tool-Beschreibung sind raus; die Feldnamen (inkl.
+  `title`-Alias) und die `review_profile`-Werte stehen jetzt kompakt in der
+  `tasks`-Beschreibung. Details im Companion-Skill statt im Schema.
+- **Eager-Set 5 → 3** (`plan_create`, `plan_current`, `plan_complete`). `plan_update` und
+  `plan_status` sind nicht im Loop und kommen über die Bridge. Gemessen:
+  10.947 → 6.698 Zeichen eager (−39 %).
+- **`scripts/tool_schema_audit.py`** — registriert das Plugin gegen einen Stub-Context und
+  weist chars/Tokens pro Tool sowie die Eager-Summe aus; CI-taugliche Budgets via
+  `--max-chars TOOL=N` / `--max-eager-chars N` (Exit 1 bei Verletzung).
+  Baseline dokumentiert in `references/tool-surface-baseline.md`.
+
+### 🐛 Health-Selbst-Check meldete faelschlich DEGRADED
+
+`_self_check()` importierte die eigenen Module absolut (`importlib.import_module("plan_follow.plan_hooks")`).
+Im Host liegt das Plugin als Namespace-Paket und das Verzeichnis nicht auf `sys.path` —
+der Banner zeigte „plan_tools/plan_hooks nicht ladbar: ModuleNotFoundError", während beide
+Module im selben Prozess liefen (dieselbe Falle, die der Modul-Docstring für Fremdmodule
+beschreibt, hier für die eigenen). Neu: `_plugin_module()` nimmt das geladene Modul aus
+`sys.modules` (Suffix-tolerant) und importiert sonst relativ über das Host-Paket. Fehler
+nennen jetzt Modul + Ursache statt nur die Exception-Klasse.
+
+### 🐛 Tool ohne Beschreibung
+
+`plan_coord_cleanup` wurde ohne `TOOL_DESCRIPTIONS`-Eintrag publiziert — für das Modell ein
+Tool ohne Zweck. Beschreibung ergänzt; der neue Test schlägt bei jedem weiteren Fall fehl.
+
+### 🧪 Neue Gates
+
+- **`tests/test_schema_publishing.py`** (6) — jedes registrierte Tool liefert ein echtes
+  `parameters`-Objekt, keine deklarierte Property geht bei der Registrierung verloren,
+  `required` bleibt erhalten, keine leere Beschreibung, Eager-Summe unter Budget.
+  (Der code_intel-Vorfall: 27 LSP-Tools mit leerem Schema, monatelang unbemerkt.)
+- **`tests/test_eager_tools.py`** (5) — Eager-Set ist der Hot-Path, idempotent, fail-open
+  ohne `toolsets`, keine toten Namen.
+- **`tests/test_plan_create_schema.py`** (7) — Budget, dokumentierte Feldnamen, Happy Path
+  mit Liste und ohne `id`, Fehler ohne `goal`.
+- **`scripts/validate_gate.py`** + `references/core_override_allowlist.txt` — prüft
+  `hermes plugins validate` als CI-Gate; der bewusst rote Check `no core override` ist mit
+  Begründung allowlistet, ein veralteter Eintrag lässt das Gate fehlschlagen.
+  `--self-test` beweist, dass das Gate rot werden kann (3 Fälle).
+- **`references/core-override-analysis.md`** — Wirkungsnachweis für den
+  `_HERMES_CORE_TOOLS`-Rebind: warum es keine Plugin-eager-API gibt, wie der Rebind wirkt
+  (Test gegen die echte Runtime), was er kostet und was beim Nachrüsten einer API zu tun ist.
+
+**Verifikation:** 1645 passed, 1 skipped; `hermes plugins validate` 14/15 grün
+(Allowlist: `no core override`).
+
 ## [0.5.34] — 2026-11-11
 
 Anlass: Am 11.11. scheiterte `plan_create` in einer Session mit „Tool 'plan_create' does not

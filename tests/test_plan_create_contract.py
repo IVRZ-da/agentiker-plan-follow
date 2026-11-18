@@ -391,9 +391,17 @@ class TestBridgeSchemaTolerance:
         tasks_schema = PER_TOOL_SCHEMAS["plan_create"]["properties"]["tasks"]
         assert "object" in tasks_schema["type"], "Dict-Input muss im Schema erlaubt sein"
         assert "string" in tasks_schema["type"], "JSON-String muss erlaubt sein"
-        items = tasks_schema["items"]
-        assert "required" not in items, "required [id,name] widerspricht der Normalisierung"
-        assert "title" in items["properties"], "title muss als Alias deklariert sein"
+        # Die items-Struktur kostete ~1.100 Zeichen Schema-Budget pro Turn und wurde in die
+        # Beschreibung verlagert (T2, 2026-11-18). Der Vertrag bleibt: kein 'required' und
+        # die Feldnamen inkl. title-Alias muessen auffindbar sein.
+        items = tasks_schema.get("items")
+        if items is not None:
+            assert "required" not in items, "required [id,name] widerspricht der Normalisierung"
+            assert "title" in items["properties"], "title muss als Alias deklariert sein"
+        else:
+            desc = tasks_schema["description"]
+            for field in ("id", "name", "title", "files", "verify", "review_profile", "depends_on"):
+                assert field in desc, f"{field} fehlt in der tasks-Beschreibung"
 
 
 class TestKindPersistence:

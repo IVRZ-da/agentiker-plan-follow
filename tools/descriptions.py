@@ -2,35 +2,14 @@
 
 TOOL_DESCRIPTIONS = {
     "plan_create": (
-        "Create a tracked, enforceable plan — the default tool for any task that needs "
-        "more than about two minutes of work. Never write an ad-hoc markdown plan instead.\n"
-        "Two ways to supply tasks (template OR tasks; tasks win when both are given):\n"
-        "  (a) template (str, optional): deploy|bugfix|feature|refactoring|research|analysis|"
-        "docs|fix|go-setup|infrastructure|security|multi|free — the template generates the task list.\n"
-        "      multi and free take your own catalog via params={'tasks': [...]}.\n"
-        "  (b) tasks (list, optional): your own tasks. Each item needs id and name; "
-        "files/verify/review_profile/depends_on are optional.\n"
-        "      Minimal example: tasks=[{'id':'T1','name':'Fix login','files':['src/auth.py'],"
-        "'verify':'pytest tests/test_auth.py'}]\n"
-        "Without template and without tasks the call fails.\n"
-        "Parameters:\n"
-        "- goal (str, required): The goal of the plan. Used for plan_id if plan_id not provided.\n"
-        "- tasks (list, optional): see (b). Dicts keyed by task id are normalised too.\n"
-        "- template (str, optional): see (a).\n"
-        "- params (dict, optional): Template placeholder substitution for {{var}}; "
-        "params={'tasks': [...]} is the task catalog for multi/free.\n"
-        "- plan_id (str, optional): Custom plan ID. If provided, used instead of auto-generated ID from goal.\n"
-        "- repo (str, optional): Git repo path for drift detection\n"
-        "- p0_review (bool, optional): Prepend a p0 peer-review task (default true, template branch only)\n"
-        "- parallel_groups (dict, optional): Parallel task groups. "
-        "Keys are group IDs, values are {'tasks': ['id1', 'id2', ...]}. "
-        "Groups run sequentially — all tasks in a group run in parallel. "
-        "Example: {'g1': {'tasks': ['p1','p2']}, 'g2': {'tasks': ['p3']}}\n"
-        "Rules: a verify command must be able to fail (no echo/true/$? masks). "
-        "An automatic peer review runs BEFORE the plan is written: it may repair "
-        "verify/files, and a plan with a critical finding that cannot be auto-fixed is "
-        "NOT persisted (you get status=error). "
-        "Returns: status, plan_id, current_task, and a compact peer_review summary."
+        "Create the tracked plan for any task >~2 minutes. Default planner — never write an "
+        "ad-hoc markdown plan.\n"
+        "Supply the tasks either as template=<name> (incl. free for non-code ops) or as "
+        "tasks=[...] (tasks wins). Without either the call fails.\n"
+        "Every verify command must be able to fail (no echo/true/$? masks).\n"
+        "An automatic peer review runs before the plan is persisted: it may repair "
+        "verify/files, and a critical finding stops the plan (status=error).\n"
+        "Returns status, plan_id, current_task and a compact peer_review summary."
     ),
     "plan_current": (
         "Show the current task. ONLY ONE task is returned at a time — "
@@ -349,4 +328,10 @@ TOOL_DESCRIPTIONS = {
         "Uses BOT_FORGEJO_TOKEN or FORGEJO_TOKEN env var for auth. "
         "Auto-detects repo owner/name from git remote URL."
         ),
+    "plan_coord_cleanup": (
+        "Clean the shared coordination state: removes stale sessions and file locks. "
+        "Run it before touching files that a crashed session still holds.\n"
+        "Parameters: session_max_age (min, default 60), lock_max_age (min, default 120), "
+        "dry_run (bool, default false — only report, remove nothing)."
+    ),
         }

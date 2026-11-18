@@ -67,23 +67,56 @@ def _mod_available(name: str) -> bool:
         return False
 
 
+def _plugin_package() -> str:
+    """Paketname, unter dem der Host dieses Plugin geladen hat.
+
+    ``tools/health.py`` heisst z. B. ``hermes_plugins.plan_follow.tools.health`` — die
+    ersten beiden Segmente sind das Paket.
+    """
+    parts = __name__.rsplit(".", 2)
+    return parts[0] if len(parts) == 3 else "plan_follow"
+
+
+def _plugin_module(short: str):
+    """Eigenes Untermodul holen: geladener Zustand zuerst, dann relativ importieren.
+
+    Ein absoluter Import (``importlib.import_module("plan_follow.plan_hooks")``) schlaegt
+    im Host strukturell fehl: dort liegt das Plugin-Verzeichnis nicht auf ``sys.path``, das
+    Paket ist als Namespace geladen (``hermes_plugins.plan_follow``). Genau daran meldete
+    der Banner DEGRADED, obwohl die Module im selben Prozess liefen — dieselbe Falle, die
+    der Modul-Docstring fuer Fremdmodule beschreibt, hier fuer die eigenen.
+    """
+    pkg = _plugin_package()
+    for key, mod in list(sys.modules.items()):
+        if key == f"{pkg}.{short}":
+            return mod
+    for key, mod in list(sys.modules.items()):
+        if key == short or key.endswith("." + short):
+            return mod
+    return importlib.import_module(f"{pkg}.{short}")
+
+
 def _self_check() -> list[str]:
     """Eigene Integritaet pruefen — der einzige harte Fehlerfall."""
     issues = []
     try:
-        hooks = importlib.import_module("plan_follow.plan_hooks")
+        hooks = _plugin_module("plan_hooks")
         for attr in ("on_pre_llm_call", "on_post_tool_call"):
             if not callable(getattr(hooks, attr, None)):
                 issues.append(f"plan_follow.plan_hooks.{attr} fehlt")
     except Exception as exc:
-        issues.append(f"plan_follow.plan_hooks nicht ladbar: {type(exc).__name__}")
+        issues.append(
+            f"plan_follow.plan_hooks nicht ladbar: {type(exc).__name__}: {str(exc)[:60]}"
+        )
 
     try:
-        tools = importlib.import_module("plan_follow.plan_tools")
+        tools = _plugin_module("plan_tools")
         if not hasattr(tools, "plan_create_tool"):
             issues.append("plan_follow.plan_tools ohne Handler")
     except Exception as exc:
-        issues.append(f"plan_follow.plan_tools nicht ladbar: {type(exc).__name__}")
+        issues.append(
+            f"plan_follow.plan_tools nicht ladbar: {type(exc).__name__}: {str(exc)[:60]}"
+        )
     return issues
 
 

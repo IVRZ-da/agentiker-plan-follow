@@ -8,58 +8,36 @@ PER_TOOL_SCHEMAS = {
     "plan_create": {
         "type": "object",
         "properties": {
-            "goal": {"type": "string", "description": "Das Ziel des Plans"},
+            "goal": {"type": "string", "description": "Ziel des Plans (erforderlich)"},
             "tasks": {
                 # Bewusst tolerant: normalize_tasks() repariert Dicts, Listen,
-                # JSON-Strings und Tasks ohne id/name. Das Schema darf strenger
-                # sein als der Code, sonst weist Hermes' Bridge (tool_call) genau
-                # die Eingaben ab, die der Code akzeptiert.
+                # JSON-Strings und Tasks ohne id/name. Die Feldstruktur steht in der
+                # Beschreibung statt als items-Schema: der Block kostete ~1.100 Zeichen
+                # Schema-Budget pro Turn, validiert wird er dort ohnehin nicht.
                 "type": ["array", "object", "string"],
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": ["string", "integer"]},
-                        "name": {"type": "string"},
-                        "title": {"type": "string"},
-                        "kind": {"type": "string"},
-                        "files": {"type": "array", "items": {"type": "string"}},
-                        "verify": {"type": "string"},
-                        "review_profile": {
-                            "type": "string",
-                            "enum": VALID_REVIEW_PROFILES,
-                            "description": "Review-Profil (optional, default: none)",
-                        },
-                        "depends_on": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "additionalProperties": True,
-                },
-                "description": "Eigene Task-Liste (Alternative zu template; bei beiden gewinnt tasks). Jeder Task braucht id und name, optional files/verify/review_profile/depends_on. Fehlende id wird automatisch vergeben, 'title' wird als 'name' akzeptiert, ein Dict {task_id: {...}} wird zur Liste normalisiert. Minimal-Beispiel: [{'id':'T1','name':'Fix login','verify':'pytest tests/test_auth.py'}].",
+                "description": (
+                    "Task-Liste: [{id, name, files[], verify, review_profile, depends_on[], "
+                    "kind}]. name ist Pflicht (id wird sonst vergeben, title gilt als name). "
+                    "review_profile: none|unit-test|api-route|ui-component|security|full. "
+                    "Dict {task_id: {...}} und JSON-String werden normalisiert. "
+                    "Gewinnt gegen template."
+                ),
             },
-            "plan_id": {"type": "string", "description": "Optionale eigene Plan-ID (sonst auto-generiert aus goal)"},
             "template": {
                 "type": "string",
                 "enum": ["deploy", "bugfix", "feature", "refactoring", "research", "analysis", "docs", "fix", "go-setup", "infrastructure", "security", "multi", "free"],
-                "description": "Template-Name (optional). Wenn gesetzt, werden Tasks automatisch aus der Vorlage generiert. Wenn nicht gesetzt, muessen tasks angegeben werden (tasks gewinnt, wenn beides gesetzt ist). Fuer Ops-/Nicht-Code-Plaene: free.\n  - multi/free: eigener Aufgabenkatalog via params.tasks. Bsp: params={'tasks': [{'id':'a','name':'...','files':[...],'verify':'...'}]}",
+                "description": "Vorlage erzeugt die Task-Liste; multi/free nehmen den Katalog aus params.tasks.",
             },
-            "repo": {"type": "string", "description": "Pfad zum Git-Repo (optional)"},
+            "params": {"type": "object", "description": "Platzhalter {{var}}; bei multi/free {'tasks': [...]}"},
+            "plan_id": {"type": "string", "description": "Eigene Plan-ID statt Auto-ID aus dem Goal"},
+            "repo": {"type": "string", "description": "Git-Repo-Pfad fuer Drift-Erkennung"},
             "p0_review": {
                 "type": "boolean",
-                "description": "p0-Peer-Review-Task vor die eigenen Tasks stellen (default: true). Bei false beginnt der Plan direkt mit dem ersten eigenen Task — der automatische Plan-Review (run_peer_review) laeuft unabhaengig davon weiter.",
+                "description": "Peer-Review-Task voranstellen (default: true, nur Template-Zweig)",
             },
             "parallel_groups": {
                 "type": "object",
-                "description": "Optionale parallele Gruppen. Jeder Key ist eine Gruppen-ID, Value ist {\"tasks\": [task_id, ...]}. Gruppen werden sequentiell verarbeitet — alle Tasks einer Gruppe laufen parallel.",
-                "additionalProperties": {
-                    "type": "object",
-                    "properties": {
-                        "tasks": {"type": "array", "items": {"type": "string"}},
-                    },
-                    "required": ["tasks"],
-                },
-            },
-            "params": {
-                "type": "object",
-                "description": "Optionale Parameter fuer Template-Placeholders {{var}}. Fuer multi-Template: params={'tasks': [{'id':'a', 'name':'...', ...}]}",
+                "description": "Parallel-Gruppen: {'g1': {'tasks': [id, ...]}} — Gruppen sequenziell, Tasks je Gruppe parallel.",
             },
         },
         "required": ["goal"],

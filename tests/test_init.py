@@ -292,12 +292,15 @@ class TestEagerTools:
         _mark_tools_eager()  # darf nicht werfen
 
     def test_eager_only_hot_path_tools(self):
-        """Bewusst nur 5 Tools: die restlichen 34 bleiben deferred (Token-Budget)."""
+        """Bewusst nur 3 Tools: der Rest bleibt deferred (Token-Budget)."""
         from plan_follow import EAGER_TOOLS
 
-        assert len(EAGER_TOOLS) == 5
+        assert len(EAGER_TOOLS) == 3
         assert "plan_create" in EAGER_TOOLS
-        assert "plan_roadmap" not in EAGER_TOOLS, "plan_roadmap (~850 Tokens) bleibt deferred"
+        assert "plan_current" in EAGER_TOOLS
+        assert "plan_complete" in EAGER_TOOLS
+        assert "plan_update" not in EAGER_TOOLS, "plan_update kommt ueber die Bridge"
+        assert "plan_roadmap" not in EAGER_TOOLS, "plan_roadmap (~1.296 Tokens) bleibt deferred"
 
 
 class TestEagerIntegration:
