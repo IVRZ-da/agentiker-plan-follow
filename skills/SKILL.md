@@ -187,7 +187,12 @@ plan_follow/
    `tool_call({"calls": [{"name": "plan_create", "arguments": {...}}]})`. `arguments` NICHT
    verschachteln — genau eine Ebene `{name, arguments}`.
 2. **Tasks statt Template:** `plan_create` akzeptiert `tasks` direkt (ohne `template`) oder
-   `template: 'free'`/`'multi'` mit `params.tasks`. Sind beide gesetzt, gewinnt `tasks`.
+   `template: 'free'`/`'multi'` mit `params.tasks`. Beides gleichzeitig ist nicht verlassen:
+   mit `template: 'research'` + eigenen `tasks` gewann das Template — es entstanden `p0` plus
+   `rs1..rs3`, die eigenen Tasks waren weg. Also immer nur EINE Quelle übergeben, und nach
+   jedem `plan_create` `plan_status()` prüfen: stimmt die Gliederung nicht, die Tasks per
+   `plan_update` (Name, `verify`, `files`) umschreiben, **bevor** der erste Task startet.
+   Sonst arbeitest du die Template-Phrasen ab statt der eigenen Analyse.
    Der Direkt-Zweig erzeugt keinen p0-Task — bei Bedarf selbst einen Task `p0` anlegen und
    vom ersten Task per `depends_on` referenzieren.
 3. **verify ehrlich halten:** Bei fehlendem oder bedeutungslosem verify (`echo`, `true`)
@@ -197,7 +202,18 @@ plan_follow/
 4. `plan_update` ist pro `tool_call` ein einzelner Aufruf. Lokale Plan-Tools nicht in einem
    Block bündeln; nur `connectors__`-Tools dürfen gebündelt werden.
 5. Verify-Befehle müssen fehlschlagen können. Scheinprüfungen wie `test -n "1"` immer
-   verwerfen, sie bestehen immer und schützen nichts.
+   verwerfen, sie bestehen immer und schützen nichts. Zwei Gegenproben sichern das ab:
+   - **Kein Pipe am Ende.** `cmd | tail -3` liefert den Exit-Code von `tail`, nicht von
+     pytest/bench — jeder rote Test wird grün. Ausgabe in eine Datei und den Code selbst
+     weitergeben: `cmd > /tmp/v.log 2>&1; rc=$?; tail -3 /tmp/v.log; exit $rc`. Verkettete
+     Prüfungen mit `test $rc1 -eq 0 -a $rc2 -eq 0` abschließen, nie mit `;` (das letzte
+     Kommando gewinnt).
+   - **Vor der Implementierung einmal laufen lassen.** Ein Verify, der schon jetzt grün ist,
+     prüft nichts. Die `-k`-Filter auf Testnamen setzen, die es noch nicht gibt
+     (`-k 'stats_cache or ranking_snapshot'`): pytest endet dann mit Exit 5 („no tests ran")
+     und der Task ist bis zur Implementierung ehrlich rot. Diese Namen im Task-`name`
+     festhalten, sonst heißen die Tests beim Umsetzen anders und der Verify bleibt für
+     immer rot.
 6. Danach `plan_validate(plan_id)` ausführen und den Plan dem User zur Freigabe zeigen.
    Erst nach expliziter Freigabe mit dem ersten Task beginnen.
 7. **Wenn der Transport den Payload nicht durchbringt** (`tool_call` bricht mit „calls is not
@@ -236,10 +252,36 @@ plan_follow/
     deiner Plan-Datei offen ist: die Plan-Dateien sind getrennt, nur der Index kollidiert.
     Beide Meldungen haben dieselbe Ursache. `plan_status()` zeigt, welcher Plan aktiv ist,
     `plan_select(<eigene plan_id>)` holt ihn zurück.
+    **Task-IDs sind zwischen Plänen nicht unterscheidbar:** die Fehlermeldung nennt die fremde
+    ID (`Aktuell: T5`), und ein `plan_complete('T5')` würde den fremden Task abschließen.
+    Vor jedem Abschluss prüfen, dass `plan_current()` die **eigene `plan_id`** zeigt, und erst
+    dann die eigene Task-ID senden. Bei minutenlanger Arbeit kann die andere Session
+    zwischendurch erneut umschalten — die Prüfung gehört direkt vor den `plan_complete`,
+    nicht an den Blockanfang. (Der Banner zeigt denselben fremden Plan; ein Banner-Task, den
+    man nicht angelegt hat, ist ein Umschalt-Signal, kein Arbeitsauftrag.)
     `plan_select` vor jedem Block hilft nur bis zum nächsten Umschalten der anderen Session.
     Vorgehen: verify-Command einmal im Terminal laufen lassen, dann `status` und
     `current_task` direkt im eigenen Plan-JSON setzen (die fremde Session fasst nur den Index
     an, nie deine Datei). Am Ende gegenprüfen, dass alle Tasks `completed` sind.
+    **Ein `plan_complete`, das mit `No active plan` abbricht, kann trotzdem geschrieben
+    haben.** Der Fehler entsteht im Index-Lookup, nachdem der Task bereits auf `completed`
+    gesetzt und der `current_task` weitergerückt wurde — im schlechtesten Fall sind dadurch
+    auch nachfolgende Tasks abgeschlossen. Nach einem solchen Fehler **nicht** blind erneut
+    abschließen, sondern `plan_status()` prüfen (bzw. die Plan-Datei lesen) und nur die
+    Tasks nachziehen, die wirklich offen sind.
+    **Warum es passiert** — prozessglobaler `STATE`, `os.environ` als Session-ID-Quelle und
+    ein einziges `active_plan_id` im Index — plus die Umbauten, die es dauerhaft lösen:
+    `references/cross-session-plan-state.md`.
+    **Seit 0.5.38 behoben** (wirkt erst nach `hermes gateway restart` **von außen** — der
+    Gateway hält das Python-Modul im Speicher): Session-ID kommt aus dem ContextVar des
+    Gateways, `STATE` hält den aktiven Plan pro Session, und `_update_plans_index`
+    überschreibt den Index nicht mehr, wenn der Anker einer anderen *lebenden* Session
+    gehört (TTL 60 min; tote Sessions blockieren nicht, der eigene Plan geht nach
+    `sessions.json`). `plan_current`/`plan_status` melden einen fremden Anker zusätzlich als
+    `hinweis`. Grenzen: zwei Sessions am **selben** Plan brauchen weiter eine explizite
+    Entscheidung, und auf einer Installation unter 0.5.38 läuft das alte Verhalten weiter.
+    Die Prüfung „zeigt `plan_current` meine `plan_id`?" bleibt deshalb Pflicht, direkt vor
+    dem `plan_complete` — sie kostet einen Call und fängt genau diesen Versionsfall.
 11. **`auto_verify` läuft in einer Subprocess-Shell mit der Env des Hermes-Prozesses.**
     Verify-Strings mit Kommandosubstitution oder Pipes (`test $(find … | wc -l) -le 5`) können dort
     fehlschlagen, obwohl derselbe String im Terminal grün ist — dann bleibt der Task auf
@@ -253,6 +295,20 @@ plan_follow/
       gesammelt). Fix: jeden Interpreter-Aufruf im Verify mit `env -u PYTHONPATH` prefixen
       (`env -u PYTHONPATH /path/to/venv/bin/python -m pytest …`). Im Terminal-Tool tritt das
       nicht auf — nur im `plan_complete`-Pfad, was die Diagnose verfälscht.
+    - **`python3` im Verify ist nicht dein Terminal-`python3`.** Die Subprocess-Shell löst
+      `python3` gegen die Hermes-Runtime auf, in der z. B. `pytest` fehlt (`No module named
+      pytest`), obwohl derselbe Befehl im Terminal grün ist. Interpreter absolut angeben
+      (`/usr/bin/python3 -m pytest tests -q`), nachdem du ihn einmal geprüft hast
+      (`/usr/bin/python3 -c 'import pytest'`).
+    - **Verify gegen die echte Ausgabestruktur schreiben, nicht gegen die erwartete.** Ein
+      JSON-Verify auf Keys, die das Skript anders benennt (`fts5_only` vs. `kcases.k4`),
+      scheitert erst beim Abschließen. Nach dem ersten Lauf die Ausgabe ansehen und den
+      Verify daran anpassen — oder ihn nur auf Exit-Code plus eine Zeile `OK` stützen.
+    - **Versions-/Text-Greps gegen den Commit-Body**, nicht gegen die Subject-Zeile:
+      `git log --format=%B -1 | grep -q 'VERSION 0.1.1'`. `git log --oneline -1` zeigt nur die
+      erste Zeile und wird rot, obwohl der Commit stimmt.
+    - **„Repo sauber" heißt `test -z "$(git status --short)"`.** `git status --short | grep -qv .`
+      kippt die Logik (Exit 1 genau dann, wenn nichts zu committen ist).
     - **Ketten ohne `;`.** `a && b; c` führt `c` auch aus, wenn `b` scheitert, und der Task
       wird grün. Ausschließlich `&&` verketten.
     - **Vor dem Abschließen syntaktisch prüfen:** `bash -n -c "<verify>"` über alle Tasks.
@@ -281,6 +337,9 @@ plan_follow/
     abgeleitete Plan-ID zerhacken, sodass `plan_create` zwar antwortet, der Plan aber nicht
     auffindbar/validierbar ist. ID vorab selbst festlegen (Buchstaben, Ziffern, Bindestrich),
     Sonderzeichen im `goal` vermeiden.
+    **Die Tool-Ausgabe kürzt die ID zusätzlich mit `…`** (`2026-11-18-plan_follow:-parallele…`).
+    Eine solche Anzeige als `plan_select`-Argument schlägt mit „Plan not found" fehl —
+    vollständige ID aus `ls ~/.hermes/plans/ | grep -i <thema>` holen.
 13. **Bei Template-Plänen zuerst `p0` abschließen.** `plan_create` mit `template` stellt
     einen Peer-Review-Task `p0` voran; der ist der aktuelle Task. Ein `plan_complete` auf
     den ersten eigenen Task scheitert mit `Task 'X' is not the current task. Aktuell: p0`.
@@ -292,6 +351,19 @@ plan_follow/
     `plan_complete` geschrieben wird — und das kostet eine Runde. Artefakt zuerst schreiben,
     dann abschließen. Wer den Verify an eine Datei bindet, die ein *späterer* Task erzeugt,
     baut die Prüfung falsch herum.
+17. **Einen erledigten Task sofort abschließen, nicht „später mitsammeln“.** Wer nach
+    erledigter Arbeit direkt den nächsten Task beginnt, bekommt beim nächsten
+    `plan_complete` die Meldung `Task 'X' is not the current task. Aktuell: <vorheriger>`
+    und muss die Reihenfolge erst wieder sortieren. Reihenfolge: Arbeit → verify im
+    Terminal → `plan_complete` → nächster Task.
+18. **Programmatische Batch-Edits am Ziel prüfen, nicht am Skript.** Wenn mehrere
+    Ersetzungen in einer Zelle gesammelt werden (Liste bauen, dann in einer Schleife
+    `str.replace`, dann einmal schreiben), ist der stille Totalverlust der Normalfall: ein
+    Tippfehler im Anker, eine Liste, die nie angewendet wird, und die Datei bleibt
+    unverändert — während die Zelle „erfolgreich“ meldet. Nach jedem Batch die neuen Symbole
+    im Ziel nachzählen (`grep -c 'def neue_funktion' <datei>` bzw. `assert name in inhalt`
+    **vor** dem Schreiben) und bei mehreren Ankern `s.count(alt) == 1` je Ersetzung
+    erzwingen. Ein „gepatcht“ ohne Gegenprobe ist keine Änderung.
 
 ## Review-Workflow
 
@@ -342,3 +414,29 @@ Pitfalls:
 - **Findings sind Vorschläge, nicht Wahrheit.** Manche Befunde beruhen auf Annahmen über
   APIs, die du schon geprüft hast (z.B. „P5 ist nicht umsetzbar") — dann mit Nachweis
   ablehnen und das im Status-File dokumentieren, statt den Plan zu verbiegen.
+
+### Mehrere Artefakte auf einmal reviewen
+
+Für einen Plan, der aus mehreren Dokumenten besteht (Analyse, Inventar, Recherchen,
+Roadmap), jedes Artefakt einzeln reviewen — `peer-review --file X.md > review-X.md 2>
+review-X.err`. Was dabei schiefgeht und wie man es erkennt:
+
+1. **Eine 0-Byte-Reviewdatei heißt „Lauf gescheitert", nicht „keine Befunde".** Der Aufruf
+   endet dann mit Exit ≠ 0 (Timeout, `max_tokens`, Provider-Fehler) und schreibt die leere
+   Datei trotzdem an. Vor dem Auswerten `test -s review-*.md` für jede Datei — und die
+   `.err`-Datei mitlesen. Ein fehlender Review ist eine Lücke im Review, keine Freigabe.
+2. **Severities zählen, nicht schätzen.** Die Marker `🔴/🟡/🟢` pro Datei per Python zählen
+   (`re.findall`) und die Summe in den Abschlussbericht schreiben. Eine „14 rote, 18 gelbe"
+   Prosa-Zahl, die niemand nachgezählt hat, steht später falsch in den Dokumenten.
+3. **Triage-Datei mit Status je Befund anlegen** (`peer-review-triage.md`, eine Zeile pro
+   rotem Befund: Quelle, Kurzbefund, `eingearbeitet` mit Fundstelle oder `offen` mit Grund).
+   „Offen" ist eine gültige Endlage — aber nur dokumentiert; unentschiedene Findings dürfen
+   nicht stillschweigend verschwinden.
+4. **Prüfen, was schon eingearbeitet ist, bevor du patcht.** Findings nennen Abschnitts-
+   nummern des Rohtexts (§7.1, §5.4), nicht die des Zieldokuments — nach einem früheren
+   Durchlauf ist ein Teil bereits erledigt. Erst mit `search_files` die Kernaussage im
+   Zieldokument suchen, dann patchen; sonst entstehen Duplikate und widersprüchliche Zahlen.
+5. **Die Zahlen im Dokument gegen die Roadmap abgleichen.** Zwei Dokumente, die dasselbe
+   beschreiben (Analyse + Roadmap), driften zwangsläufig: Task-Zahl (27 vs. 28), Aufwand
+   (12,5 vs. 18 JD), Schwellen. Nach dem Einarbeiten beide Seiten gegeneinander prüfen und
+   **eine** Quelle als Single Source of Truth benennen (die Roadmap), die andere verweist.

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.40] — 2026-11-19
+
+### 🔌 Nudge nennt keinen toten Bridge-Weg mehr
+
+`tools.tool_search.enabled: off` setzt alle Plugin-Tools eager — dann existiert
+`tool_call` nicht. Der Nudge („Kein aktiver Plan") nannte trotzdem
+`tool_call(name='plan_create', …)`; das ist bei jedem dritten Turn ein toter
+Tool-Name im Prompt.
+
+- `_tool_search_active()` fragt `should_activate(load_config_readonly(), …)`; die
+  Bridge-Zeile erscheint nur, wenn Hermes die Tools wirklich deferrt.
+- Test `test_nudge_omits_bridge_hint_when_tools_are_eager` deckt den eager-Fall ab,
+  der bestehende Nudge-Test mockt den Bridge-Status explizit.
+- `_mark_tools_eager()` bleibt unverändert nötig, wenn die Bridge aktiv ist; bei
+  `enabled: off` ist der Rebind wirkungslos, aber harmlos.
+
 ## [0.5.39] — 2026-11-18
 
 ### 🔧 Das Coverage-Gate misst jetzt wirklich

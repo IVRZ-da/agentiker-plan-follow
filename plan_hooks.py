@@ -976,6 +976,21 @@ _nudge_turns: dict = {}
 _NUDGE_SKIP_PLATFORMS = {"cron", "webhook", "headless", "kanban", "api", "api_server"}
 
 
+def _tool_search_active() -> bool:
+    """True, wenn Hermes Plugin-Tools hinter die ``tool_call``-Bridge legt.
+
+    Mit ``tools.tool_search.enabled: off`` liegen alle Plugin-Tools eager im Set und
+    ``tool_call`` existiert nicht — ein Hinweis darauf waere ein toter Tool-Name.
+    Der Import steht im try, weil plan_follow auch ohne Hermes-Kontext (Tests) laedt.
+    """
+    try:
+        from tools.tool_search import load_config_readonly, should_activate
+
+        return bool(should_activate(load_config_readonly(), 1, None))
+    except Exception:  # Import/Config defekt: lieber keinen Bridge-Hinweis zeigen
+        return False
+
+
 def _nudge_lines(session_id: str, platform: str = "") -> list:
     """Einmaliger Hinweis, wenn gar keine Planung laeuft (v0.5.34).
 
@@ -1006,12 +1021,16 @@ def _nudge_lines(session_id: str, platform: str = "") -> list:
     if _nudge_turns[key] < _NUDGE_AFTER_TURNS:
         return []
     _NUDGE_SESSIONS.add(key)
-    return [
+    lines = [
         "ℹ️ Kein aktiver Plan — Aufgabe > 2 Min?",
         "→ plan_create(goal=..., tasks=[...]) liegt eager im Set.",
-        "→ sonst: tool_call(name='plan_create', arguments={...})",
-        "Kein Ad-hoc-Markdown-Plan.",
     ]
+    # Der Bridge-Hinweis gilt nur, solange Hermes die Tools wirklich deferrt
+    # (tools.tool_search.enabled != off). Sonst nennt er ein Tool, das es nicht gibt.
+    if _tool_search_active():
+        lines.append("→ sonst: tool_call(name='plan_create', arguments={...})")
+    lines.append("Kein Ad-hoc-Markdown-Plan.")
+    return lines
 
 
 def _nudge_line(session_id: str, platform: str = "") -> Optional[str]:

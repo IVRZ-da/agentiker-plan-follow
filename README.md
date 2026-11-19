@@ -84,11 +84,11 @@ plan_pr_create(title="Fix validation", body="...")           # Create PR
 
 <!-- README_AUTO -->
 
-[![Version](https://img.shields.io/badge/version-0.5.39-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1676%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
+[![Version](https://img.shields.io/badge/version-0.5.40-blue.svg)]() [![Tests](https://img.shields.io/badge/tests-1678%20tests-green.svg)]() [![License](https://img.shields.io/badge/license-MIT-green.svg)]()
 
-**Version:** 0.5.39
+**Version:** 0.5.40
 
-**Tests:** 1676 tests
+**Tests:** 1678 tests
 
 **Tools (39):**
 
@@ -193,6 +193,22 @@ Supply the tasks either as template=<name>... |
 
 ### Recent Changelog
 
+## [0.5.40] — 2026-11-19
+
+### 🔌 Nudge nennt keinen toten Bridge-Weg mehr
+
+`tools.tool_search.enabled: off` setzt alle Plugin-Tools eager — dann existiert
+`tool_call` nicht. Der Nudge („Kein aktiver Plan") nannte trotzdem
+`tool_call(name='plan_create', …)`; das ist bei jedem dritten Turn ein toter
+Tool-Name im Prompt.
+
+- `_tool_search_active()` fragt `should_activate(load_config_readonly(), …)`; die
+  Bridge-Zeile erscheint nur, wenn Hermes die Tools wirklich deferrt.
+- Test `test_nudge_omits_bridge_hint_when_tools_are_eager` deckt den eager-Fall ab,
+  der bestehende Nudge-Test mockt den Bridge-Status explizit.
+- `_mark_tools_eager()` bleibt unverändert nötig, wenn die Bridge aktiv ist; bei
+  `enabled: off` ist der Rebind wirkungslos, aber harmlos.
+
 ## [0.5.39] — 2026-11-18
 
 ### 🔧 Das Coverage-Gate misst jetzt wirklich
@@ -234,17 +250,6 @@ Drei Ursachen, drei Fixes — jede Ebene einzeln getestet
   `plans_index.json` nicht mehr, wenn der Eintrag einer anderen *lebenden* Session gehört
   (`sessions.json`, `last_seen` < 60 min). Der eigene Plan wird stattdessen in
   `sessions.json` geführt, eine Warnung landet in den Drift-Warnungen. Tote Sessions
-
-## [0.5.37] — 2026-11-18
-
-### 🔒 Pre-Commit: Schema-Token-Budget
-
-Neuer blockierender Check `check_schema_budget()` — ruft
-`scripts/tool_schema_audit.py . --max-eager-chars 7000` auf. Die drei eager Tools
-kosten derzeit 6.698 Zeichen; waechst eines davon (neue Properties, laengere
-Beschreibung), faellt der Commit statt still den Prompt zu vergroessern.
-
-**Verifikation:** `check_schema_budget()` → True; 12/13 Checks gruen.
 
 <!-- END README_AUTO -->
 

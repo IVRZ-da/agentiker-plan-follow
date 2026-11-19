@@ -1978,6 +1978,7 @@ class TestNudge:
 
     def test_nudge_waits_three_turns_then_fires_once(self, monkeypatch):
         hooks = self._reset(monkeypatch)
+        monkeypatch.setattr(hooks, "_tool_search_active", lambda: True)
 
         assert hooks._nudge_line("sess-a") is None, "Turn 1 darf nicht nudgen"
         assert hooks._nudge_line("sess-a") is None, "Turn 2 darf nicht nudgen"
@@ -1989,6 +1990,17 @@ class TestNudge:
 
         assert hooks._nudge_line("sess-a") is None, "nur einmal pro Session"
         assert hooks._nudge_line("sess-a") is None
+
+    def test_nudge_omits_bridge_hint_when_tools_are_eager(self, monkeypatch):
+        """``tool_search: off`` — ``tool_call`` existiert nicht, also nicht nennen."""
+        hooks = self._reset(monkeypatch)
+        monkeypatch.setattr(hooks, "_tool_search_active", lambda: False)
+
+        hooks._nudge_line("sess-eager")
+        hooks._nudge_line("sess-eager")
+        line = hooks._nudge_line("sess-eager")
+        assert line and "plan_create" in line
+        assert "tool_call" not in line, "toter Tool-Name im Hinweis"
 
     def test_nudge_disabled(self, monkeypatch):
         hooks = self._reset(monkeypatch, enabled=False)
@@ -2028,6 +2040,7 @@ class TestNudgeRendering:
     def test_each_line_fits_banner_limit(self, monkeypatch):
         """_build_banner schneidet bei 96 Zeichen — der Aufrufweg muss passen."""
         hooks = self._reset(monkeypatch)
+        monkeypatch.setattr(hooks, "_tool_search_active", lambda: True)
         hooks._nudge_lines("s-1")
         hooks._nudge_lines("s-1")
         lines = hooks._nudge_lines("s-1")
@@ -2037,6 +2050,21 @@ class TestNudgeRendering:
             assert len(line) <= 90, f"Zeile zu lang ({len(line)}): {line}"
         joined = " ".join(lines)
         assert "tool_call" in joined, "Fallback-Aufrufweg fehlt"
+        assert "plan_create" in joined
+
+    def test_eager_variant_fits_banner_limit(self, monkeypatch):
+        """Gleiche Zeilenlaengen-Garantie fuer den eager-Fall (ohne Bridge-Zeile)."""
+        hooks = self._reset(monkeypatch)
+        monkeypatch.setattr(hooks, "_tool_search_active", lambda: False)
+        hooks._nudge_lines("s-eager-render")
+        hooks._nudge_lines("s-eager-render")
+        lines = hooks._nudge_lines("s-eager-render")
+
+        assert lines, "Nudge muss beim dritten Turn kommen"
+        for line in lines:
+            assert len(line) <= 90, f"Zeile zu lang ({len(line)}): {line}"
+        joined = " ".join(lines)
+        assert "tool_call" not in joined
         assert "plan_create" in joined
 
     def test_skipped_for_cron_platform(self, monkeypatch):
